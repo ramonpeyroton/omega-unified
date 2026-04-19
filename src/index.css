@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #FAFAF8;
+    color: #2C2C2A;
+  }
+  .dark body {
+    background-color: #1a1a18;
+    color: #FAFAF8;
+  }
+  input, textarea, select {
+    font-family: 'Inter', sans-serif;
+  }
+  /* Prevent iOS Safari from zooming when focusing inputs on mobile.
+     Font size must be >= 16px; desktop can override in component. */
+  @media (max-width: 640px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+  }
+  /* Minimum touch target on mobile (Apple HIG / Google M3 guidance) */
+  @media (max-width: 640px) {
+    button:not(.no-touch-min), a[role="button"]:not(.no-touch-min) {
+      min-height: 40px;
+    }
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+}
+
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .no-print { display: none !important; }
+  .print-show { display: block !important; }
+  /* Force all collapsible section bodies to be visible */
+  [data-section-body] { display: block !important; }
+  aside { display: none !important; }
+  body { background: white !important; }
+}

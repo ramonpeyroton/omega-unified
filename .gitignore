@@ -1,0 +1,19 @@
+.vercel
+
+# Environment variables — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist
+
+# Dependency directories
+node_modules
+
+# QA reports (generated)
+relatorio-qa-*.md
+
+# macOS
+.DS_Store
+backup-qa-*/

@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Omega — Pitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --omega-orange: #E8732A;
+    --omega-dark: #C45E1A;
+    --omega-pale: #FDF0E8;
+    --omega-charcoal: #2C2C2A;
+    --omega-slate: #4A4A47;
+    --omega-stone: #6B6B68;
+    --omega-fog: #B8B6B0;
+    --omega-cloud: #FAFAF8;
+    --gold: #D4AF37;
+    --red: #8B2635;
+    --green: #2D6A4F;
+    --blue: #1A5276;
+    --purple: #7B2CBF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--omega-charcoal);
+    color: white;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Progress bar ─────────────────────────────────────── */
+  .progress-track {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 3px; background: rgba(255,255,255,0.08);
+    z-index: 100;
+  }
+  .progress-fill {
+    height: 100%; background: var(--omega-orange);
+    width: 0%; transition: width 0.1s linear;
+    box-shadow: 0 0 10px var(--omega-orange);
+  }
+
+  /* ── Controls ─────────────────────────────────────────── */
+  .controls {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 999px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    z-index: 50; opacity: 0.4; transition: opacity 0.3s;
+    font-size: 12px;
+  }
+  .controls:hover { opacity: 1; }
+  .controls button {
+    background: transparent; border: none; color: white;
+    cursor: pointer; padding: 6px 10px; border-radius: 6px;
+    font-size: 14px; font-weight: 600;
+    transition: background 0.15s;
+  }
+  .controls button:hover { background: rgba(255,255,255,0.1); }
+  .counter { color: var(--omega-fog); padding: 0 6px; font-weight: 600; letter-spacing: 1px; }
+
+  /* ── Stage ────────────────────────────────────────────── */
+  .stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; }
+
+  /* ── SLIDE 1 — HERO ───────────────────────────────────── */
+  .slide-1 {
+    background: radial-gradient(ellipse at center, #3a3a37 0%, var(--omega-charcoal) 60%);
+  }
+  .slide-1 .grid-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(232,115,42,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(232,115,42,0.06) 1px, transparent 1px);
+    background-size: 50px 50px;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 70%);
+  }
+  .slide-1 .content { position: relative; text-align: center; z-index: 2; }
+  .slide-1 img {
+    height: 90px; margin-bottom: 30px;
+    filter: drop-shadow(0 10px 30px rgba(232,115,42,0.4));
+    opacity: 0;
+    animation: heroLogoIn 0.8s 0.2s ease-out forwards;
+  }
+  .slide-1 h1 {
+    font-size: clamp(60px, 10vw, 140px);
+    font-weight: 900; letter-spacing: -0.05em;
+    background: linear-gradient(180deg, #fff 0%, var(--omega-fog) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    opacity: 0;
+    animation: heroTitleIn 0.9s 0.5s cubic-bezier(0.2,0.8,0.2,1) forwards;
+  }
+  .slide-1 .subtitle {
+    margin-top: 12px; font-size: clamp(16px, 2vw, 22px);
+    font-weight: 500; color: var(--omega-fog); letter-spacing: 0.02em;
+    opacity: 0;
+    animation: heroSubIn 0.7s 0.9s ease-out forwards;
+  }
+  .slide-1 .badge {
+    margin-top: 28px; display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(232,115,42,0.15); border: 1px solid rgba(232,115,42,0.3);
+    font-size: 12px; font-weight: 700; color: var(--omega-orange);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    opacity: 0;
+    animation: heroSubIn 0.7s 1.2s ease-out forwards;
+  }
+  .slide-1 .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--omega-orange); box-shadow: 0 0 8px var(--omega-orange);
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes heroLogoIn { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+  @keyframes heroTitleIn { from { opacity: 0; letter-spacing: 0.1em; filter: blur(10px); } to { opacity: 1; letter-spacing: -0.05em; filter: blur(0); } }
+  @keyframes heroSubIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ── SLIDE 2 — PROBLEM ────────────────────────────────── */
+  .slide-2 { background: var(--omega-cloud); color: var(--omega-charcoal); }
+  .slide-2 .content { text-align: center; max-width: 900px; }
+  .slide-2 h2 {
+    font-size: clamp(32px, 5vw, 56px); font-weight: 800;
+    letter-spacing: -0.03em; margin-bottom: 20px;
+  }
+  .slide-2 .apps-row {
+    display: flex; justify-content: center; align-items: center;
+    gap: 20px; margin: 40px 0;
+  }
+  .slide-2 .mini-app {
+    padding: 24px 28px; border-radius: 16px; background: white;
+    border: 2px solid #e5e5e5;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+    min-width: 180px;
+    animation: bobble 2s infinite;
+  }
+  .slide-2 .mini-app:nth-child(1) { animation-delay: 0s; }
+  .slide-2 .mini-app:nth-child(3) { animation-delay: 0.3s; }
+  .slide-2 .mini-app:nth-child(5) { animation-delay: 0.6s; }
+  .slide-2 .mini-app .icon {
+    width: 50px; height: 50px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; margin: 0 auto 10px;
+  }
+  .slide-2 .mini-app:nth-child(1) .icon { background: var(--purple); color: white; }
+  .slide-2 .mini-app:nth-child(3) .icon { background: var(--blue); color: white; }
+  .slide-2 .mini-app:nth-child(5) .icon { background: var(--green); color: white; }
+  .slide-2 .mini-app .label { font-weight: 700; font-size: 14px; }
+  .slide-2 .mini-app .sub { font-size: 11px; color: var(--omega-stone); margin-top: 2px; }
+  .slide-2 .x {
+    font-size: 32px; color: var(--red); font-weight: 900; opacity: 0.7;
+    animation: pulse 1.5s infinite;
+  }
+  .slide-2 .pains {
+    display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 28px;
+  }
+  .slide-2 .pains span {
+    padding: 8px 16px; border-radius: 999px;
+    background: #fee; color: var(--red); font-size: 13px; font-weight: 600;
+    border: 1px solid #fcc;
+  }
+  @keyframes bobble { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+  /* ── SLIDE 3 — SOLUTION ───────────────────────────────── */
+  .slide-3 { background: linear-gradient(135deg, #2C2C2A 0%, #1a1a18 100%); }
+  .slide-3 .content { text-align: center; position: relative; }
+  .slide-3 h2 {
+    font-size: clamp(32px, 5vw, 56px); font-weight: 800;
+    letter-spacing: -0.03em; margin-bottom: 40px;
+  }
+  .slide-3 h2 span { color: var(--omega-orange); }
+  .slide-3 .hub {
+    position: relative; width: 420px; height: 420px; margin: 0 auto;
+  }
+  .slide-3 .center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    background: var(--omega-orange);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 60px rgba(232,115,42,0.5);
+    font-weight: 900; font-size: 20px; text-align: center;
+    z-index: 3;
+    animation: centerPulse 2s infinite;
+  }
+  .slide-3 .orbit {
+    position: absolute; inset: 0;
+    border: 1px dashed rgba(232,115,42,0.2);
+    border-radius: 50%;
+    animation: spin 20s linear infinite;
+  }
+  .slide-3 .role {
+    position: absolute; width: 100px; height: 100px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.15);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; font-size: 11px; font-weight: 700;
+    backdrop-filter: blur(10px);
+  }
+  .slide-3 .role .r-icon { font-size: 24px; margin-bottom: 2px; }
+  .slide-3 .role:nth-child(1) { top: -20px; left: 50%; transform: translateX(-50%); }
+  .slide-3 .role:nth-child(2) { right: -20px; top: 50%; transform: translateY(-50%); }
+  .slide-3 .role:nth-child(3) { bottom: -20px; left: 50%; transform: translateX(-50%); }
+  .slide-3 .role:nth-child(4) { left: -20px; top: 50%; transform: translateY(-50%); }
+  .slide-3 .tagline {
+    position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+    font-size: 14px; color: var(--omega-fog); letter-spacing: 0.1em;
+    text-transform: uppercase; font-weight: 600;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes centerPulse {
+    0%, 100% { box-shadow: 0 0 60px rgba(232,115,42,0.5); }
+    50% { box-shadow: 0 0 100px rgba(232,115,42,0.8); }
+  }
+
+  /* ── SLIDE 4 — SALES / QUESTIONNAIRE ───────────────────── */
+  .slide-4 { background: var(--omega-cloud); color: var(--omega-charcoal); }
+  .slide-4 .layout { display: flex; gap: 60px; align-items: center; max-width: 1100px; }
+  .slide-4 .copy { flex: 1; }
+  .slide-4 .eyebrow {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    background: var(--omega-pale); color: var(--omega-orange);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 16px;
+  }
+  .slide-4 h2 {
+    font-size: clamp(32px, 4.5vw, 48px); font-weight: 800;
+    letter-spacing: -0.03em; margin-bottom: 16px; line-height: 1.1;
+  }
+  .slide-4 .copy p {
+    font-size: 17px; color: var(--omega-stone); line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .slide-4 .tag-row { display: flex; gap: 8px; margin-top: 16px; }
+  .slide-4 .tag {
+    padding: 6px 12px; border-radius: 999px;
+    background: white; border: 1px solid #e5e5e5;
+    font-size: 12px; font-weight: 600;
+  }
+
+  /* mock phone */
+  .phone {
+    width: 280px; height: 570px;
+    background: #1a1a18; border-radius: 42px;
+    padding: 14px; box-shadow: 0 30px 80px rgba(0,0,0,0.3);
+    border: 4px solid #0a0a08;
+    flex-shrink: 0;
+  }
+  .phone .screen {
+    width: 100%; height: 100%; background: var(--omega-cloud);
+    border-radius: 30px; overflow: hidden; position: relative;
+  }
+  .phone .topbar {
+    background: var(--omega-charcoal); color: white;
+    padding: 34px 16px 14px; position: relative;
+  }
+  .phone .topbar .eyebrow-q {
+    font-size: 9px; color: var(--omega-fog);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .phone .topbar .client { font-size: 13px; font-weight: 700; margin-top: 2px; }
+  .phone .topbar .pbar {
+    margin-top: 10px; height: 4px; background: rgba(255,255,255,0.15);
+    border-radius: 999px; overflow: hidden;
+  }
+  .phone .topbar .pbar-fill {
+    height: 100%; background: var(--omega-orange);
+    width: 0%; transition: width 0.8s ease;
+  }
+  .phone .body-q { padding: 20px 16px; }
+  .phone .body-q .question {
+    font-size: 16px; font-weight: 800; color: var(--omega-charcoal);
+    line-height: 1.25; margin-bottom: 14px; min-height: 50px;
+  }
+  .phone .opt {
+    padding: 12px 14px; border-radius: 14px;
+    background: white; border: 2px solid #e5e5e5;
+    font-size: 13px; font-weight: 600; color: var(--omega-slate);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 10px;
+    transition: all 0.3s;
+  }
+  .phone .opt .circle {
+    width: 16px; height: 16px; border-radius: 50%; border: 2px solid #ccc;
+    flex-shrink: 0;
+  }
+  .phone .opt.chosen {
+    background: var(--omega-pale); border-color: var(--omega-orange);
+    color: var(--omega-charcoal);
+  }
+  .phone .opt.chosen .circle {
+    background: var(--omega-orange); border-color: var(--omega-orange);
+    position: relative;
+  }
+  .phone .opt.chosen .circle::after {
+    content: ''; position: absolute; width: 6px; height: 6px;
+    border-radius: 50%; background: white; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .phone .report-card {
+    margin: 14px 16px; padding: 14px;
+    border-radius: 14px; background: var(--omega-orange);
+    color: white; text-align: center;
+    transform: scale(0); opacity: 0;
+    transition: all 0.5s cubic-bezier(0.4,0,0.2,1);
+  }
+  .phone .report-card.show { transform: scale(1); opacity: 1; }
+  .phone .report-card .spark {
+    font-size: 20px; margin-bottom: 6px;
+  }
+  .phone .report-card .t1 { font-size: 11px; font-weight: 700; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.1em; }
+  .phone .report-card .t2 { font-size: 14px; font-weight: 800; margin-top: 2px; }
+
+  /* ── SLIDE 5 — OPERATIONS / STEPPER ────────────────────── */
+  .slide-5 { background: linear-gradient(180deg, var(--omega-cloud) 0%, #f0efeb 100%); color: var(--omega-charcoal); }
+  .slide-5 .wrap { max-width: 1100px; width: 100%; }
+  .slide-5 .head {
+    text-align: center; margin-bottom: 40px;
+  }
+  .slide-5 .eyebrow {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    background: var(--omega-pale); color: var(--omega-orange);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+  .slide-5 h2 {
+    font-size: clamp(32px, 4.5vw, 48px); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.1;
+  }
+  .slide-5 .sub { color: var(--omega-stone); font-size: 17px; margin-top: 10px; }
+  .slide-5 .stepper {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 14px; margin-top: 30px;
+    background: white; border-radius: 18px; padding: 28px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.06);
+  }
+  .slide-5 .step { flex: 1; text-align: center; position: relative; }
+  .slide-5 .step .circle {
+    width: 54px; height: 54px; border-radius: 50%;
+    background: #f5f5f3; border: 2px solid #e5e5e5;
+    color: var(--omega-stone); font-weight: 800; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 8px; transition: all 0.5s ease;
+  }
+  .slide-5 .step .circle.done { background: var(--green); border-color: var(--green); color: white; }
+  .slide-5 .step .circle.active { background: var(--omega-orange); border-color: var(--omega-orange); color: white; box-shadow: 0 0 0 6px rgba(232,115,42,0.15); }
+  .slide-5 .step .label { font-size: 12px; font-weight: 700; color: var(--omega-slate); }
+  .slide-5 .step .label.active { color: var(--omega-charcoal); }
+  .slide-5 .step + .step::before {
+    content: ''; position: absolute; left: -50%; top: 27px;
+    width: 100%; height: 2px; background: #e5e5e5; z-index: 0;
+    transition: background 0.5s;
+  }
+  .slide-5 .step.done + .step::before { background: var(--green); }
+  .slide-5 .features {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    margin-top: 30px;
+  }
+  .slide-5 .feat {
+    background: white; padding: 20px; border-radius: 14px;
+    border: 1px solid #e5e5e5;
+  }
+  .slide-5 .feat .t1 { font-size: 11px; font-weight: 700; color: var(--omega-orange); text-transform: uppercase; letter-spacing: 0.1em; }
+  .slide-5 .feat .t2 { font-size: 15px; font-weight: 800; margin-top: 4px; color: var(--omega-charcoal); }
+  .slide-5 .feat .t3 { font-size: 12px; color: var(--omega-stone); margin-top: 4px; line-height: 1.4; }
+
+  /* ── SLIDE 6 — MANAGER / PHASE BREAKDOWN ──────────────── */
+  .slide-6 { background: var(--omega-cloud); color: var(--omega-charcoal); }
+  .slide-6 .layout { display: flex; gap: 60px; align-items: center; max-width: 1100px; }
+  .slide-6 .copy { flex: 1; }
+  .slide-6 .eyebrow {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    background: var(--omega-pale); color: var(--omega-orange);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 16px;
+  }
+  .slide-6 h2 {
+    font-size: clamp(32px, 4.5vw, 48px); font-weight: 800;
+    letter-spacing: -0.03em; margin-bottom: 16px; line-height: 1.1;
+  }
+  .slide-6 .copy p { font-size: 17px; color: var(--omega-stone); line-height: 1.6; }
+  .slide-6 .stats { display: flex; gap: 24px; margin-top: 22px; }
+  .slide-6 .stat .num { font-size: 32px; font-weight: 900; color: var(--omega-orange); }
+  .slide-6 .stat .lbl { font-size: 12px; color: var(--omega-stone); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+
+  .phase-list {
+    background: white; border-radius: 18px; padding: 20px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.08);
+    width: 420px; flex-shrink: 0;
+  }
+  .phase-list .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid #f0f0f0;
+  }
+  .phase-list .row:last-child { border-bottom: none; }
+  .phase-list .check {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid #ccc; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.3s;
+  }
+  .phase-list .check.done { background: var(--green); border-color: var(--green); }
+  .phase-list .check.done::after { content: '✓'; color: white; font-size: 12px; font-weight: 900; }
+  .phase-list .txt { flex: 1; font-size: 13px; font-weight: 600; transition: opacity 0.3s; }
+  .phase-list .txt.done { opacity: 0.4; text-decoration: line-through; }
+  .phase-list .count { font-size: 11px; color: var(--omega-stone); font-weight: 700; }
+  .phase-list .phase-head {
+    font-weight: 800; font-size: 14px; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 12px;
+  }
+  .phase-list .phase-head:first-child { padding-top: 0; }
+  .phase-list .phase-progress {
+    width: 60px; height: 4px; background: #f0f0f0;
+    border-radius: 999px; overflow: hidden;
+  }
+  .phase-list .phase-progress-fill {
+    height: 100%; background: var(--gold); width: 0%;
+    transition: width 0.6s ease;
+  }
+
+  /* ── SLIDE 7 — OWNER DASHBOARD ─────────────────────────── */
+  .slide-7 {
+    background: linear-gradient(180deg, var(--omega-charcoal) 0%, #1a1a18 100%);
+    color: white;
+  }
+  .slide-7 .wrap { max-width: 1100px; width: 100%; }
+  .slide-7 .head { margin-bottom: 30px; text-align: center; }
+  .slide-7 .eyebrow {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    background: rgba(232,115,42,0.2); color: var(--omega-orange);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+  .slide-7 h2 {
+    font-size: clamp(32px, 4.5vw, 48px); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.1;
+  }
+  .slide-7 .sub { color: var(--omega-fog); font-size: 17px; margin-top: 10px; }
+  .slide-7 .jobs {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    margin-top: 30px;
+  }
+  .slide-7 .job {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px; padding: 18px; backdrop-filter: blur(10px);
+  }
+  .slide-7 .job .jname { font-size: 16px; font-weight: 800; }
+  .slide-7 .job .jaddr { font-size: 11px; color: var(--omega-fog); margin-top: 2px; }
+  .slide-7 .job .jbadge {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border-radius: 4px; background: rgba(232,115,42,0.2);
+    color: var(--omega-orange); font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .slide-7 .job .jphase {
+    font-size: 10px; color: var(--omega-fog); text-transform: uppercase;
+    letter-spacing: 0.1em; font-weight: 700; margin-top: 14px;
+  }
+  .slide-7 .job .jphase-name { font-size: 13px; font-weight: 700; margin-top: 2px; margin-bottom: 10px; }
+  .slide-7 .job .jbar {
+    height: 6px; border-radius: 3px; background: #2A2A2A; overflow: hidden;
+  }
+  .slide-7 .job .jbar-fill {
+    height: 100%; background: var(--gold); width: 0%;
+    transition: width 1.2s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 0 10px rgba(212,175,55,0.5);
+  }
+  .slide-7 .job .jpct {
+    font-size: 11px; font-weight: 800; text-align: right; margin-top: 4px;
+    color: var(--gold);
+  }
+
+  /* ── SLIDE 8 — KANBAN ──────────────────────────────────── */
+  .slide-8 { background: var(--omega-cloud); color: var(--omega-charcoal); }
+  .slide-8 .wrap { width: 100%; max-width: 1200px; }
+  .slide-8 .head { text-align: center; margin-bottom: 24px; }
+  .slide-8 .eyebrow {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    background: var(--omega-pale); color: var(--omega-orange);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  .slide-8 h2 {
+    font-size: clamp(28px, 4vw, 42px); font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .slide-8 .sub { color: var(--omega-stone); font-size: 15px; margin-top: 6px; }
+  .kanban {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px;
+    background: white; border-radius: 14px; padding: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.08);
+    min-height: 360px;
+    position: relative;
+  }
+  .kanban .col { display: flex; flex-direction: column; gap: 6px; }
+  .kanban .col-head {
+    padding: 6px 8px; border-radius: 6px;
+    font-size: 9px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.05em; color: white;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .kanban .col-body {
+    padding: 4px; min-height: 260px;
+    border-radius: 6px;
+  }
+  .kanban .kcard {
+    background: white; border: 1px solid #e5e5e5;
+    border-radius: 8px; padding: 8px; margin-bottom: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    font-size: 10px; position: relative;
+    transition: all 0.8s cubic-bezier(0.4,0,0.2,1);
+  }
+  .kanban .kcard .kname { font-weight: 800; font-size: 11px; }
+  .kanban .kcard .kaddr { color: var(--omega-stone); font-size: 9px; margin-top: 1px; }
+  .kanban .kcard .ksvc {
+    display: inline-block; margin-top: 4px; padding: 1px 5px;
+    border-radius: 3px; background: var(--omega-pale);
+    color: var(--omega-orange); font-size: 8px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  /* traveling card — the animated one */
+  .kanban .kcard.travel {
+    position: absolute; top: 50px; z-index: 10;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    width: 120px;
+    animation: kanbanFlow 12s infinite;
+  }
+
+  /* Column colors matching the app */
+  .kcol-1 .col-head { background: #9ca3af; }
+  .kcol-1 .col-body { background: #f9fafb; }
+  .kcol-2 .col-head { background: #3b82f6; }
+  .kcol-2 .col-body { background: rgba(59,130,246,0.06); }
+  .kcol-3 .col-head { background: #8b5cf6; }
+  .kcol-3 .col-body { background: rgba(139,92,246,0.06); }
+  .kcol-4 .col-head { background: var(--omega-orange); }
+  .kcol-4 .col-body { background: var(--omega-pale); }
+  .kcol-5 .col-head { background: #f59e0b; }
+  .kcol-5 .col-body { background: #fffbeb; }
+  .kcol-6 .col-head { background: #4ade80; }
+  .kcol-6 .col-body { background: #f0fdf4; }
+  .kcol-7 .col-head { background: #15803d; }
+  .kcol-7 .col-body { background: rgba(21,128,61,0.08); }
+  .kcol-8 .col-head { background: #ef4444; }
+  .kcol-8 .col-body { background: #fef2f2; }
+
+  @keyframes kanbanFlow {
+    0%    { left: 4%;  transform: translateX(0) rotate(0deg); }
+    8%    { left: 4%;  transform: translateX(0) rotate(-2deg); }
+    12%   { left: 16%; transform: translateX(0) rotate(1deg); }
+    20%   { left: 16%; transform: translateX(0) rotate(0deg); }
+    24%   { left: 28%; transform: translateX(0) rotate(-2deg); }
+    32%   { left: 28%; transform: translateX(0) rotate(0deg); }
+    36%   { left: 40%; transform: translateX(0) rotate(1deg); }
+    46%   { left: 40%; transform: translateX(0) rotate(0deg); }
+    50%   { left: 52%; transform: translateX(0) rotate(-2deg); }
+    60%   { left: 52%; transform: translateX(0) rotate(0deg); }
+    64%   { left: 64%; transform: translateX(0) rotate(1deg); }
+    72%   { left: 64%; transform: translateX(0) rotate(0deg); }
+    76%   { left: 76%; transform: translateX(0) rotate(-2deg); }
+    100%  { left: 76%; transform: translateX(0) rotate(0deg); }
+  }
+
+  /* ── SLIDE 9 — OUTRO / STATS ───────────────────────────── */
+  .slide-9 {
+    background: radial-gradient(ellipse at center, #3a3a37 0%, var(--omega-charcoal) 60%);
+    color: white;
+  }
+  .slide-9 .content { text-align: center; max-width: 900px; }
+  .slide-9 img { height: 60px; margin-bottom: 20px; opacity: 0.9; }
+  .slide-9 h2 {
+    font-size: clamp(36px, 6vw, 64px); font-weight: 900;
+    letter-spacing: -0.03em; margin-bottom: 16px;
+  }
+  .slide-9 h2 .o { color: var(--omega-orange); }
+  .slide-9 .stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+    margin: 36px 0; max-width: 700px; margin-left: auto; margin-right: auto;
+  }
+  .slide-9 .stat {
+    padding: 20px; border-radius: 14px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .slide-9 .stat .num {
+    font-size: clamp(32px, 4vw, 48px); font-weight: 900;
+    color: var(--omega-orange); letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .slide-9 .stat .lbl {
+    font-size: 11px; font-weight: 700; color: var(--omega-fog);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px;
+  }
+  .slide-9 .cta {
+    display: inline-block; margin-top: 10px; padding: 14px 28px;
+    border-radius: 999px; background: var(--omega-orange);
+    color: white; font-weight: 800; font-size: 16px;
+    letter-spacing: 0.02em; text-decoration: none;
+    box-shadow: 0 10px 30px rgba(232,115,42,0.4);
+    transition: all 0.2s;
+  }
+  .slide-9 .cta:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(232,115,42,0.5); }
+  .slide-9 .url {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    color: var(--omega-fog); font-size: 13px; margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+
+<div class="controls">
+  <button id="prev" aria-label="Previous">‹</button>
+  <button id="play" aria-label="Play/pause">⏸</button>
+  <button id="next" aria-label="Next">›</button>
+  <span class="counter" id="counter">1 / 9</span>
+</div>
+
+<div class="stage">
+
+  <!-- ──────── SLIDE 1 ──────── -->
+  <section class="slide slide-1" data-duration="6000">
+    <div class="grid-bg"></div>
+    <div class="content">
+      <img src="logo.png" alt="Omega" />
+      <h1>OMEGA</h1>
+      <p class="subtitle">One app. Four roles. One construction workflow.</p>
+      <div class="badge"><span class="dot"></span>LIVE · OMEGA-UNIFIED.VERCEL.APP</div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 2 ──────── -->
+  <section class="slide slide-2" data-duration="8000">
+    <div class="content">
+      <h2>Before: three apps for the same company.</h2>
+      <div class="apps-row">
+        <div class="mini-app">
+          <div class="icon">🛒</div>
+          <div class="label">omega-sales</div>
+          <div class="sub">Attila</div>
+        </div>
+        <span class="x">×</span>
+        <div class="mini-app">
+          <div class="icon">🏗️</div>
+          <div class="label">omega-manager</div>
+          <div class="sub">Gabriel</div>
+        </div>
+        <span class="x">×</span>
+        <div class="mini-app">
+          <div class="icon">🎯</div>
+          <div class="label">omega-owner</div>
+          <div class="sub">Inácio</div>
+        </div>
+      </div>
+      <div class="pains">
+        <span>Three codebases</span>
+        <span>Three deploys</span>
+        <span>Three logins</span>
+        <span>Duplicated components</span>
+        <span>No pipeline view</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 3 ──────── -->
+  <section class="slide slide-3" data-duration="8000">
+    <div class="content">
+      <h2>Now: <span>one unified workspace</span>.</h2>
+      <div class="hub">
+        <div class="orbit"></div>
+        <div class="role"><div class="r-icon">🎯</div>Owner<br/><span style="opacity:0.6;font-weight:500;">Inácio</span></div>
+        <div class="role"><div class="r-icon">📋</div>Ops<br/><span style="opacity:0.6;font-weight:500;">Brenda</span></div>
+        <div class="role"><div class="r-icon">🏗️</div>Manager<br/><span style="opacity:0.6;font-weight:500;">Gabriel</span></div>
+        <div class="role"><div class="r-icon">🛒</div>Sales<br/><span style="opacity:0.6;font-weight:500;">Attila</span></div>
+        <div class="center">omega<br/>unified</div>
+      </div>
+      <div class="tagline" style="position: static; margin-top: 30px;">PIN login · role-based routing · shared pipeline</div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 4 ──────── -->
+  <section class="slide slide-4" data-duration="13000">
+    <div class="layout">
+      <div class="copy">
+        <span class="eyebrow">Sales · Attila</span>
+        <h2>Smart conditional questionnaire.</h2>
+        <p>One question at a time. Auto-saves every answer. Irrelevant questions disappear based on earlier choices.</p>
+        <p>When it's done — the AI report generates automatically and saves a versioned snapshot.</p>
+        <div class="tag-row">
+          <span class="tag">6 services</span>
+          <span class="tag">30+ questions</span>
+          <span class="tag">Conditional branches</span>
+        </div>
+      </div>
+      <div class="phone">
+        <div class="screen">
+          <div class="topbar">
+            <div class="eyebrow-q">Bathroom Renovation</div>
+            <div class="client">Anthony Zeballos</div>
+            <div class="pbar"><div class="pbar-fill" id="s4-pbar"></div></div>
+          </div>
+          <div class="body-q">
+            <div class="question" id="s4-q">Is there a bathtub today?</div>
+            <div id="s4-opts">
+              <div class="opt" data-opt="yes"><div class="circle"></div>Yes</div>
+              <div class="opt" data-opt="no"><div class="circle"></div>No</div>
+            </div>
+          </div>
+          <div class="report-card" id="s4-report">
+            <div class="spark">✨</div>
+            <div class="t1">Auto-generated</div>
+            <div class="t2">Project report · v1</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 5 ──────── -->
+  <section class="slide slide-5" data-duration="13000">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Operations · Brenda</span>
+        <h2>Four-step flow from estimate to deposit.</h2>
+        <p class="sub">Every contract follows the same guided path — with DocuSign built in.</p>
+      </div>
+
+      <div class="stepper" id="s5-stepper">
+        <div class="step" data-step="1"><div class="circle">1</div><div class="label">Review Estimate</div></div>
+        <div class="step" data-step="2"><div class="circle">2</div><div class="label">Payment Plan</div></div>
+        <div class="step" data-step="3"><div class="circle">3</div><div class="label">Generate Contract</div></div>
+        <div class="step" data-step="4"><div class="circle">4</div><div class="label">Invoice & Deposit</div></div>
+      </div>
+
+      <div class="features">
+        <div class="feat">
+          <div class="t1">Request Changes</div>
+          <div class="t2">In-app revisions</div>
+          <div class="t3">Send the estimate back to Sales with a note — no email chains.</div>
+        </div>
+        <div class="feat">
+          <div class="t1">DocuSign</div>
+          <div class="t2">JWT Grant integration</div>
+          <div class="t3">Envelope created server-side with webhook syncing status back to Supabase.</div>
+        </div>
+        <div class="feat">
+          <div class="t1">Change Orders</div>
+          <div class="t2">Paid tracking + copy-to-clipboard</div>
+          <div class="t3">One click to copy a formatted change-order message to the client.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 6 ──────── -->
+  <section class="slide slide-6" data-duration="11000">
+    <div class="layout">
+      <div class="copy">
+        <span class="eyebrow">Manager · Gabriel</span>
+        <h2>Field updates that sync everywhere.</h2>
+        <p>Detailed phase breakdowns per service — tick sub-items in the field and progress reflects instantly on the Owner's dashboard.</p>
+        <div class="stats">
+          <div class="stat"><div class="num" id="s6-items">60+</div><div class="lbl">Sub-items per deck</div></div>
+          <div class="stat"><div class="num" id="s6-services">6</div><div class="lbl">Services mapped</div></div>
+          <div class="stat"><div class="num" id="s6-sync">&lt;1s</div><div class="lbl">Sync to owner</div></div>
+        </div>
+      </div>
+
+      <div class="phase-list">
+        <div class="phase-head">
+          <span>Permit &amp; Approval</span>
+          <span class="count" id="s6-c1">0 / 8</span>
+        </div>
+        <div class="phase-progress"><div class="phase-progress-fill" id="s6-p1"></div></div>
+        <div class="row"><div class="check" data-i="1"></div><div class="txt" data-i="1">Permit submitted</div></div>
+        <div class="row"><div class="check" data-i="2"></div><div class="txt" data-i="2">Plan review in progress</div></div>
+        <div class="row"><div class="check" data-i="3"></div><div class="txt" data-i="3">Permit approved</div></div>
+        <div class="row"><div class="check" data-i="4"></div><div class="txt" data-i="4">Permit issued</div></div>
+        <div class="phase-head">
+          <span>Framing</span>
+          <span class="count" id="s6-c2">0 / 4</span>
+        </div>
+        <div class="phase-progress"><div class="phase-progress-fill" id="s6-p2"></div></div>
+        <div class="row"><div class="check" data-i="5"></div><div class="txt" data-i="5">Ledger board installed</div></div>
+        <div class="row"><div class="check" data-i="6"></div><div class="txt" data-i="6">Posts installed</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 7 ──────── -->
+  <section class="slide slide-7" data-duration="11000">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Owner · Inácio</span>
+        <h2>Every in-progress job at a glance.</h2>
+        <p class="sub">Live progress bars. Current phase. Real numbers straight from the field.</p>
+      </div>
+      <div class="jobs">
+        <div class="job">
+          <div class="jname">Anthony Zeballos</div>
+          <div class="jaddr">814 Black Rock Tpke, Fairfield</div>
+          <span class="jbadge">Deck</span>
+          <div class="jphase">Current phase</div>
+          <div class="jphase-name">Framing</div>
+          <div class="jbar"><div class="jbar-fill" data-pct="52"></div></div>
+          <div class="jpct"><span data-num="52">0</span>%</div>
+        </div>
+        <div class="job">
+          <div class="jname">Sarah Kim</div>
+          <div class="jaddr">27 Long Neck Pt Rd, Darien</div>
+          <span class="jbadge">Kitchen</span>
+          <div class="jphase">Current phase</div>
+          <div class="jphase-name">Cabinets &amp; Countertops</div>
+          <div class="jbar"><div class="jbar-fill" data-pct="78"></div></div>
+          <div class="jpct"><span data-num="78">0</span>%</div>
+        </div>
+        <div class="job">
+          <div class="jname">Marcus Chen</div>
+          <div class="jaddr">14 Sylvan Ln, Westport</div>
+          <span class="jbadge">Bathroom</span>
+          <div class="jphase">Current phase</div>
+          <div class="jphase-name">Tile &amp; Finishes</div>
+          <div class="jbar"><div class="jbar-fill" data-pct="34"></div></div>
+          <div class="jpct"><span data-num="34">0</span>%</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 8 ──────── -->
+  <section class="slide slide-8" data-duration="12000">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Shared · all roles</span>
+        <h2>Pipeline Kanban — drag across eight phases.</h2>
+        <p class="sub">Sales, Ops and Owner share the same board with role-based filtering.</p>
+      </div>
+
+      <div class="kanban">
+        <div class="col kcol-1">
+          <div class="col-head">New Lead <span>2</span></div>
+          <div class="col-body">
+            <div class="kcard"><div class="kname">Olivia Park</div><div class="kaddr">Norwalk</div><span class="ksvc">Kitchen</span></div>
+            <div class="kcard"><div class="kname">Jon Lee</div><div class="kaddr">Stamford</div><span class="ksvc">Addition</span></div>
+          </div>
+        </div>
+        <div class="col kcol-2">
+          <div class="col-head">Estimate Sent <span>1</span></div>
+          <div class="col-body">
+            <div class="kcard"><div class="kname">Tina Ruiz</div><div class="kaddr">Greenwich</div><span class="ksvc">Bathroom</span></div>
+          </div>
+        </div>
+        <div class="col kcol-3">
+          <div class="col-head">Estimate Approved <span>1</span></div>
+          <div class="col-body">
+            <div class="kcard"><div class="kname">Paul Ng</div><div class="kaddr">Fairfield</div><span class="ksvc">Deck</span></div>
+          </div>
+        </div>
+        <div class="col kcol-4">
+          <div class="col-head">Contract Sent <span>0</span></div>
+          <div class="col-body"></div>
+        </div>
+        <div class="col kcol-5">
+          <div class="col-head">Contract Signed <span>0</span></div>
+          <div class="col-body"></div>
+        </div>
+        <div class="col kcol-6">
+          <div class="col-head">In Progress <span>2</span></div>
+          <div class="col-body">
+            <div class="kcard"><div class="kname">Marcus Chen</div><div class="kaddr">Westport</div><span class="ksvc">Bathroom</span></div>
+            <div class="kcard"><div class="kname">Sarah Kim</div><div class="kaddr">Darien</div><span class="ksvc">Kitchen</span></div>
+          </div>
+        </div>
+        <div class="col kcol-7">
+          <div class="col-head">Completed <span>1</span></div>
+          <div class="col-body">
+            <div class="kcard"><div class="kname">Ben Hart</div><div class="kaddr">New Canaan</div><span class="ksvc">Deck</span></div>
+          </div>
+        </div>
+        <div class="col kcol-8">
+          <div class="col-head">On Hold <span>0</span></div>
+          <div class="col-body"></div>
+        </div>
+
+        <!-- Traveling card -->
+        <div class="kcard travel">
+          <div class="kname">Anthony Zeballos</div>
+          <div class="kaddr">Fairfield</div>
+          <span class="ksvc">Deck</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────── SLIDE 9 ──────── -->
+  <section class="slide slide-9" data-duration="7000">
+    <div class="content">
+      <img src="logo.png" alt="Omega" />
+      <h2>omega<span class="o">.</span>unified</h2>
+      <div class="stats-grid">
+        <div class="stat"><div class="num" data-num="4">0</div><div class="lbl">Roles</div></div>
+        <div class="stat"><div class="num" data-num="8">0</div><div class="lbl">Pipeline phases</div></div>
+        <div class="stat"><div class="num" data-num="300" data-suffix="+">0</div><div class="lbl">Sub-items</div></div>
+        <div class="stat"><div class="num" data-num="1586">0</div><div class="lbl">Modules</div></div>
+      </div>
+      <a class="cta" href="https://omega-unified.vercel.app" target="_blank">Open the app</a>
+      <p class="url">omega-unified.vercel.app</p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const progressBar = document.getElementById('progress');
+  const counter = document.getElementById('counter');
+  const btnPrev = document.getElementById('prev');
+  const btnPlay = document.getElementById('play');
+  const btnNext = document.getElementById('next');
+
+  let current = 0;
+  let playing = true;
+  let startTime = 0;
+  let raf = null;
+  let timeoutId = null;
+
+  // ─── Slide-specific animations ────────────────────────────────
+  const anims = {
+    4: animateSlide4,
+    5: animateSlide5,
+    6: animateSlide6,
+    7: animateSlide7,
+    9: animateSlide9,
+  };
+
+  function show(i) {
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+
+    slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
+    current = i;
+    counter.textContent = `${i + 1} / ${slides.length}`;
+
+    const dur = parseInt(slides[i].dataset.duration, 10) || 8000;
+    startTime = performance.now();
+
+    // Animate progress bar
+    const tick = (now) => {
+      const elapsed = now - startTime;
+      const pct = Math.min(100, (elapsed / dur) * 100);
+      progressBar.style.width = pct + '%';
+      if (playing && elapsed < dur) raf = requestAnimationFrame(tick);
+    };
+    if (playing) raf = requestAnimationFrame(tick);
+
+    // Trigger per-slide animation
+    const num = i + 1;
+    if (anims[num]) anims[num]();
+
+    // Schedule advance
+    if (playing) {
+      timeoutId = setTimeout(() => {
+        if (current < slides.length - 1) show(current + 1);
+        else show(0); // loop
+      }, dur);
+    }
+  }
+
+  function next() { show((current + 1) % slides.length); }
+  function prev() { show((current - 1 + slides.length) % slides.length); }
+
+  function togglePlay() {
+    playing = !playing;
+    btnPlay.textContent = playing ? '⏸' : '▶';
+    if (playing) show(current);
+    else {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (raf) cancelAnimationFrame(raf);
+    }
+  }
+
+  btnPrev.addEventListener('click', prev);
+  btnNext.addEventListener('click', next);
+  btnPlay.addEventListener('click', togglePlay);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') next();
+    else if (e.key === 'ArrowLeft') prev();
+    else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+  });
+
+  // ─── Slide 4: questionnaire progression ───────────────────────
+  function animateSlide4() {
+    const pbar = document.getElementById('s4-pbar');
+    const q = document.getElementById('s4-q');
+    const opts = document.getElementById('s4-opts');
+    const report = document.getElementById('s4-report');
+    if (!pbar) return;
+
+    pbar.style.width = '0%'; report.classList.remove('show');
+    const steps = [
+      { t: 300,  act: () => { pbar.style.width = '20%'; q.textContent = 'Is there a bathtub today?'; opts.innerHTML = '<div class="opt" data-opt="yes"><div class="circle"></div>Yes</div><div class="opt" data-opt="no"><div class="circle"></div>No</div>'; } },
+      { t: 1600, act: () => { opts.querySelectorAll('.opt')[0].classList.add('chosen'); } },
+      { t: 2500, act: () => {
+        pbar.style.width = '40%';
+        q.textContent = 'What to do with the bathtub?';
+        opts.innerHTML = '<div class="opt"><div class="circle"></div>Keep</div><div class="opt"><div class="circle"></div>Refinish</div><div class="opt" data-opt="remove"><div class="circle"></div>Remove</div>';
+      } },
+      { t: 4000, act: () => { opts.querySelectorAll('.opt')[2].classList.add('chosen'); } },
+      { t: 4900, act: () => {
+        pbar.style.width = '60%';
+        q.textContent = 'Convert to walk-in shower or shower only?';
+        opts.innerHTML = '<div class="opt" data-opt="walk"><div class="circle"></div>Walk-in Shower</div><div class="opt"><div class="circle"></div>Shower only</div>';
+      } },
+      { t: 6300, act: () => { opts.querySelectorAll('.opt')[0].classList.add('chosen'); } },
+      { t: 7200, act: () => {
+        pbar.style.width = '100%';
+        q.textContent = 'All done ✓';
+        opts.innerHTML = '';
+        report.classList.add('show');
+      } },
+    ];
+    steps.forEach((s) => setTimeout(s.act, s.t));
+  }
+
+  // ─── Slide 5: stepper progression ─────────────────────────────
+  function animateSlide5() {
+    const steps = document.querySelectorAll('#s5-stepper .step');
+    if (!steps.length) return;
+    steps.forEach((s) => { s.classList.remove('done'); s.querySelector('.circle').classList.remove('done','active'); s.querySelector('.label').classList.remove('active'); });
+    const flow = [
+      { t: 400,  i: 0, state: 'active' },
+      { t: 1700, i: 0, state: 'done' },
+      { t: 1700, i: 1, state: 'active' },
+      { t: 3400, i: 1, state: 'done' },
+      { t: 3400, i: 2, state: 'active' },
+      { t: 5400, i: 2, state: 'done' },
+      { t: 5400, i: 3, state: 'active' },
+    ];
+    flow.forEach((f) => setTimeout(() => {
+      const step = steps[f.i];
+      const c = step.querySelector('.circle');
+      const l = step.querySelector('.label');
+      if (f.state === 'active') { c.classList.add('active'); l.classList.add('active'); c.textContent = f.i + 1; }
+      if (f.state === 'done') { c.classList.remove('active'); c.classList.add('done'); c.innerHTML = '✓'; step.classList.add('done'); }
+    }, f.t));
+  }
+
+  // ─── Slide 6: checkboxes ticking ──────────────────────────────
+  function animateSlide6() {
+    const checks = document.querySelectorAll('.phase-list .check');
+    const txts = document.querySelectorAll('.phase-list .txt');
+    const p1 = document.getElementById('s6-p1');
+    const p2 = document.getElementById('s6-p2');
+    const c1 = document.getElementById('s6-c1');
+    const c2 = document.getElementById('s6-c2');
+    if (!checks.length) return;
+    checks.forEach((c) => c.classList.remove('done'));
+    txts.forEach((t) => t.classList.remove('done'));
+    p1.style.width = '0%'; p2.style.width = '0%';
+    c1.textContent = '0 / 8'; c2.textContent = '0 / 4';
+
+    const sequence = [
+      { t: 400,  i: 1, phase: 1, pct: 12.5, c: '1 / 8' },
+      { t: 900,  i: 2, phase: 1, pct: 25,   c: '2 / 8' },
+      { t: 1400, i: 3, phase: 1, pct: 37.5, c: '3 / 8' },
+      { t: 1900, i: 4, phase: 1, pct: 50,   c: '4 / 8' },
+      { t: 2700, i: 5, phase: 2, pct: 25,   c: '1 / 4' },
+      { t: 3300, i: 6, phase: 2, pct: 50,   c: '2 / 4' },
+    ];
+    sequence.forEach((s) => setTimeout(() => {
+      document.querySelector(`.check[data-i="${s.i}"]`).classList.add('done');
+      document.querySelector(`.txt[data-i="${s.i}"]`).classList.add('done');
+      if (s.phase === 1) { p1.style.width = s.pct + '%'; c1.textContent = s.c; }
+      else { p2.style.width = s.pct + '%'; c2.textContent = s.c; }
+    }, s.t));
+  }
+
+  // ─── Slide 7: progress bars + counting ────────────────────────
+  function animateSlide7() {
+    const bars = document.querySelectorAll('#slide-7 .jbar-fill, .slide-7 .jbar-fill');
+    const nums = document.querySelectorAll('.slide-7 .jpct span');
+    bars.forEach((b) => { b.style.width = '0%'; });
+    nums.forEach((n) => { n.textContent = '0'; });
+    setTimeout(() => {
+      bars.forEach((b) => { b.style.width = b.dataset.pct + '%'; });
+      nums.forEach((n) => countUp(n, parseInt(n.dataset.num, 10), 1200));
+    }, 300);
+  }
+
+  // ─── Slide 9: stat counters ───────────────────────────────────
+  function animateSlide9() {
+    const nums = document.querySelectorAll('.slide-9 .num');
+    nums.forEach((n) => { n.textContent = '0'; });
+    setTimeout(() => {
+      nums.forEach((n) => countUp(n, parseInt(n.dataset.num, 10), 1500, n.dataset.suffix || ''));
+    }, 300);
+  }
+
+  function countUp(el, target, duration, suffix = '') {
+    const start = 0;
+    const startT = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - startT) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Math.round(start + (target - start) * eased);
+      el.textContent = val.toLocaleString() + suffix;
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // Start the show
+  show(0);
+</script>
+</body>
+</html>
