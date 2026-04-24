@@ -44,6 +44,9 @@ export const SERVICES = [
   { value: 'roofing',        label: 'Roofing'             },
   { value: 'driveway',       label: 'Driveway'            },
   { value: 'basement',       label: 'Basement Finishing'  },
+  { value: 'flooring',       label: 'Flooring'            },
+  { value: 'survey',         label: 'Survey'              },
+  { value: 'building_plans', label: 'Building Plans'      },
   { value: 'fullreno',       label: 'Full Renovation'     },
   { value: 'newconstruction',label: 'New Construction'    },
 ];

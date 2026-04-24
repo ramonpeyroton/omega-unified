@@ -21,6 +21,9 @@ export const SERVICES = [
   { id: 'roofing',         label: 'Roofing',             icon: 'Triangle' },
   { id: 'driveway',        label: 'Driveway',            icon: 'Car' },
   { id: 'basement',        label: 'Basement Finishing',  icon: 'Layers' },
+  { id: 'flooring',        label: 'Flooring',            icon: 'Grid3x3' },
+  { id: 'survey',          label: 'Survey',              icon: 'Ruler' },
+  { id: 'building_plans',  label: 'Building Plans',      icon: 'DraftingCompass' },
   { id: 'fullreno',        label: 'Full Renovation',     icon: 'Building2' },
   { id: 'newconstruction', label: 'New Construction',    icon: 'Building' },
 ];
@@ -768,6 +771,412 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'have',   label: 'Already have' },
         { value: 'need',   label: 'Need to get' },
         { value: 'unsure', label: "Don't know" },
+      ] },
+  ],
+
+  // ─────────────────────────────────────────────────────────────────
+  // FLOORING — 15 questions
+  // Covers any floor replacement job: hardwood, LVP, tile, laminate,
+  // carpet, polished concrete. Conditional questions skip pattern-
+  // only and stair-only prompts when they don't apply.
+  // ─────────────────────────────────────────────────────────────────
+  flooring: [
+    { _section: 'general', label: 'General Information' },
+
+    // 1 — which rooms
+    { id: 'floor_areas', type: 'multi', label: 'Which rooms are included?',
+      options: [
+        { value: 'living',   label: 'Living Room' },
+        { value: 'dining',   label: 'Dining Room' },
+        { value: 'kitchen',  label: 'Kitchen' },
+        { value: 'hallway',  label: 'Hallway' },
+        { value: 'bedroom',  label: 'Bedroom(s)' },
+        { value: 'bathroom', label: 'Bathroom(s)' },
+        { value: 'basement', label: 'Basement' },
+        { value: 'whole',    label: 'Whole house', exclusive: true },
+      ] },
+
+    // 2 — total square footage
+    { id: 'floor_total_sqft', type: 'number', label: 'Total area to be covered', unit: 'sq ft' },
+
+    { _section: 'existing', label: 'Existing Floor' },
+
+    // 3 — current flooring
+    { id: 'floor_existing_type', type: 'single', label: 'What is the existing floor?',
+      options: [
+        { value: 'hardwood',  label: 'Hardwood' },
+        { value: 'engineered',label: 'Engineered wood' },
+        { value: 'lvp',       label: 'LVP / Vinyl' },
+        { value: 'laminate',  label: 'Laminate' },
+        { value: 'tile',      label: 'Tile' },
+        { value: 'carpet',    label: 'Carpet' },
+        { value: 'concrete',  label: 'Concrete / subfloor only' },
+        { value: 'other',     label: 'Other' },
+      ] },
+
+    // 4 — remove existing?
+    { id: 'floor_existing_remove', type: 'single', label: 'Remove the existing floor?',
+      options: [
+        { value: 'yes', label: 'Yes — remove and haul away' },
+        { value: 'no',  label: 'No — install over existing' },
+      ] },
+
+    // 5 — subfloor condition
+    { id: 'floor_subfloor', type: 'single', label: 'Subfloor condition',
+      options: [
+        { value: 'good',    label: 'Good — ready to install' },
+        { value: 'minor',   label: 'Needs minor patching' },
+        { value: 'replace', label: 'Needs partial replacement' },
+        { value: 'unknown', label: "Don't know" },
+      ] },
+
+    { _section: 'material', label: 'New Material' },
+
+    // 6 — new material
+    { id: 'floor_new_material', type: 'single', label: 'New flooring material',
+      options: [
+        { value: 'hardwood',  label: 'Solid Hardwood' },
+        { value: 'engineered',label: 'Engineered Wood' },
+        { value: 'lvp',       label: 'LVP / Vinyl Plank' },
+        { value: 'laminate',  label: 'Laminate' },
+        { value: 'tile',      label: 'Tile / Porcelain' },
+        { value: 'carpet',    label: 'Carpet' },
+        { value: 'concrete',  label: 'Polished Concrete' },
+      ] },
+
+    // 7 — brand / line (text for flexibility)
+    { id: 'floor_material_brand', type: 'text',
+      label: 'Preferred brand or product line (optional)',
+      placeholder: 'e.g. Mohawk RevWood, Shaw Floorte, client to provide' },
+
+    // 8 — color preference
+    { id: 'floor_material_color', type: 'text',
+      label: 'Color / finish preference',
+      placeholder: 'e.g. Natural oak, dark walnut, light grey' },
+
+    // 9 — install pattern (only for plank materials)
+    { id: 'floor_pattern', type: 'single', label: 'Install pattern',
+      options: [
+        { value: 'straight',   label: 'Straight (standard)' },
+        { value: 'diagonal',   label: 'Diagonal' },
+        { value: 'herringbone',label: 'Herringbone' },
+        { value: 'chevron',    label: 'Chevron' },
+        { value: 'random',     label: 'Random stagger' },
+      ],
+      showIf: (a) => ['hardwood', 'engineered', 'lvp', 'laminate'].includes(a.floor_new_material) },
+
+    { _section: 'scope', label: 'Scope' },
+
+    // 10 — baseboards
+    { id: 'floor_baseboards', type: 'single', label: 'Baseboards',
+      options: [
+        { value: 'keep',    label: 'Keep existing' },
+        { value: 'replace', label: 'Remove & replace' },
+        { value: 'new',     label: 'Install where missing' },
+      ] },
+
+    // 11 — transitions between rooms
+    { id: 'floor_transitions', type: 'single', label: 'Door / room transitions',
+      options: [
+        { value: 'match',   label: 'Matching transition strips' },
+        { value: 'contrast',label: 'Contrasting strips' },
+        { value: 'flush',   label: 'Flush transition (no strip)' },
+        { value: 'na',      label: 'Not applicable' },
+      ] },
+
+    // 12 — stairs included?
+    { id: 'floor_stairs', type: 'single', label: 'Include stairs?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No' },
+      ] },
+
+    // 13 — how many stair treads (only if yes)
+    { id: 'floor_stair_count', type: 'number', label: 'Number of stair treads',
+      showIf: (a) => a.floor_stairs === 'yes' },
+
+    { _section: 'logistics', label: 'Logistics' },
+
+    // 14 — who moves furniture
+    { id: 'floor_furniture', type: 'single', label: 'Who moves the furniture?',
+      options: [
+        { value: 'client', label: 'Client will move it' },
+        { value: 'omega',  label: 'Omega handles it' },
+        { value: 'empty',  label: 'Rooms will be empty' },
+      ] },
+
+    // 15 — timeline
+    { id: 'floor_timeline', type: 'single', label: 'Desired timeline',
+      options: [
+        { value: 'rush',     label: 'ASAP (1-2 weeks)' },
+        { value: 'standard', label: 'Within 1 month' },
+        { value: 'flexible', label: 'Flexible' },
+      ] },
+  ],
+
+  // ─────────────────────────────────────────────────────────────────
+  // SURVEY — 15 questions
+  // Land / property survey: boundary, topographic, ALTA, flood
+  // elevation, construction stakeout. Used to scope pricing with
+  // the surveyor and to prep the client for site access.
+  // ─────────────────────────────────────────────────────────────────
+  survey: [
+    { _section: 'general', label: 'Survey Type' },
+
+    // 1 — survey purpose/type
+    { id: 'survey_type', type: 'single', label: 'Type of survey needed',
+      options: [
+        { value: 'boundary',   label: 'Boundary / property line' },
+        { value: 'topographic',label: 'Topographic' },
+        { value: 'alta',       label: 'ALTA / NSPS' },
+        { value: 'elevation',  label: 'Flood Elevation Certificate' },
+        { value: 'stakeout',   label: 'Construction stakeout' },
+        { value: 'mortgage',   label: 'Mortgage / Title' },
+      ] },
+
+    // 2 — property type
+    { id: 'survey_property_type', type: 'single', label: 'Property type',
+      options: [
+        { value: 'single',   label: 'Single-family residential' },
+        { value: 'multi',    label: 'Multi-family' },
+        { value: 'commercial',label: 'Commercial' },
+        { value: 'vacant',   label: 'Vacant lot / raw land' },
+      ] },
+
+    // 3 — lot size
+    { id: 'survey_lot_size', type: 'number', label: 'Approximate lot size', unit: 'sq ft or acres' },
+
+    { _section: 'existing_docs', label: 'Existing Documents' },
+
+    // 4 — existing survey?
+    { id: 'survey_existing', type: 'single', label: 'Is there an existing survey for this property?',
+      options: [
+        { value: 'yes',     label: 'Yes — have a copy' },
+        { value: 'yes_lost',label: 'Yes — but cannot locate it' },
+        { value: 'no',      label: 'No' },
+        { value: 'unsure',  label: "Don't know" },
+      ] },
+
+    // 5 — how old (only if exists)
+    { id: 'survey_existing_age', type: 'single', label: 'How old is the existing survey?',
+      options: [
+        { value: 'lt1',   label: 'Less than 1 year' },
+        { value: '1to5',  label: '1 – 5 years' },
+        { value: '5to15', label: '5 – 15 years' },
+        { value: 'gt15',  label: 'Older than 15 years' },
+      ],
+      showIf: (a) => a.survey_existing === 'yes' },
+
+    // 6 — reason (drives scope)
+    { id: 'survey_reason', type: 'single', label: 'Reason for the survey',
+      options: [
+        { value: 'buying',   label: 'Buying the property' },
+        { value: 'selling',  label: 'Selling the property' },
+        { value: 'build',    label: 'Planning construction' },
+        { value: 'permit',   label: 'Required by permit office' },
+        { value: 'dispute',  label: 'Boundary dispute' },
+        { value: 'refinance',label: 'Refinance / title' },
+        { value: 'other',    label: 'Other' },
+      ] },
+
+    // 7 — legal description reference
+    { id: 'survey_document_ref', type: 'text',
+      label: 'Deed / plat / subdivision name (optional)',
+      placeholder: 'e.g. Vol 1234 Pg 56, Lot 7 of Oak Hill Subdivision' },
+
+    { _section: 'site', label: 'Site Conditions' },
+
+    // 8 — boundary markers
+    { id: 'survey_boundary_markers', type: 'single', label: 'Are boundary markers / monuments visible on site?',
+      options: [
+        { value: 'all',   label: 'All / most are visible' },
+        { value: 'some',  label: 'Some visible' },
+        { value: 'none',  label: 'None visible' },
+        { value: 'unsure',label: "Don't know" },
+      ] },
+
+    // 9 — encroachments
+    { id: 'survey_encroachments', type: 'single', label: 'Any known encroachments (fences, sheds crossing the line)?',
+      options: [
+        { value: 'yes',    label: 'Yes' },
+        { value: 'no',     label: 'No' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
+
+    // 10 — vegetation density
+    { id: 'survey_vegetation', type: 'single', label: 'Vegetation / tree cover',
+      options: [
+        { value: 'low',      label: 'Low — open lot' },
+        { value: 'moderate', label: 'Moderate' },
+        { value: 'heavy',    label: 'Heavy — dense trees' },
+      ] },
+
+    { _section: 'deliverables', label: 'Deliverables' },
+
+    // 11 — flood zone info needed?
+    { id: 'survey_flood_zone', type: 'single', label: 'Need flood zone information?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No' },
+      ] },
+
+    // 12 — utility locates needed?
+    { id: 'survey_utilities', type: 'single', label: 'Include utility locates?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No' },
+      ] },
+
+    // 13 — deliverable format
+    { id: 'survey_format', type: 'multi', label: 'Deliverable format',
+      options: [
+        { value: 'paper',   label: 'Paper (signed & sealed)' },
+        { value: 'pdf',     label: 'PDF' },
+        { value: 'cad',     label: 'CAD file (.dwg)' },
+        { value: 'georef',  label: 'Georeferenced data' },
+      ] },
+
+    { _section: 'logistics', label: 'Logistics' },
+
+    // 14 — timeline
+    { id: 'survey_timeline', type: 'single', label: 'Timeline',
+      options: [
+        { value: 'rush',     label: 'Rush (1-2 weeks)' },
+        { value: 'standard', label: 'Standard (3-4 weeks)' },
+        { value: 'flexible', label: 'Flexible' },
+      ] },
+
+    // 15 — access notes
+    { id: 'survey_access', type: 'text',
+      label: 'Site access notes',
+      placeholder: 'Gate codes, locked areas, dogs, contact for access…' },
+  ],
+
+  // ─────────────────────────────────────────────────────────────────
+  // BUILDING PLANS — 15 questions
+  // Architectural / construction drawings for permit submittal and
+  // build-out. Captures scope of the drawing set, zoning context, and
+  // what engineering stamps are required.
+  // ─────────────────────────────────────────────────────────────────
+  building_plans: [
+    { _section: 'general', label: 'Project Basics' },
+
+    // 1 — project type
+    { id: 'plans_project_type', type: 'single', label: 'Project type',
+      options: [
+        { value: 'new_build',label: 'New construction' },
+        { value: 'addition', label: 'Addition to existing structure' },
+        { value: 'remodel',  label: 'Interior remodel / reconfigure' },
+        { value: 'adu',      label: 'ADU / accessory unit' },
+        { value: 'structural',label:'Structural change (wall removal, etc.)' },
+        { value: 'garage',   label: 'Garage / accessory building' },
+      ] },
+
+    // 2 — square footage
+    { id: 'plans_total_sqft', type: 'number', label: 'Total conditioned square footage', unit: 'sq ft' },
+
+    // 3 — number of stories
+    { id: 'plans_story_count', type: 'single', label: 'Number of stories',
+      options: [
+        { value: '1',     label: '1 story' },
+        { value: '1.5',   label: '1.5 story' },
+        { value: '2',     label: '2 stories' },
+        { value: '3plus', label: '3 or more stories' },
+      ] },
+
+    { _section: 'existing', label: 'Existing Structure' },
+
+    // 4 — is there existing structure?
+    { id: 'plans_existing_structure', type: 'single', label: 'Is there an existing structure?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No — bare lot' },
+      ] },
+
+    // 5 — as-built drawings available?
+    { id: 'plans_asbuilt', type: 'single', label: 'Do you have as-built drawings of the existing structure?',
+      options: [
+        { value: 'yes',    label: 'Yes — will provide' },
+        { value: 'partial',label: 'Partial / floor plan only' },
+        { value: 'no',     label: 'No' },
+      ],
+      showIf: (a) => a.plans_existing_structure === 'yes' },
+
+    { _section: 'drawing_set', label: 'Drawing Set' },
+
+    // 6 — permit set needed?
+    { id: 'plans_permit_set', type: 'single', label: 'Permit drawings needed?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No' },
+      ] },
+
+    // 7 — construction set needed?
+    { id: 'plans_construction_set', type: 'single', label: 'Construction drawings needed?',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no',  label: 'No — permit set only' },
+      ] },
+
+    // 8 — 3D renderings?
+    { id: 'plans_renderings', type: 'single', label: '3D renderings / visualizations?',
+      options: [
+        { value: 'exterior',label: 'Exterior only' },
+        { value: 'interior',label: 'Interior only' },
+        { value: 'both',    label: 'Both' },
+        { value: 'no',      label: 'Not needed' },
+      ] },
+
+    // 9 — structural engineering
+    { id: 'plans_structural_eng', type: 'single', label: 'Structural engineering stamp required?',
+      options: [
+        { value: 'yes',    label: 'Yes' },
+        { value: 'no',     label: 'No' },
+        { value: 'unsure', label: "Don't know — check with building dept." },
+      ] },
+
+    // 10 — energy calcs
+    { id: 'plans_energy_calcs', type: 'single', label: 'Energy / ResCheck calculations required?',
+      options: [
+        { value: 'yes',    label: 'Yes' },
+        { value: 'no',     label: 'No' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
+
+    { _section: 'zoning', label: 'Zoning & Site' },
+
+    // 11 — zoning district
+    { id: 'plans_zoning_district', type: 'text',
+      label: 'Zoning district (if known)',
+      placeholder: 'e.g. R-1, RA-2, OS-40' },
+
+    // 12 — lot dimensions
+    { id: 'plans_lot_dims', type: 'dimensions', label: 'Lot dimensions (frontage × depth)', unit: 'ft' },
+
+    // 13 — setbacks known?
+    { id: 'plans_setbacks_known', type: 'single', label: 'Are setback requirements known?',
+      options: [
+        { value: 'yes',    label: 'Yes — client will share' },
+        { value: 'research',label:'Need to research at town hall' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
+
+    { _section: 'stamps', label: 'Stamps & Timeline' },
+
+    // 14 — architect stamp
+    { id: 'plans_architect_stamp', type: 'single', label: 'Architect stamp required?',
+      options: [
+        { value: 'yes',    label: 'Yes — building dept. requires it' },
+        { value: 'no',     label: 'No' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
+
+    // 15 — timeline
+    { id: 'plans_timeline', type: 'single', label: 'When do you need the plans?',
+      options: [
+        { value: 'rush',     label: 'Rush (2-3 weeks)' },
+        { value: 'standard', label: 'Standard (4-6 weeks)' },
+        { value: 'flexible', label: 'Flexible' },
       ] },
   ],
 };
