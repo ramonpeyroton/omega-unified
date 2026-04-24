@@ -1,20 +1,32 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Bell, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { recipientRolesFor } from '../../../shared/lib/notifications';
 import LoadingSpinner from '../components/LoadingSpinner';
 
-export default function Notifications({ onNavigate, darkMode }) {
+export default function Notifications({ user, onNavigate, darkMode }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.role]);
 
   async function load() {
-    const { data } = await supabase.from('notifications').select('*, jobs(client_name, service)').order('created_at', { ascending: false }).limit(50);
+    // Scope to this user's recipient_role(s) so Gabriel doesn't see
+    // sales-only alerts (e.g. a visit Rafaela booked for Attila).
+    const roles = recipientRolesFor(user?.role);
+    let q = supabase
+      .from('notifications')
+      .select('*, jobs(client_name, service)')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (roles) q = q.in('recipient_role', roles);
+    const { data } = await q;
     setNotifications(data || []);
     setLoading(false);
-    // Mark all seen
-    await supabase.from('notifications').update({ seen: true }).eq('seen', false);
+    // Mark only this user's unseen notifications as seen.
+    let upd = supabase.from('notifications').update({ seen: true }).eq('seen', false);
+    if (roles) upd = upd.in('recipient_role', roles);
+    await upd;
   }
 
   const formatTime = (ts) => {

@@ -1,16 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Bell, X, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-
-// Maps app user role → which recipient_role values the user should receive.
-// 'admin' and 'owner' see everything; others see their own bucket + 'all'.
-function recipientRolesFor(role) {
-  if (role === 'admin' || role === 'owner') return null; // null = no filter
-  if (role === 'salesperson' || role === 'sales') return ['sales', 'all'];
-  if (role === 'operations') return ['operations', 'all'];
-  if (role === 'manager') return ['manager', 'all'];
-  return ['all'];
-}
+import { recipientRolesFor } from '../lib/notifications';
 
 export default function NotificationsBell({ user, dark = false }) {
   const [items, setItems] = useState([]);

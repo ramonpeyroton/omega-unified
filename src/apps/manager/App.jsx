@@ -91,7 +91,7 @@ export default function App({ user, onLogout }) {
       return <PunchList job={selectedJob} onNavigate={navigate} darkMode={darkMode} />;
 
     if (screen === 'notifications')
-      return <Notifications onNavigate={navigate} darkMode={darkMode} />;
+      return <Notifications user={user} onNavigate={navigate} darkMode={darkMode} />;
 
     if (screen === 'warehouse')
       return <Warehouse user={user} onNavigate={navigate} />;

@@ -10,6 +10,8 @@ import ScreenApp from './apps/screen/App';
 import MarketingApp from './apps/marketing/App';
 import ReceptionistApp from './apps/receptionist/App';
 import EstimateView from './apps/estimate-view/EstimateView';
+import PrivacyPolicy from './public/PrivacyPolicy';
+import Terms from './public/Terms';
 import { useBackButtonGuard } from './shared/lib/backButtonGuard';
 import { dispatchBackNav } from './shared/lib/backNav';
 import {
@@ -37,6 +39,10 @@ export default function App() {
   const isAdminRoute    = pathname === ADMIN_PATH || pathname.startsWith(`${ADMIN_PATH}/`);
   // Public, auth-less page for clients to view the estimate they were emailed.
   const isEstimateView  = pathname.startsWith('/estimate-view/');
+  // Public legal pages — linked from the Twilio A2P 10DLC campaign and
+  // from customer-facing emails/SMS. No login required.
+  const isPrivacyPage   = pathname === '/privacy' || pathname === '/privacy-policy';
+  const isTermsPage     = pathname === '/terms'   || pathname === '/terms-and-conditions';
 
   // ─── Admin session (hidden route) ─────────────────────────────────
   const [adminUser, setAdminUser] = useState(() => loadSession(ADMIN_BUCKET));
@@ -72,6 +78,9 @@ export default function App() {
   useBackButtonGuard(!!user || !!adminUser, (depth) => dispatchBackNav(depth));
 
   // ─── Render ───────────────────────────────────────────────────────
+  if (isPrivacyPage) return <PrivacyPolicy />;
+  if (isTermsPage)   return <Terms />;
+
   if (isEstimateView) {
     return <EstimateView />;
   }
