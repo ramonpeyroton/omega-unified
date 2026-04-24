@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import {
   getSchemaForServices, isVisible, serviceLabel,
   hasSectionMarkers, splitIntoSections, SERVICES,
+  NO_QUESTIONNAIRE_SERVICES,
 } from '../data/questionnaire';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProgressBar from '../components/ProgressBar';
@@ -425,6 +426,10 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
     setPicked((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
 
+  // Services that have at least one question.
+  const billable = picked.filter((id) => !NO_QUESTIONNAIRE_SERVICES.has(id));
+  const allSubcontracted = picked.length > 0 && billable.length === 0;
+
   async function start() {
     if (picked.length === 0) { setError('Select at least one service before starting.'); return; }
     setSaving(true);
@@ -433,14 +438,21 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
       const joined = picked.join(', ');
       const originalJoined = initial.join(', ');
       // Only hit the DB if the seller actually changed the set.
+      let savedJob = job;
       if (joined !== originalJoined) {
         const { data, error: e } = await supabase
           .from('jobs').update({ service: joined }).eq('id', job.id).select().single();
         if (e) throw e;
-        onConfirm(data || { ...job, service: joined });
-      } else {
-        onConfirm(job);
+        savedJob = data || { ...job, service: joined };
       }
+      // When everything selected is subcontracted, there's no form to
+      // fill — route back to the pipeline instead of opening an empty
+      // questionnaire.
+      if (allSubcontracted) {
+        onBack?.();
+        return;
+      }
+      onConfirm(savedJob);
     } catch (e) {
       setError(e?.message || 'Failed to save. Try again.');
       setSaving(false);
@@ -448,6 +460,9 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
   }
 
   const clientLabel = [job.client_name, job.city].filter(Boolean).join(' · ');
+  const primaryLabel = saving
+    ? 'Saving…'
+    : allSubcontracted ? 'Save & Close (no form)' : 'Start Questionnaire';
 
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
@@ -481,6 +496,7 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
           {SERVICES.map((svc) => {
             const selected = picked.includes(svc.id);
             const Icon = Icons[svc.icon] || Icons.Wrench;
+            const noQuestionnaire = NO_QUESTIONNAIRE_SERVICES.has(svc.id);
             return (
               <button
                 key={svc.id}
@@ -501,6 +517,11 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
                 <span className={`text-xs font-semibold text-center leading-tight ${selected ? 'text-omega-charcoal' : 'text-omega-slate'}`}>
                   {svc.label}
                 </span>
+                {noQuestionnaire && (
+                  <span className="absolute bottom-1 left-1 right-1 text-[9px] font-bold uppercase tracking-wider text-omega-stone bg-white/70 rounded px-1 py-0.5">
+                    Subcontracted · no form
+                  </span>
+                )}
               </button>
             );
           })}
@@ -508,6 +529,13 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
 
         <p className="mt-4 text-xs text-omega-stone">
           {picked.length} service{picked.length === 1 ? '' : 's'} selected.
+          {(() => {
+            const billable = picked.filter((id) => !NO_QUESTIONNAIRE_SERVICES.has(id));
+            if (picked.length > 0 && billable.length === 0) {
+              return ' All of them are subcontracted — no questions to answer. Go straight to the estimate.';
+            }
+            return '';
+          })()}
         </p>
       </main>
 
@@ -521,7 +549,8 @@ function ServiceSelectionScreen({ job, onBack, onConfirm }) {
             disabled={saving || picked.length === 0}
             className="flex-[2] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-omega-orange hover:bg-omega-dark text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? 'Saving…' : 'Start Questionnaire'} <ArrowRight className="w-4 h-4" />
+            {primaryLabel}
+            {!allSubcontracted && <ArrowRight className="w-4 h-4" />}
           </button>
         </div>
       </footer>
