@@ -2,10 +2,32 @@ import { useEffect, useState } from 'react';
 import {
   FileText, FileSignature, FileBadge, Home, CheckSquare, Receipt,
   Plus, X, Save, Loader2, AlertCircle, ImageIcon, ExternalLink, Trash2, Mic,
+  DollarSign, Layers,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import VoiceNoteRecorder from './VoiceNoteRecorder';
+
+// Status chip palette shared with the Sales Estimates screen — keeps the
+// same verb the customer and sellers see in the lifecycle.
+const ESTIMATE_STATUS_META = {
+  draft:              { label: 'DRAFT',        cls: 'bg-gray-200 text-gray-700' },
+  sent:               { label: 'SENT',         cls: 'bg-blue-100 text-blue-700' },
+  negotiating:        { label: 'NEGOTIATING',  cls: 'bg-amber-100 text-amber-800' },
+  changes_requested:  { label: 'CHANGES',      cls: 'bg-amber-100 text-amber-800' },
+  approved:           { label: 'APPROVED',     cls: 'bg-green-100 text-green-800' },
+  rejected:           { label: 'REJECTED',     cls: 'bg-red-100 text-red-700' },
+  signed:             { label: 'SIGNED',       cls: 'bg-emerald-600 text-white' },
+};
+
+function money(n) {
+  return `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function fmtEstimateNumber(n) {
+  if (n == null || n === '') return 'Estimate';
+  return `OM-${n}`;
+}
 
 const BUCKET = 'job-documents';
 
@@ -22,6 +44,7 @@ const FOLDERS = [
 
 export default function DocumentsSection({ job, user, onJobUpdated }) {
   const [docs, setDocs]           = useState([]);
+  const [estimates, setEstimates] = useState([]);   // all estimates for this job (any group)
   const [notes, setNotes]         = useState([]);   // growing list (job_notes rows)
   const [loading, setLoading]     = useState(true);
   const [addingTo, setAddingTo]   = useState(null);  // folder id or null
@@ -33,9 +56,23 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
   useEffect(() => {
     if (!job?.id) return;
     loadDocs();
+    loadEstimates();
     loadNotes();
     // eslint-disable-next-line
   }, [job?.id]);
+
+  async function loadEstimates() {
+    try {
+      const { data } = await supabase
+        .from('estimates')
+        .select('id, estimate_number, status, total_amount, sent_at, created_at, signed_at, signed_by, group_id, option_label, option_order, pdf_url')
+        .eq('job_id', job.id)
+        .order('created_at', { ascending: false });
+      setEstimates(data || []);
+    } catch {
+      setEstimates([]);
+    }
+  }
 
   async function loadDocs() {
     setLoading(true);
@@ -111,8 +148,114 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
     items: docs.filter((d) => d.folder === f.id),
   }));
 
+  // Group estimates by group_id so alternatives stay together, with
+  // groups ordered by most-recent activity (sent_at or created_at).
+  const estimateGroups = (() => {
+    const byGroup = new Map();
+    for (const est of estimates) {
+      const gid = est.group_id || est.id;
+      if (!byGroup.has(gid)) byGroup.set(gid, []);
+      byGroup.get(gid).push(est);
+    }
+    const arr = [...byGroup.entries()].map(([gid, rows]) => {
+      const sorted = [...rows].sort((a, b) => (a.option_order || 0) - (b.option_order || 0));
+      const anchor = sorted.reduce((acc, r) => {
+        const t = new Date(r.sent_at || r.created_at).getTime();
+        return t > acc ? t : acc;
+      }, 0);
+      return { gid, rows: sorted, anchor };
+    });
+    arr.sort((a, b) => b.anchor - a.anchor);
+    return arr;
+  })();
+
   return (
     <div className="space-y-5">
+      {/* Estimates — one row per row, grouped by proposal (group_id). A
+          lone estimate renders as a single-row group; alternatives sit
+          together under an "Option N of M" chip so the audit trail is
+          obvious: what was sent, what the customer rejected, what was
+          signed. */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-omega-pale flex items-center justify-center">
+            <DollarSign className="w-4 h-4 text-omega-orange" />
+          </div>
+          <h3 className="text-sm font-bold text-omega-charcoal flex-1">Estimates</h3>
+          <span className="text-[10px] font-bold text-omega-stone bg-gray-100 px-2 py-0.5 rounded-full">
+            {estimates.length}
+          </span>
+        </div>
+        {estimates.length === 0 && (
+          <p className="px-4 py-5 text-xs text-omega-stone italic text-center">
+            No estimates have been created for this job yet.
+          </p>
+        )}
+        {estimateGroups.map(({ gid, rows }) => (
+          <div key={gid} className={rows.length > 1 ? 'bg-omega-pale/30 border-l-4 border-omega-orange' : ''}>
+            {rows.length > 1 && (
+              <div className="px-4 pt-3 pb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-omega-orange">
+                <Layers className="w-3 h-3" /> Proposal with {rows.length} options
+              </div>
+            )}
+            {rows.map((est, i) => {
+              const meta = ESTIMATE_STATUS_META[est.status] || { label: (est.status || 'DRAFT').toUpperCase(), cls: 'bg-gray-200 text-gray-700' };
+              const isMulti = rows.length > 1;
+              const link = est.pdf_url
+                || (isMulti
+                  ? `/estimate-options/${gid}`
+                  : `/estimate-view/${est.id}`);
+              return (
+                <div
+                  key={est.id}
+                  className="px-4 py-3 border-t border-gray-100 flex items-center gap-3 hover:bg-white group first:border-t-0"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-omega-pale flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-4 h-4 text-omega-orange" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-omega-charcoal">
+                        {fmtEstimateNumber(est.estimate_number)}
+                      </p>
+                      {isMulti && (
+                        <span className="text-[10px] font-bold text-white bg-omega-orange px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          Option {i + 1} of {rows.length}
+                          {est.option_label ? ` · ${est.option_label}` : ''}
+                        </span>
+                      )}
+                      <span className={`flex-shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${meta.cls}`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-omega-stone mt-0.5">
+                      {est.signed_at
+                        ? <>Signed by <strong>{est.signed_by || 'client'}</strong> · {new Date(est.signed_at).toLocaleDateString()}</>
+                        : est.sent_at
+                          ? <>Sent {new Date(est.sent_at).toLocaleDateString()}</>
+                          : <>Created {new Date(est.created_at).toLocaleDateString()}</>
+                      }
+                    </p>
+                  </div>
+                  <p className="text-sm font-black text-omega-charcoal tabular-nums flex-shrink-0">
+                    {money(est.total_amount)}
+                  </p>
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-omega-stone hover:text-omega-orange flex-shrink-0"
+                    title="Open the estimate the client saw"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
       {/* Folders grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {byFolder.map((f) => {

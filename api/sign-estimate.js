@@ -85,10 +85,31 @@ export default async function handler(req, res) {
 
   // Load the estimate. 404 if missing, 409 if already signed.
   const { data: estimate, error: eErr } = await supabase
-    .from('estimates').select('id, job_id, status, signed_at').eq('id', estimate_id).maybeSingle();
+    .from('estimates').select('id, job_id, status, signed_at, group_id').eq('id', estimate_id).maybeSingle();
   if (eErr || !estimate) return json(res, 404, { ok: false, error: 'Estimate not found' });
   if (estimate.signed_at)
     return json(res, 409, { ok: false, error: 'This estimate has already been signed. Contact Omega if you need to revise it.' });
+
+  // If this estimate belongs to a multi-option group, check that no
+  // sibling was already signed — whichever option the customer picks
+  // locks the whole group. Two people can't race to sign different
+  // options on the same proposal.
+  const group_id = estimate.group_id || estimate.id;
+  if (estimate.group_id) {
+    const { data: siblingSigned } = await supabase
+      .from('estimates')
+      .select('id, signed_by, signed_at, option_label')
+      .eq('group_id', group_id)
+      .not('signed_at', 'is', null)
+      .limit(1);
+    if (siblingSigned && siblingSigned.length) {
+      const s = siblingSigned[0];
+      return json(res, 409, {
+        ok: false,
+        error: `Another option (${s.option_label || 'one of the alternatives'}) was already signed by ${s.signed_by || 'the customer'}. Contact Omega if you need to revise the proposal.`,
+      });
+    }
+  }
 
   const signed_at = new Date().toISOString();
   const signed_ip = clientIp(req);
@@ -107,6 +128,26 @@ export default async function handler(req, res) {
   }).eq('id', estimate_id);
   if (updErr) return json(res, 500, { ok: false, error: updErr.message || 'Failed to save signature' });
 
+  // If this is part of a multi-option group, auto-reject the siblings
+  // the customer didn't choose. We keep them around (audit trail — all
+  // 3 PDFs stay in the Documents tab) but their status chip flips from
+  // SENT -> LOST so the picker reflects the decision.
+  let rejected_siblings = 0;
+  if (estimate.group_id) {
+    try {
+      const { data: sibs } = await supabase
+        .from('estimates')
+        .update({
+          status: 'rejected',
+          status_detail: `Customer chose another option (${signed_by} selected ${new Date(signed_at).toLocaleDateString()}).`,
+        })
+        .eq('group_id', group_id)
+        .neq('id', estimate_id)
+        .select('id');
+      rejected_siblings = (sibs || []).length;
+    } catch { /* non-fatal — the signed row is already saved */ }
+  }
+
   // Flip the job's pipeline status so the sales kanban reflects approval.
   try {
     await supabase.from('jobs').update({
@@ -114,16 +155,26 @@ export default async function handler(req, res) {
     }).eq('id', estimate.job_id);
   } catch { /* ignore — the estimate is already saved */ }
 
-  // Fan-out notifications to sales + operations.
-  // Uses the same `notifications` table the in-app bell reads from.
+  // Fan-out notifications to sales + operations. Uses the same
+  // `notifications` table the in-app bell reads from.
   try {
-    const title = `Estimate approved by ${signed_by}`;
-    const message = 'Customer signed the estimate. Prepare the contract for DocuSign.';
+    // Look up the chosen option's label for a friendlier message when
+    // we're inside a multi-option group.
+    let optionSuffix = '';
+    if (rejected_siblings > 0) {
+      const { data: chosen } = await supabase
+        .from('estimates').select('option_label').eq('id', estimate_id).maybeSingle();
+      if (chosen?.option_label) optionSuffix = ` — chose ${chosen.option_label}`;
+    }
+    const title = `Estimate approved by ${signed_by}${optionSuffix}`;
+    const message = rejected_siblings > 0
+      ? `Customer picked one of ${rejected_siblings + 1} options and signed. Prepare the contract for DocuSign.`
+      : 'Customer signed the estimate. Prepare the contract for DocuSign.';
     await supabase.from('notifications').insert([
       { recipient_role: 'sales',      title, message, type: 'estimate_approved', job_id: estimate.job_id, read: false },
       { recipient_role: 'operations', title, message, type: 'estimate_approved', job_id: estimate.job_id, read: false },
     ]);
   } catch { /* ignore */ }
 
-  return json(res, 200, { ok: true, signed_at, signed_by });
+  return json(res, 200, { ok: true, signed_at, signed_by, rejected_siblings });
 }

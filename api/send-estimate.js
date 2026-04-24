@@ -167,6 +167,64 @@ function renderEstimateHTML({ estimate, job, company }) {
 </body></html>`;
 }
 
+// Compact email body for multi-option groups. Instead of rendering N
+// full estimates in a single mail (heavy and overwhelming), we list
+// the options with totals and drop a single CTA that opens the
+// side-by-side picker where the customer compares & signs.
+function renderMultiOptionHTML({ siblings, job, company, clientLink }) {
+  const customerFirst = (job.client_name || 'there').split(' ')[0];
+  const rows = (siblings || []).map((s, i) => {
+    const label = s.option_label || `Option ${i + 1}`;
+    const total = money(s.total_amount || 0);
+    return `
+      <tr>
+        <td style="padding:10px 14px;border:1px solid #eee;border-radius:6px;background:#fafafa;">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:700;">Option ${i + 1}</div>
+          <div style="font-size:16px;font-weight:800;color:#2C2C2A;margin-top:2px;">${escape(label)}</div>
+          <div style="font-size:20px;color:#2C2C2A;font-weight:900;margin-top:6px;font-variant-numeric:tabular-nums;">${total}</div>
+        </td>
+      </tr>
+      <tr><td style="height:10px;"></td></tr>
+    `;
+  }).join('');
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Your estimate options — ${escape(company?.company_name || 'Omega Development')}</title></head>
+<body style="margin:0;padding:32px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:600px;margin:0 auto;background:white;padding:32px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
+
+    <div style="font-size:22px;font-weight:900;letter-spacing:-0.02em;">
+      <span style="color:#2C2C2A;">OMEGA</span><span style="color:#E8732A;">DEVELOPMENT</span>
+    </div>
+    <div style="font-size:10px;letter-spacing:.18em;color:#6b6b6b;font-weight:600;margin-top:4px;">RENOVATIONS &amp; CONSTRUCTION</div>
+
+    <h1 style="font-size:22px;margin:28px 0 8px;font-weight:900;">Hi ${escape(customerFirst)},</h1>
+    <p style="font-size:14px;line-height:1.55;color:#444;margin:0 0 20px;">
+      We've prepared <strong>${siblings.length} options</strong> for your project so you can pick the scope that fits best.
+      Click below to review them side-by-side and sign the one you want to move forward with.
+    </p>
+
+    <table style="width:100%;border-collapse:separate;border-spacing:0;margin-bottom:24px;">
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="text-align:center;margin:28px 0 8px;">
+      <a href="${clientLink}" style="display:inline-block;padding:14px 28px;background:#E8732A;color:white;font-weight:900;font-size:15px;text-decoration:none;border-radius:8px;letter-spacing:.02em;">
+        View all options &amp; sign
+      </a>
+    </div>
+
+    <p style="font-size:11px;color:#888;margin:20px 0 0;text-align:center;">
+      Once you sign one option, the other alternatives are automatically withdrawn and we'll send the final binding contract via DocuSign.
+    </p>
+
+    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#888;text-align:center;">
+      Questions? Reply to this email or call ${escape(company?.phone || '')}.
+    </div>
+  </div>
+</body></html>`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
 
@@ -195,8 +253,28 @@ export default async function handler(req, res) {
     .from('company_settings').select('*')
     .order('updated_at', { ascending: false }).limit(1).maybeSingle();
 
-  const html = renderEstimateHTML({ estimate, job, company });
-  const subject = `Estimate #${estimate.estimate_number || ''} — ${company?.company_name || 'Omega Development'}`.trim();
+  // Check whether this estimate is part of a multi-option group. When
+  // the group has >1 row we email a single link to /estimate-options/:id
+  // so the customer sees all alternatives side-by-side and picks one
+  // via a unified signature block. Single-option estimates keep the
+  // existing /estimate-view/:id link (unchanged UX).
+  const group_id = estimate.group_id || estimate.id;
+  const { data: siblings } = await supabase
+    .from('estimates')
+    .select('id, option_label, option_order, status, total_amount')
+    .eq('group_id', group_id)
+    .order('option_order', { ascending: true });
+  const isMultiOption = Array.isArray(siblings) && siblings.length > 1;
+  const clientLink = isMultiOption
+    ? `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-options/${group_id}`
+    : `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`;
+
+  const html = isMultiOption
+    ? renderMultiOptionHTML({ siblings, job, company, clientLink })
+    : renderEstimateHTML({ estimate, job, company });
+  const subject = isMultiOption
+    ? `Your ${siblings.length} estimate options — ${company?.company_name || 'Omega Development'}`
+    : `Estimate #${estimate.estimate_number || ''} — ${company?.company_name || 'Omega Development'}`.trim();
   const requester = {
     role: (req.headers['x-omega-role'] || '').toString(),
     name: (req.headers['x-omega-user'] || '').toString(),
@@ -245,16 +323,27 @@ export default async function handler(req, res) {
 
   if (!providerId) return json(res, 500, { ok: false, error: errorMsg || 'Send failed' });
 
-  // On success, stamp estimate.status = 'sent' + sent_at + pdf_url (to
-  // a printable view of this estimate the client can print).
+  // On success, stamp `status = 'sent' + sent_at + pdf_url` on every
+  // row in the group. Multi-option sends flip all N options together
+  // (one email covers them all), single-option just touches its row.
+  const nowIso = new Date().toISOString();
   try {
-    await supabase.from('estimates').update({
-      status: 'sent',
-      sent_at: new Date().toISOString(),
-      sent_by: requester.name || null,
-      pdf_url: `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`,
-    }).eq('id', estimateId);
+    if (isMultiOption) {
+      await supabase.from('estimates').update({
+        status: 'sent',
+        sent_at: nowIso,
+        sent_by: requester.name || null,
+        pdf_url: clientLink,
+      }).eq('group_id', group_id);
+    } else {
+      await supabase.from('estimates').update({
+        status: 'sent',
+        sent_at: nowIso,
+        sent_by: requester.name || null,
+        pdf_url: `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`,
+      }).eq('id', estimateId);
+    }
   } catch { /* ignore */ }
 
-  return json(res, 200, { ok: true, providerId });
+  return json(res, 200, { ok: true, providerId, multiOption: isMultiOption, optionCount: isMultiOption ? siblings.length : 1 });
 }

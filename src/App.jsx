@@ -10,6 +10,7 @@ import ScreenApp from './apps/screen/App';
 import MarketingApp from './apps/marketing/App';
 import ReceptionistApp from './apps/receptionist/App';
 import EstimateView from './apps/estimate-view/EstimateView';
+import EstimateOptionsView from './apps/estimate-view/EstimateOptionsView';
 import PrivacyPolicy from './public/PrivacyPolicy';
 import Terms from './public/Terms';
 import { useBackButtonGuard } from './shared/lib/backButtonGuard';
@@ -38,7 +39,9 @@ export default function App() {
 
   const isAdminRoute    = pathname === ADMIN_PATH || pathname.startsWith(`${ADMIN_PATH}/`);
   // Public, auth-less page for clients to view the estimate they were emailed.
-  const isEstimateView  = pathname.startsWith('/estimate-view/');
+  const isEstimateView    = pathname.startsWith('/estimate-view/');
+  // Multi-option variant — customer sees N alternatives side-by-side and picks one.
+  const isEstimateOptions = pathname.startsWith('/estimate-options/');
   // Public legal pages — linked from the Twilio A2P 10DLC campaign and
   // from customer-facing emails/SMS. No login required.
   const isPrivacyPage   = pathname === '/privacy' || pathname === '/privacy-policy';
@@ -83,6 +86,10 @@ export default function App() {
 
   if (isEstimateView) {
     return <EstimateView />;
+  }
+
+  if (isEstimateOptions) {
+    return <EstimateOptionsView />;
   }
 
   if (isAdminRoute) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
-  AlertCircle, CheckCircle2, Download,
+  AlertCircle, CheckCircle2, Download, Copy, Layers, X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
@@ -18,35 +18,70 @@ function emptyItem()    { return { description: '', scope: '', price: 0 }; }
 function emptySection() { return { title: 'Section 1', items: [emptyItem()] }; }
 
 export default function EstimateBuilder({ job, user, onJobUpdated }) {
-  const [estimate, setEstimate] = useState(null); // existing db row (if any)
+  const [estimate, setEstimate] = useState(null); // currently edited row
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [sending, setSending]   = useState(false);
   const [toast, setToast]       = useState(null);
 
-  // Form state
+  // Form state (for the row currently being edited).
   const [headerDescription, setHeaderDescription] = useState('');
   const [sections, setSections] = useState([emptySection()]);
   const [customerMessage, setCustomerMessage] = useState(DEFAULT_PAYMENT);
+  const [optionLabel, setOptionLabel] = useState('');
+
+  // Multi-option state. `options` is the whole group, ordered by
+  // option_order. When there's 0 or 1 rows, the switcher hides.
+  const [options, setOptions] = useState([]);
+  const [activeId, setActiveId] = useState(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
 
-  async function load() {
+  async function load(preferredActiveId) {
     setLoading(true);
     try {
-      const { data } = await supabase
+      // Grab the most recent estimate to find the group, then pull every
+      // sibling so the switcher reflects all alternatives.
+      const { data: latest } = await supabase
         .from('estimates').select('*')
         .eq('job_id', job.id)
         .order('created_at', { ascending: false })
         .limit(1).maybeSingle();
-      if (data) {
-        setEstimate(data);
-        setHeaderDescription(data.header_description || '');
-        setSections(Array.isArray(data.sections) && data.sections.length ? data.sections : [emptySection()]);
-        setCustomerMessage(data.customer_message || DEFAULT_PAYMENT);
+      if (!latest) {
+        // No estimate yet — start a blank single-option draft.
+        setOptions([]); setActiveId(null); setEstimate(null);
+        setLoading(false);
+        return;
       }
+      const groupId = latest.group_id || latest.id;
+      const { data: group } = await supabase
+        .from('estimates').select('*')
+        .eq('group_id', groupId)
+        .order('option_order', { ascending: true });
+      const siblings = (group && group.length) ? group : [latest];
+      setOptions(siblings);
+
+      // Figure out which option to land on:
+      //   1) the caller's preferred id (just created / switched)
+      //   2) whichever we were already editing
+      //   3) the latest one by created_at
+      const picked =
+        siblings.find((s) => s.id === preferredActiveId) ||
+        siblings.find((s) => s.id === activeId) ||
+        siblings.find((s) => s.id === latest.id) ||
+        siblings[0];
+      loadIntoForm(picked);
     } catch { /* ignore */ }
     setLoading(false);
+  }
+
+  function loadIntoForm(row) {
+    setEstimate(row);
+    setActiveId(row?.id || null);
+    setHeaderDescription(row?.header_description || '');
+    setSections(Array.isArray(row?.sections) && row.sections.length ? row.sections : [emptySection()]);
+    setCustomerMessage(row?.customer_message || DEFAULT_PAYMENT);
+    setOptionLabel(row?.option_label || '');
   }
 
   // ─── Section / item helpers ───────────────────────────────────────
@@ -98,9 +133,13 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       sections,
       customer_message: customerMessage,
       total_amount: total,
-      status: 'draft',
+      option_label: optionLabel || null,
       ...extra,
     };
+    // Preserve an existing row's status on save (was dropping 'sent'
+    // back to 'draft' every time before — that was wrong).
+    if (!('status' in base)) base.status = estimate?.status || 'draft';
+
     if (estimate?.id) {
       const { data, error } = await supabase
         .from('estimates').update(base).eq('id', estimate.id)
@@ -114,12 +153,94 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       const number = (Array.isArray(seqData) && seqData[0]) || null;
       const { data, error } = await supabase
         .from('estimates')
-        .insert([{ ...base, estimate_number: number }])
+        .insert([{ ...base, estimate_number: number, status: 'draft', option_order: 0 }])
         .select().single();
       if (error) throw error;
       return data;
     }
   }
+
+  // ─── Multi-option helpers ──────────────────────────────────────────
+  async function addAlternative() {
+    if (saving || sending) return;
+    setSaving(true);
+    setToast(null);
+    try {
+      // Save current so the duplicate copies the latest content.
+      const current = await persist();
+
+      const groupId = current.group_id || current.id;
+      const existingOrders = options.map((o) => o.option_order ?? 0);
+      const nextOrder = (existingOrders.length ? Math.max(...existingOrders) : 0) + 1;
+      const nextLabel = `Option ${options.length + 1 || nextOrder + 1}`;
+
+      // Backfill the first option with a group_id / label so the UI
+      // stays consistent (it's the same uuid as `current.id` by default
+      // because of the migration 017 self-reference, but make it
+      // explicit for clarity).
+      if (!current.group_id || !current.option_label) {
+        await supabase.from('estimates').update({
+          group_id: groupId,
+          option_label: current.option_label || 'Option 1',
+        }).eq('id', current.id);
+      }
+
+      // Duplicate the current row — same content, new uuid, same group_id.
+      const { data: seqData } = await supabase.rpc('next_estimate_number').select();
+      const number = (Array.isArray(seqData) && seqData[0]) || null;
+      const { data: created, error } = await supabase.from('estimates').insert([{
+        job_id: job.id,
+        header_description: current.header_description,
+        sections: current.sections,
+        customer_message: current.customer_message,
+        total_amount: current.total_amount,
+        status: 'draft',
+        group_id: groupId,
+        option_label: nextLabel,
+        option_order: nextOrder,
+        estimate_number: number,
+      }]).select().single();
+      if (error) throw error;
+
+      logAudit({ user, action: 'estimate.add_alternative', entityType: 'estimate', entityId: created.id, details: { group_id: groupId, option_order: nextOrder } });
+      await load(created.id);
+      setToast({ type: 'success', message: `${nextLabel} created — edit and send when ready.` });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to add alternative' });
+    }
+    setSaving(false);
+  }
+
+  async function switchToOption(id) {
+    if (id === activeId || saving || sending) return;
+    setSaving(true);
+    try {
+      // Save current first so edits don't get lost.
+      if (activeId) { try { await persist(); } catch { /* ignore */ } }
+      const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
+      if (data) loadIntoForm(data);
+      // Refresh the switcher chips (totals / status may have changed).
+      await load(id);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeAlternative(id) {
+    if (options.length <= 1) return;
+    if (!confirm('Remove this alternative? The other options stay.')) return;
+    try {
+      await supabase.from('estimates').delete().eq('id', id);
+      logAudit({ user, action: 'estimate.remove_alternative', entityType: 'estimate', entityId: id });
+      // If we just deleted the active one, load() will pick whichever's left.
+      await load(id === activeId ? null : activeId);
+      setToast({ type: 'success', message: 'Alternative removed.' });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to remove alternative' });
+    }
+  }
+
+  const isMultiOption = options.length > 1;
 
   async function handleSave() {
     setSaving(true);
@@ -192,6 +313,59 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   return (
     <div className="space-y-5">
 
+      {/* Options switcher — only shows once there are 2+ options. Single
+          estimates stay invisible so the UX matches the original behavior. */}
+      {isMultiOption && (
+        <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 text-[10px] font-bold text-omega-stone uppercase tracking-wider mr-1">
+            <Layers className="w-3.5 h-3.5" /> Options
+          </div>
+          {options.map((opt, i) => {
+            const isActive = opt.id === activeId;
+            const isLocked = !!opt.signed_at;
+            return (
+              <div key={opt.id} className="inline-flex items-center">
+                <button
+                  onClick={() => switchToOption(opt.id)}
+                  disabled={saving || sending}
+                  className={`px-3 py-1.5 rounded-l-lg text-xs font-bold transition-colors ${
+                    isActive
+                      ? 'bg-omega-orange text-white'
+                      : 'bg-white border border-gray-200 text-omega-slate hover:border-omega-orange'
+                  }`}
+                  title={isLocked ? 'This option has been signed by the client' : `Switch to Option ${i + 1}`}
+                >
+                  Option {i + 1}
+                  {opt.option_label ? ` — ${opt.option_label}` : ''}
+                  {opt.status && ` · ${String(opt.status).toUpperCase()}`}
+                </button>
+                {options.length > 1 && !isLocked && (
+                  <button
+                    onClick={() => removeAlternative(opt.id)}
+                    disabled={saving || sending}
+                    className={`px-2 py-1.5 rounded-r-lg text-xs font-bold ${
+                      isActive
+                        ? 'bg-omega-orange/90 text-white hover:bg-red-500'
+                        : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
+                    }`}
+                    title="Remove this alternative"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <button
+            onClick={addAlternative}
+            disabled={saving || sending}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
+          >
+            <Copy className="w-3 h-3" /> Add Alternative
+          </button>
+        </div>
+      )}
+
       {/* Header block */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -200,6 +374,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
               <FileText className="w-4 h-4 text-omega-orange" /> Estimate
               {estimate?.estimate_number && (
                 <span className="text-omega-stone text-sm font-bold tabular-nums">#{estimate.estimate_number}</span>
+              )}
+              {isMultiOption && (
+                <span className="text-[10px] font-bold text-white bg-omega-orange px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Option {Math.max(1, options.findIndex((o) => o.id === activeId) + 1)} of {options.length}
+                </span>
               )}
             </h2>
             <p className="text-xs text-omega-stone mt-0.5">
@@ -217,6 +396,24 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
             </a>
           )}
         </div>
+
+        {/* Option name — shown once the group has 2+ alternatives, so the
+            client sees "Basic / Standard / Premium" instead of generic
+            "Option 1 / 2 / 3". Also show when user is about to add the
+            first alternative (encourage naming Option 1). */}
+        {(isMultiOption || optionLabel) && (
+          <label className="block mt-4">
+            <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">
+              Option name (what the client sees)
+            </span>
+            <input
+              value={optionLabel}
+              onChange={(e) => setOptionLabel(e.target.value)}
+              placeholder='e.g. "Basic", "Standard", "With Hardwood Floor"…'
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
+            />
+          </label>
+        )}
 
         <label className="block mt-4">
           <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Description (top of estimate)</span>
@@ -300,10 +497,13 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
           <button
             onClick={handleSend}
             disabled={saving || sending || total <= 0}
-            title={total <= 0 ? 'Add at least one priced item before sending' : ''}
+            title={total <= 0 ? 'Add at least one priced item before sending' : isMultiOption ? `All ${options.length} options will be sent in one email` : ''}
             className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-sm font-bold"
           >
-            {sending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</> : <><Mail className="w-4 h-4" /> Save &amp; Send to Client</>}
+            {sending
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+              : <><Mail className="w-4 h-4" /> {isMultiOption ? `Save & Send ${options.length} Options` : 'Save & Send to Client'}</>
+            }
           </button>
         </div>
       </div>
