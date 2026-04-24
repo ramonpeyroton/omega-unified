@@ -157,14 +157,6 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
       </tr>
     </table>
 
-    ${signButtonHTML ? `
-    <!-- Top CTA: customer can jump straight to signing -->
-    <div style="margin-top:24px;padding:20px;background:#fff8f1;border:1px solid #E8732A40;border-radius:8px;text-align:center;">
-      <div style="font-size:14px;color:#2C2C2A;font-weight:700;margin-bottom:12px;">
-        Ready to move forward? Sign this estimate online in 30 seconds.
-      </div>
-      ${signButtonHTML}
-    </div>` : ''}
 
     <!-- Customer + Service Location -->
     <table style="width:100%;border-collapse:collapse;margin-top:24px;">
