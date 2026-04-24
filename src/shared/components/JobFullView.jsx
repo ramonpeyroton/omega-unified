@@ -23,8 +23,13 @@ import { PIPELINE_STEP_LABEL, PIPELINE_COLORS } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
 
 // Roles allowed to see the Financials tab (Cost Projection + Job Costing + Actual Costs).
-// Admin has global access; Owner and Operations (Brenda) see financials.
+// Internal money only — sellers don't see margin/cost data.
 const FINANCIAL_ROLES = new Set(['owner', 'operations', 'admin']);
+
+// Roles allowed to see the Estimate tab (what the client receives).
+// Sales needs this because the seller builds the estimate during the
+// visit; operations/owner/admin also see it for oversight.
+const ESTIMATE_ROLES = new Set(['sales', 'salesperson', 'owner', 'operations', 'admin']);
 
 // Roles allowed to see the Contact tab (send SMS / WhatsApp to subs + client).
 const CONTACT_ROLES = new Set(['manager', 'owner', 'operations', 'admin']);
@@ -77,6 +82,7 @@ export default function JobFullView({
   const [deleting, setDeleting] = useState(false);
 
   const canSeeFinancials = FINANCIAL_ROLES.has(user?.role);
+  const canSeeEstimate   = ESTIMATE_ROLES.has(user?.role);
   const canContact       = CONTACT_ROLES.has(user?.role);
 
   useEffect(() => {
@@ -173,10 +179,11 @@ export default function JobFullView({
 
   // Tab order (owner-requested):
   // Report → Estimate → Contact → Documents → Time → Financials → Phases → Daily Logs → Details
-  // Estimate & Financials are gated to Owner/Operations/Admin (canSeeFinancials).
+  // Estimate is visible to Sales (who builds it) + Owner/Ops/Admin.
+  // Financials (internal cost/margin) stays restricted to Owner/Ops/Admin.
   const TABS = [
     { id: 'report',    label: 'Report',     icon: Sparkles },
-    canSeeFinancials && { id: 'estimate',   label: 'Estimate',   icon: Receipt },
+    canSeeEstimate   && { id: 'estimate',   label: 'Estimate',   icon: Receipt },
     canContact       && { id: 'contact',    label: 'Contact',    icon: MessageSquare },
     { id: 'documents', label: 'Documents',  icon: FolderClosed },
     { id: 'time',      label: 'Time',       icon: Clock },
@@ -344,27 +351,30 @@ export default function JobFullView({
             <ContactSection job={job} user={user} />
           )}
 
-          {tab === 'estimate' && canSeeFinancials && (
+          {tab === 'estimate' && canSeeEstimate && (
             <div className="space-y-5">
-              {/* Cost Projection — AI, read-only reference */}
-              <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-                <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
-                  <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-omega-orange" /> Cost Projection
-                  </h2>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase tracking-wider">AI · one-time</span>
+              {/* Cost Projection — internal reference, hidden from sellers
+                  (cost/margin data stays in Finance roles only). */}
+              {canSeeFinancials && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+                  <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
+                    <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-omega-orange" /> Cost Projection
+                    </h2>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase tracking-wider">AI · one-time</span>
+                  </div>
+                  <p className="text-xs text-omega-stone mb-4">
+                    AI-generated cost breakdown from the questionnaire — use it as a reference while composing the estimate below.
+                  </p>
+                  <CostProjectionSection
+                    job={job}
+                    user={user}
+                    onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+                  />
                 </div>
-                <p className="text-xs text-omega-stone mb-4">
-                  AI-generated cost breakdown from the questionnaire — use it as a reference while composing the estimate below.
-                </p>
-                <CostProjectionSection
-                  job={job}
-                  user={user}
-                  onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-                />
-              </div>
+              )}
 
-              {/* Estimate builder */}
+              {/* Estimate builder — the thing the client actually sees */}
               <EstimateBuilder
                 job={job}
                 user={user}
