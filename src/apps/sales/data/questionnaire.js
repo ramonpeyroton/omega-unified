@@ -2,7 +2,9 @@
 // OMEGA — Smart conditional questionnaire
 // Each service defines an ORDERED list of questions. Questions with a
 // `showIf(answers)` predicate appear/disappear dynamically based on
-// earlier answers. The UI presents ONE visible question at a time.
+// earlier answers. The UI renders one SECTION at a time (every visible
+// question inside a `_section` marker on the same screen) so the seller
+// fills entire blocks at once instead of clicking "next" per field.
 // ════════════════════════════════════════════════════════════════════
 
 import {
@@ -29,31 +31,46 @@ export const SERVICES = [
 ];
 
 // ─── Question type reference ────────────────────────────────────────
-// { id, type, label, helper?, options?, unit?, placeholder?, showIf? }
+// { id, type, label, helper?, options?, unit?, placeholder?, showIf?,
+//   optional? }
 // - single     : large buttons, one choice — auto-advances on click
 // - multi      : large buttons, many choices — needs Continue
+// - select     : dropdown with many options
 // - dimensions : two number inputs (width x length) with unit
 // - number     : single number input
-// - text       : textarea
+// - text       : text input / textarea
 // ─────────────────────────────────────────────────────────────────────
-
-// Bathroom — shower exists if: no tub, OR tub removed
-const bathroomHasShower = (a) =>
-  a.bath_has_tub === 'no' ||
-  (a.bath_has_tub === 'yes' && a.bath_tub_action === 'remove');
 
 export const QUESTIONNAIRE_SCHEMAS = {
   // ─────────────────────────────────────────────────────────────────
-  // BATHROOM
+  // BATHROOM — rebuilt 2026-04-27 to mirror the field "ESTIMATE
+  // CHECKLIST" PDF. Questions are grouped into 10 blocks by similarity
+  // (sizes/demo, shower & tub, toilet, vanity, comfort, plumbing,
+  // lighting, tile, client-supplied, permit). Yes/No gates open optional
+  // detail fields so the seller never has to fill in details for a
+  // feature the client doesn't want.
   // ─────────────────────────────────────────────────────────────────
   bathroom: [
-    { _section: 'general', label: 'General Information' },
-    { id: 'bath_dims', type: 'dimensions', label: 'What are the bathroom dimensions?', unit: 'ft' },
-
-    { _section: 'bathtub', label: 'Bathtub' },
-    { id: 'bath_has_tub', type: 'single', label: 'Is there a bathtub today?',
+    { _section: 'overview', label: 'Project Overview & Demolition' },
+    { id: 'bath_dims', type: 'dimensions', label: 'Bathroom dimensions (L × W)', unit: 'ft' },
+    { id: 'bath_ceiling_height', type: 'number', label: 'Ceiling height (ft)', placeholder: 'e.g. 8', optional: true },
+    { id: 'bath_demo', type: 'single', label: 'Demolition scope',
+      options: [
+        { value: 'partial', label: 'Partial (shower / floor / vanity)' },
+        { value: 'full',    label: 'Full demolition' },
+        { value: 'none',    label: 'No demolition' },
+      ] },
+    { id: 'bath_demo_details', type: 'text', label: 'Demolition notes', optional: true,
+      placeholder: 'Specify which areas to demo',
+      showIf: (a) => a.bath_demo === 'partial' || a.bath_demo === 'full' },
+    { id: 'bath_layout_change', type: 'single', label: 'Change layout?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_layout_desc', type: 'text', label: 'Describe the layout change',
+      showIf: (a) => a.bath_layout_change === 'yes' },
 
+    { _section: 'shower_tub', label: 'Shower & Tub' },
+    { id: 'bath_has_tub', type: 'single', label: 'Existing bathtub?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
     { id: 'bath_tub_action', type: 'single', label: 'What to do with the bathtub?',
       options: [
         { value: 'keep',     label: 'Keep' },
@@ -61,571 +78,485 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'remove',   label: 'Remove' },
       ],
       showIf: (a) => a.bath_has_tub === 'yes' },
-
-    { id: 'bath_tub_replace', type: 'single', label: 'Convert to walk-in shower or shower only?',
-      options: [
-        { value: 'walk_in', label: 'Walk-in Shower' },
-        { value: 'shower',  label: 'Shower only' },
-      ],
-      showIf: (a) => a.bath_has_tub === 'yes' && a.bath_tub_action === 'remove' },
-
-    // Shower group (visible when there will be a shower)
-    { _section: 'shower', label: 'Shower' },
+    { id: 'bath_tub_size', type: 'text', label: 'Bathtub size', optional: true,
+      placeholder: 'e.g. 60 × 30 alcove',
+      showIf: (a) => a.bath_has_tub === 'yes' && a.bath_tub_action !== 'remove' },
+    { id: 'bath_freestanding_tub', type: 'single', label: 'Free-standing tub?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_freestanding_tub_specs', type: 'text', label: 'Free-standing tub size & location',
+      placeholder: 'e.g. 60 × 30, center wall',
+      showIf: (a) => a.bath_freestanding_tub === 'yes' },
+    { id: 'bath_has_shower', type: 'single', label: 'Will there be a shower?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
     { id: 'bath_shower_dims', type: 'dimensions', label: 'Shower size', unit: 'ft',
-      showIf: bathroomHasShower },
-
-    { id: 'bath_drain', type: 'single', label: 'Drain position',
-      options: [
-        { value: 'center',        label: 'Center' },
-        { value: 'linear_wall',   label: 'Linear — against wall' },
-        { value: 'corner',        label: 'Corner' },
-      ],
-      showIf: bathroomHasShower },
-
-    { id: 'bath_shower_tile', type: 'single', label: 'Shower tile material',
+      showIf: (a) => a.bath_has_shower === 'yes' },
+    { id: 'bath_shower_material', type: 'single', label: 'Shower wall material',
       options: [
         { value: 'porcelain',     label: 'Porcelain' },
         { value: 'ceramic',       label: 'Ceramic' },
-        { value: 'natural_stone', label: 'Natural Stone' },
-        { value: 'large_format',  label: 'Large Format' },
+        { value: 'natural_stone', label: 'Natural stone' },
+        { value: 'large_format',  label: 'Large format' },
       ],
-      showIf: bathroomHasShower },
-
-    { id: 'bath_tile_height', type: 'single', label: 'Wall tile height',
+      showIf: (a) => a.bath_has_shower === 'yes' },
+    { id: 'bath_shower_curb_type', type: 'single', label: 'Curb or curbless?',
       options: [
-        { value: '4ft',         label: '4 ft' },
-        { value: 'full_height', label: 'Full height' },
-        { value: 'ceiling',     label: 'Up to ceiling' },
+        { value: 'curb',     label: 'With curb' },
+        { value: 'curbless', label: 'Curbless' },
       ],
-      showIf: bathroomHasShower },
-
-    { id: 'bath_niche', type: 'single', label: 'Built-in niche?',
+      showIf: (a) => a.bath_has_shower === 'yes' },
+    { id: 'bath_shower_curb_specs', type: 'text', label: 'Curb dimensions & material',
+      placeholder: 'e.g. 60" × 6", marble',
+      showIf: (a) => a.bath_has_shower === 'yes' && a.bath_shower_curb_type === 'curb' },
+    { id: 'bath_drain', type: 'single', label: 'Drain position',
       options: [
-        { value: 'none', label: 'None' },
-        { value: 'one',  label: '1 niche' },
-        { value: 'two',  label: '2 niches' },
+        { value: 'center',      label: 'Center' },
+        { value: 'linear_wall', label: 'Linear — against wall' },
+        { value: 'corner',      label: 'Corner' },
       ],
-      showIf: bathroomHasShower },
-
-    { id: 'bath_glass', type: 'single', label: 'Glass enclosure?',
+      showIf: (a) => a.bath_has_shower === 'yes' },
+    { id: 'bath_glass', type: 'single', label: 'Glass enclosure',
       options: [
         { value: 'frameless',      label: 'Frameless' },
         { value: 'semi_frameless', label: 'Semi-frameless' },
         { value: 'curtain',        label: 'Curtain' },
+        { value: 'none',           label: 'None' },
       ],
-      showIf: bathroomHasShower },
+      showIf: (a) => a.bath_has_shower === 'yes' },
 
-    { id: 'bath_bench', type: 'single', label: 'Built-in bench?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }],
-      showIf: bathroomHasShower },
+    { _section: 'toilet', label: 'Toilet & Bidet' },
+    { id: 'bath_toilet_action', type: 'single', label: 'Toilet',
+      options: [
+        { value: 'keep',     label: 'Keep' },
+        { value: 'replace',  label: 'Replace' },
+        { value: 'relocate', label: 'Relocate (check joist position)' },
+      ] },
+    { id: 'bath_toilet_specs', type: 'text', label: 'Toilet model & location notes', optional: true,
+      placeholder: 'Brand/model and where it goes',
+      showIf: (a) => a.bath_toilet_action === 'replace' || a.bath_toilet_action === 'relocate' },
+    { id: 'bath_bidet', type: 'single', label: 'Bidet?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_bidet_specs', type: 'text', label: 'Bidet location, model & distance from electric panel',
+      showIf: (a) => a.bath_bidet === 'yes' },
 
-    // Vanity
-    { _section: 'vanity', label: 'Vanity' },
-    { id: 'bath_vanity', type: 'single', label: 'Vanity',
+    { _section: 'vanity_cabinetry', label: 'Vanity & Cabinetry' },
+    { id: 'bath_vanity_action', type: 'single', label: 'Vanity',
       options: [
         { value: 'keep',     label: 'Keep' },
         { value: 'refinish', label: 'Refinish' },
         { value: 'replace',  label: 'Replace' },
       ] },
-
-    { id: 'bath_vanity_sink', type: 'single', label: 'Single or double sink?',
+    { id: 'bath_vanity_type', type: 'single', label: 'Single or double sink?',
       options: [{ value: 'single', label: 'Single' }, { value: 'double', label: 'Double' }],
-      showIf: (a) => a.bath_vanity === 'replace' },
-
-    { id: 'bath_vanity_style', type: 'single', label: 'Vanity style',
-      options: [
-        { value: 'freestanding', label: 'Freestanding' },
-        { value: 'floating',     label: 'Floating / wall-mount' },
-        { value: 'built_in',     label: 'Built-in' },
-      ],
-      showIf: (a) => a.bath_vanity === 'replace' },
-
-    // Toilet
-    { _section: 'toilet', label: 'Toilet' },
-    { id: 'bath_toilet', type: 'single', label: 'Toilet',
-      options: [{ value: 'keep', label: 'Keep' }, { value: 'replace', label: 'Replace' }] },
-
-    // Floor
-    { _section: 'floor', label: 'Floor' },
-    { id: 'bath_floor', type: 'single', label: 'Floor',
-      options: [{ value: 'keep', label: 'Keep' }, { value: 'replace', label: 'Replace' }] },
-
-    { id: 'bath_floor_material', type: 'single', label: 'Floor material',
-      options: [
-        { value: 'porcelain',     label: 'Porcelain' },
-        { value: 'ceramic',       label: 'Ceramic' },
-        { value: 'natural_stone', label: 'Natural Stone' },
-        { value: 'lvp',           label: 'LVP' },
-      ],
-      showIf: (a) => a.bath_floor === 'replace' },
-
-    { id: 'bath_heated_floor', type: 'single', label: 'Heated floor?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }],
-      showIf: (a) => a.bath_floor === 'replace' },
-
-    // Lighting
-    { _section: 'lighting', label: 'Lighting' },
-    { id: 'bath_lighting', type: 'single', label: 'Lighting',
-      options: [{ value: 'keep', label: 'Keep' }, { value: 'update', label: 'Update' }] },
-
-    { id: 'bath_recessed', type: 'single', label: 'Recessed lights?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }],
-      showIf: (a) => a.bath_lighting === 'update' },
-
-    { id: 'bath_vanity_light', type: 'single', label: 'Vanity light?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }],
-      showIf: (a) => a.bath_lighting === 'update' },
-
-    // Window
-    { _section: 'window', label: 'Window' },
-    { id: 'bath_has_window', type: 'single', label: 'Is there a window?',
+      showIf: (a) => a.bath_vanity_action === 'replace' },
+    { id: 'bath_vanity_size', type: 'text', label: 'Vanity size & style', optional: true,
+      placeholder: 'e.g. 36" floating, 60" freestanding',
+      showIf: (a) => a.bath_vanity_action === 'replace' },
+    { id: 'bath_electric_vanity', type: 'single', label: 'Electric vanity?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_electric_vanity_specs', type: 'text', label: 'Electric vanity size & specs',
+      showIf: (a) => a.bath_electric_vanity === 'yes' },
+    { id: 'bath_electric_towel_rack', type: 'single', label: 'Electric towel rack?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_electric_towel_rack_specs', type: 'text', label: 'Towel rack size & specs',
+      showIf: (a) => a.bath_electric_towel_rack === 'yes' },
+    { id: 'bath_medicine_cabinet', type: 'single', label: 'Medicine cabinet',
+      options: [
+        { value: 'recessed', label: 'Recessed' },
+        { value: 'surface',  label: 'Surface mount' },
+        { value: 'electric', label: 'Electric' },
+        { value: 'none',     label: 'None' },
+      ] },
 
-    { id: 'bath_window_action', type: 'single', label: 'Keep or replace the window?',
-      options: [{ value: 'keep', label: 'Keep' }, { value: 'replace', label: 'Replace' }],
-      showIf: (a) => a.bath_has_window === 'yes' },
+    { _section: 'comfort', label: 'Comfort & Ventilation' },
+    { id: 'bath_exhaust_fan', type: 'single', label: 'Exhaust fan',
+      options: [
+        { value: 'replace', label: 'Replace existing' },
+        { value: 'add',     label: 'Add new (check vent location)' },
+        { value: 'keep',    label: 'Keep existing' },
+      ] },
+    { id: 'bath_exhaust_fan_specs', type: 'text', label: 'Exhaust fan model & location',
+      showIf: (a) => a.bath_exhaust_fan === 'replace' || a.bath_exhaust_fan === 'add' },
+    { id: 'bath_heated_floor', type: 'single', label: 'Heated floor?',
+      options: [
+        { value: 'electric', label: 'Yes — Electric' },
+        { value: 'hydronic', label: 'Yes — Hydronic' },
+        { value: 'no',       label: 'No' },
+      ] },
+    { id: 'bath_heated_floor_dims', type: 'text', label: 'Heated floor area (sqft)',
+      showIf: (a) => a.bath_heated_floor === 'electric' || a.bath_heated_floor === 'hydronic' },
+    { id: 'bath_steam_shower', type: 'single', label: 'Steam shower?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_steam_shower_specs', type: 'text', label: 'Steam shower location, room size & model',
+      showIf: (a) => a.bath_steam_shower === 'yes' },
 
-    // Demo
-    { _section: 'demo', label: 'Demolition' },
-    { id: 'bath_demo', type: 'single', label: 'Demo scope',
-      options: [{ value: 'full', label: 'Full demo' }, { value: 'partial', label: 'Partial demo' }] },
+    { _section: 'plumbing', label: 'Plumbing & Fixtures' },
+    { id: 'bath_plumbing_reconfig', type: 'single', label: 'Plumbing reconfiguration?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_plumbing_reconfig_desc', type: 'text', label: 'Describe plumbing changes',
+      showIf: (a) => a.bath_plumbing_reconfig === 'yes' },
+    { id: 'bath_shower_valve', type: 'single', label: 'Shower valve replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_shower_valve_specs', type: 'text', label: 'Shower valve model, jets & location',
+      showIf: (a) => a.bath_shower_valve === 'yes' },
+    { id: 'bath_shower_head', type: 'text', label: 'Shower head — describe location', optional: true },
+    { id: 'bath_rain_shower', type: 'single', label: 'Rain shower?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_rain_shower_specs', type: 'text', label: 'Rain shower location & quantity',
+      showIf: (a) => a.bath_rain_shower === 'yes' },
+    { id: 'bath_handheld', type: 'single', label: 'Hand held shower?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_handheld_specs', type: 'text', label: 'Hand held location & quantity',
+      showIf: (a) => a.bath_handheld === 'yes' },
+    { id: 'bath_water_valve', type: 'single', label: 'Water valve replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_water_valve_model', type: 'text', label: 'Water valve model',
+      showIf: (a) => a.bath_water_valve === 'yes' },
 
-    { id: 'bath_demo_details', type: 'text', label: 'Specify which areas to demo',
-      placeholder: 'e.g. tile only, fixtures, remove ceiling, etc.',
-      showIf: (a) => a.bath_demo === 'partial' },
+    { _section: 'lighting', label: 'Lighting & Electrical' },
+    { id: 'bath_shower_led', type: 'single', label: 'Shower LED light (in niche)?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_led_mirror', type: 'single', label: 'LED (electric) mirror?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_led_mirror_specs', type: 'text', label: 'Mirror size & model',
+      showIf: (a) => a.bath_led_mirror === 'yes' },
+    { id: 'bath_sconces', type: 'single', label: 'Sconces?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_sconces_specs', type: 'text', label: 'Sconces location & quantity',
+      showIf: (a) => a.bath_sconces === 'yes' },
+    { id: 'bath_lighting_replace', type: 'single', label: 'General lighting replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_lighting_specs', type: 'text', label: 'Lighting size & model',
+      showIf: (a) => a.bath_lighting_replace === 'yes' },
+    { id: 'bath_additional_lights', type: 'single', label: 'Any additional light fixtures?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_outlets_switches', type: 'single', label: 'Update outlets / switches?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_outlets_model', type: 'text', label: 'Outlets / switches model',
+      showIf: (a) => a.bath_outlets_switches === 'yes' },
+    { id: 'bath_baseboard_heater', type: 'single', label: 'Baseboard heater cover?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_baseboard_heater_specs', type: 'text', label: 'Baseboard heater size & model',
+      showIf: (a) => a.bath_baseboard_heater === 'yes' },
+    { id: 'bath_panel_capacity', type: 'single', label: 'Panel capacity',
+      options: [
+        { value: '100',    label: '100 Amp' },
+        { value: '200',    label: '200 Amp' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
 
-    // Permit
-    { _section: 'permit', label: 'Permit' },
+    { _section: 'tile_finishes', label: 'Tile, Niche & Bench' },
+    { id: 'bath_tile_material', type: 'text', label: 'Tile material',
+      placeholder: 'e.g. Porcelain 12 × 24, ceramic subway' },
+    { id: 'bath_tile_size_pattern', type: 'text', label: 'Tile size & pattern',
+      placeholder: 'e.g. 12 × 24 stacked vertical, herringbone' },
+    { id: 'bath_tile_height', type: 'single', label: 'Wall tile height',
+      options: [
+        { value: '4ft',         label: '4 ft' },
+        { value: 'full_height', label: 'Full height' },
+        { value: 'ceiling',     label: 'Up to ceiling' },
+      ] },
+    { id: 'bath_niche', type: 'single', label: 'Niche?',
+      options: [
+        { value: 'none', label: 'None' },
+        { value: 'one',  label: '1 niche' },
+        { value: 'two',  label: '2 niches' },
+      ] },
+    { id: 'bath_niche_specs', type: 'text', label: 'Niche location & size (min 12" tall to fit shampoo bottle)',
+      showIf: (a) => a.bath_niche === 'one' || a.bath_niche === 'two' },
+    { id: 'bath_bench', type: 'single', label: 'Built-in bench?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'bath_bench_specs', type: 'text', label: 'Bench location & size',
+      showIf: (a) => a.bath_bench === 'yes' },
+
+    { _section: 'client_supplied', label: 'Client-Supplied Items' },
+    { id: 'bath_client_buys', type: 'multi',
+      label: 'Items the client must purchase (Omega does NOT supply)',
+      helper: 'Check every one that applies to this job',
+      options: [
+        { value: 'vanity',             label: 'Vanity' },
+        { value: 'faucet',             label: 'Faucet' },
+        { value: 'toilet',             label: 'Toilet' },
+        { value: 'bathtub',            label: 'Bathtub' },
+        { value: 'freestanding_tub',   label: 'Free-standing tub' },
+        { value: 'shower_valve',       label: 'Shower valve' },
+        { value: 'hand_held',          label: 'Hand held' },
+        { value: 'shower_head',        label: 'Shower head' },
+        { value: 'rain_shower',        label: 'Rain shower' },
+        { value: 'shower_trims',       label: 'Shower trims' },
+        { value: 'sconces',            label: 'Sconces' },
+        { value: 'pendants',           label: 'Pendants' },
+        { value: 'exhaust_fan',        label: 'Exhaust fan' },
+        { value: 'tile',               label: 'Tile' },
+        { value: 'tile_nose',          label: 'Tile nose' },
+        { value: 'grout_silicone',     label: 'Grout & silicone (bought with tile)' },
+        { value: 'stone_niche',        label: 'Stone for niche' },
+        { value: 'stone_curb',         label: 'Stone for curb' },
+        { value: 'water_valve_finish', label: 'Water valve (if black/bronze/brass)' },
+        { value: 'custom_finish',      label: 'Any other custom finish' },
+      ] },
+
+    { _section: 'permit_extras', label: 'Permit & Extras' },
     { id: 'bath_permit', type: 'single', label: 'Permit',
       options: [
         { value: 'have',   label: 'Already have' },
         { value: 'need',   label: 'Need to get' },
         { value: 'unsure', label: "Don't know" },
       ] },
+    { id: 'bath_other_request', type: 'text', label: 'Any other request?', optional: true,
+      placeholder: 'Anything special the client mentioned' },
   ],
 
   // ─────────────────────────────────────────────────────────────────
-  // KITCHEN
-  // Follows the detailed scope-spec the owner provided: General → Cabinetry
-  // → Relocations → Fixtures → Finishes → Appliances → Lighting → Client
-  // Purchasing → Permits → Additional Requests. IDs are stable keys; every
-  // "location / describe" field is gated by a prior Y/N so the report stays
-  // clean when the feature isn't in scope.
+  // KITCHEN — rebuilt 2026-04-27 to mirror the field "ESTIMATE
+  // CHECKLIST" PDF. Blocks: overview, cabinetry & countertop,
+  // plumbing & gas, appliances, windows & doors, lighting, finishes,
+  // client-supplied, permit/budget. Cabinet brand cascade (FGM /
+  // Fabuwood) is preserved from the previous schema.
   // ─────────────────────────────────────────────────────────────────
   kitchen: [
-    // Section markers (`_section`) group subsequent questions into one
-    // scrollable page. The UI renders every visible question inside a
-    // section together; conditional follow-ups appear inline below the
-    // question that triggers them.
-
-    { _section: 'general', label: 'General Information' },
-    { id: 'kitchen_dims', type: 'dimensions', label: 'Kitchen dimensions (L x W)', unit: 'ft' },
+    { _section: 'overview', label: 'Project Overview & Demolition' },
+    { id: 'kitchen_dims', type: 'dimensions', label: 'Kitchen dimensions (L × W)', unit: 'ft' },
     { id: 'kitchen_ceiling_height', type: 'number', label: 'Ceiling height (ft)', placeholder: 'e.g. 8' },
-
     { id: 'kitchen_demo', type: 'single', label: 'Demolition',
       options: [
         { value: 'none',    label: 'No demolition' },
         { value: 'partial', label: 'Partial demolition' },
         { value: 'full',    label: 'Full demolition' },
       ] },
-    // Auto-open an observation box as soon as partial or full is picked —
-    // the seller almost always has context to capture there.
     { id: 'kitchen_demo_notes', type: 'text', label: 'Demolition notes', optional: true,
-      placeholder: 'What exactly is being demolished (walls, cabinets, floor, etc.)',
+      placeholder: 'What exactly is being demolished',
       showIf: (a) => a.kitchen_demo === 'partial' || a.kitchen_demo === 'full' },
-
-    { id: 'kitchen_layout', type: 'single', label: 'Layout changes',
+    { id: 'kitchen_layout', type: 'single', label: 'Layout',
       options: [
-        { value: 'keep',   label: 'Same layout' },
+        { value: 'keep',   label: 'Same layout (get pictures with each cabinet dimension)' },
         { value: 'change', label: 'Change layout' },
       ] },
     { id: 'kitchen_layout_desc', type: 'text', label: 'Describe the layout change',
-      placeholder: 'What walls move, where does the island go, etc.',
       showIf: (a) => a.kitchen_layout === 'change' },
 
-    { _section: 'cabinetry', label: 'Cabinetry' },
-    // Cascade: Brand → Series/Collection → Line (Fabuwood only) → Color.
-    // Options are resolved dynamically from cabinetCatalog.js. Picking a
-    // brand unlocks the next step; picking "Custom / Other" jumps to a
-    // free-text field so rare brands aren't blocked by the catalog.
+    { _section: 'cabinetry', label: 'Cabinets & Countertop' },
+    // Brand cascade preserved: brand → series → line (Fabuwood) → color.
     { id: 'kitchen_cabinet_brand', type: 'single', label: 'Cabinet manufacturer',
       options: brandOptions },
-
     { id: 'kitchen_cabinet_custom_brand', type: 'text', label: 'Custom manufacturer / line',
       placeholder: 'Brand, line and color (e.g. KraftMaid Vantage, Dove White)',
       showIf: (a) => a.kitchen_cabinet_brand === 'custom' },
-
     { id: 'kitchen_cabinet_series', type: 'single', label: 'Series / Collection',
       options: (a) => seriesOptionsFor(a.kitchen_cabinet_brand),
       showIf: (a) => a.kitchen_cabinet_brand === 'fgm' || a.kitchen_cabinet_brand === 'fabuwood' },
-
     { id: 'kitchen_cabinet_line', type: 'single', label: 'Line',
       options: (a) => lineOptionsFor(a.kitchen_cabinet_brand, a.kitchen_cabinet_series),
       showIf: (a) => needsLineQuestion(a) },
-
     { id: 'kitchen_cabinet_color', type: 'select', label: 'Cabinet color / finish',
       placeholder: 'Pick a color',
       options: (a) => colorOptionsFor(a.kitchen_cabinet_brand, a.kitchen_cabinet_series, a.kitchen_cabinet_line),
-      // Show only once we have enough context:
-      //   - FGM needs brand + series
-      //   - Fabuwood needs brand + series + line
       showIf: (a) => {
         if (a.kitchen_cabinet_brand === 'fgm')      return !!a.kitchen_cabinet_series;
         if (a.kitchen_cabinet_brand === 'fabuwood') return !!a.kitchen_cabinet_series && !!a.kitchen_cabinet_line;
         return false;
       } },
-
-    { id: 'kitchen_wall_cabinet_height', type: 'select', label: 'Wall cabinet height',
-      placeholder: 'Pick a height',
-      options: [
-        { value: '30', label: '30"' },
-        { value: '36', label: '36"' },
-        { value: '42', label: '42"' },
-        { value: '48', label: '48"' },
-        { value: 'custom', label: 'Custom' },
-      ] },
-    { id: 'kitchen_wall_cabinet_height_custom', type: 'text', label: 'Custom wall cabinet height',
-      placeholder: 'e.g. 39"',
-      showIf: (a) => a.kitchen_wall_cabinet_height === 'custom' },
-
-    { id: 'kitchen_cabinet_total_height', type: 'text', label: 'Total installed height (floor → top of cabinet)',
-      placeholder: 'e.g. 96" to top of crown' },
-
-    { id: 'kitchen_soffit', type: 'single', label: 'Soffit',
-      options: [
-        { value: 'keep',   label: 'Keep existing soffit' },
-        { value: 'build',  label: 'Build new soffit' },
-        { value: 'none',   label: 'No soffit' },
-      ] },
-
-    { id: 'kitchen_cabinet_custom', type: 'text', label: 'Custom features / dimensions (optional)', optional: true,
-      placeholder: 'Soft-close, pull-outs, specific heights, extended uppers, etc.' },
-
-    { _section: 'relocations', label: 'Relocations & Installations' },
-    // Shape: every item is gated by a Y/N. Only if "Yes" we open:
-    //   1) an "action" question (new install / replace existing / relocate)
-    //   2) a location text
-    //   3) an optional notes text (seller can explain anything unusual)
-    // The block opens with the Appliances flow — if the client is changing
-    // any appliances, dropdowns collect the new sizes quickly.
-
-    // New appliances first
-    { id: 'kitchen_appliances_change', type: 'single', label: 'Changing any appliances?',
+    { id: 'kitchen_cabinet_dims', type: 'text', label: 'Cabinet dimensions',
+      placeholder: 'Linear ft, configuration, custom heights' },
+    { id: 'kitchen_countertop_material', type: 'text', label: 'Countertop material',
+      placeholder: 'Quartz / granite / marble / butcher block' },
+    { id: 'kitchen_countertop_dims', type: 'text', label: 'Countertop dimensions',
+      placeholder: 'Linear ft, seam locations, waterfall edges' },
+    { id: 'kitchen_insulation', type: 'single', label: 'Insulation needed?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_insulation_dims', type: 'text', label: 'Insulation dimensions',
+      showIf: (a) => a.kitchen_insulation === 'yes' },
 
-    // Every appliance dropdown: 1st option = Keep existing,
-    // last option = Custom → opens a text field for manual size.
+    { _section: 'plumbing_gas', label: 'Plumbing & Gas' },
+    { id: 'kitchen_sink_action', type: 'single', label: 'Sink',
+      options: [
+        { value: 'keep',     label: 'Keep existing' },
+        { value: 'replace',  label: 'Replace' },
+        { value: 'relocate', label: 'Relocate (check access below)' },
+      ] },
+    { id: 'kitchen_sink_specs', type: 'text', label: 'Sink material, size & style',
+      placeholder: 'e.g. 30" undermount stainless',
+      showIf: (a) => a.kitchen_sink_action === 'replace' || a.kitchen_sink_action === 'relocate' },
+    { id: 'kitchen_sink_loc', type: 'text', label: 'Sink location',
+      showIf: (a) => a.kitchen_sink_action === 'relocate' },
+    { id: 'kitchen_pot_filler', type: 'single', label: 'Pot filler?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_pot_filler_loc', type: 'text', label: 'Pot filler location',
+      showIf: (a) => a.kitchen_pot_filler === 'yes' },
+    { id: 'kitchen_gas_action', type: 'single', label: 'Gas line',
+      options: [
+        { value: 'none',     label: 'Not applicable' },
+        { value: 'keep',     label: 'Keep existing' },
+        { value: 'install',  label: 'New installation (check access below)' },
+        { value: 'relocate', label: 'Relocate (check access below)' },
+      ] },
+    { id: 'kitchen_gas_loc', type: 'text', label: 'Gas line location',
+      showIf: (a) => a.kitchen_gas_action === 'install' || a.kitchen_gas_action === 'relocate' },
+    { id: 'kitchen_hood_action', type: 'single', label: 'Hood',
+      options: [
+        { value: 'keep',     label: 'Keep existing' },
+        { value: 'install',  label: 'New installation (check outside area)' },
+        { value: 'relocate', label: 'Relocate' },
+      ] },
+    { id: 'kitchen_hood_loc', type: 'text', label: 'Hood location',
+      showIf: (a) => a.kitchen_hood_action === 'install' || a.kitchen_hood_action === 'relocate' },
+    { id: 'kitchen_instant_hot', type: 'single', label: 'Instant hot water tank?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_instant_hot_specs', type: 'text', label: 'Instant hot water specs & location',
+      showIf: (a) => a.kitchen_instant_hot === 'yes' },
 
-    { id: 'kitchen_new_fridge', type: 'select', label: 'Refrigerator',
+    { _section: 'appliances', label: 'Appliances' },
+    { id: 'kitchen_microwave', type: 'select', label: 'Microwave',
       placeholder: 'Pick an option',
       options: [
-        { value: 'keep',    label: 'Keep existing refrigerator' },
-        { value: '24',      label: '24" (counter depth / small)' },
-        { value: '30',      label: '30"' },
-        { value: '33',      label: '33"' },
-        { value: '36',      label: '36"' },
-        { value: '42',      label: '42"' },
-        { value: '48',      label: '48"' },
-        { value: 'builtin', label: 'Built-in / panel-ready' },
-        { value: 'custom',  label: 'Custom (enter size)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_fridge_custom', type: 'text', label: 'Refrigerator custom size',
-      placeholder: 'e.g. 38" wide, panel-ready',
-      showIf: (a) => a.kitchen_new_fridge === 'custom' },
-
-    { id: 'kitchen_new_range', type: 'select', label: 'Range / stove',
-      placeholder: 'Pick an option',
-      options: [
-        { value: 'keep',   label: 'Keep existing range' },
-        { value: '24',     label: '24"' },
-        { value: '30',     label: '30"' },
-        { value: '36',     label: '36"' },
-        { value: '48',     label: '48"' },
-        { value: 'custom', label: 'Custom (enter size)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_range_custom', type: 'text', label: 'Range custom size',
-      placeholder: 'e.g. 60" pro-style',
-      showIf: (a) => a.kitchen_new_range === 'custom' },
-
-    { id: 'kitchen_new_hood', type: 'select', label: 'Hood',
-      placeholder: 'Pick an option',
-      options: [
-        { value: 'keep',            label: 'Keep existing hood' },
-        { value: 'under_30',        label: 'Under-cabinet 30"' },
-        { value: 'under_36',        label: 'Under-cabinet 36"' },
-        { value: 'wall_30',         label: 'Wall-mount 30"' },
-        { value: 'wall_36',         label: 'Wall-mount 36"' },
-        { value: 'wall_48',         label: 'Wall-mount 48"' },
-        { value: 'island_36',       label: 'Island 36"' },
-        { value: 'island_48',       label: 'Island 48"' },
-        { value: 'insert',          label: 'Custom insert / liner' },
-        { value: 'microwave_combo', label: 'Microwave combo (OTR)' },
-        { value: 'custom',          label: 'Custom (enter spec)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_hood_custom', type: 'text', label: 'Hood custom spec',
-      placeholder: 'e.g. 48" chimney, 1000 CFM',
-      showIf: (a) => a.kitchen_new_hood === 'custom' },
-
-    { id: 'kitchen_new_microwave', type: 'select', label: 'Microwave',
-      placeholder: 'Pick an option',
-      options: [
-        { value: 'keep',       label: 'Keep existing microwave' },
+        { value: 'keep',       label: 'Keep existing' },
         { value: 'none',       label: 'No microwave' },
         { value: 'otr',        label: 'Over-the-range (OTR)' },
         { value: 'builtin',    label: 'Built-in (trim kit)' },
         { value: 'drawer',     label: 'Drawer microwave' },
         { value: 'countertop', label: 'Countertop' },
-        { value: 'custom',     label: 'Custom (enter spec)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_microwave_custom', type: 'text', label: 'Microwave custom spec',
-      placeholder: 'Model, size, etc.',
-      showIf: (a) => a.kitchen_new_microwave === 'custom' },
-
-    { id: 'kitchen_new_oven', type: 'select', label: 'Wall oven',
-      placeholder: 'Pick an option',
-      options: [
-        { value: 'keep',        label: 'Keep existing oven' },
-        { value: 'none',        label: 'No separate wall oven' },
-        { value: 'single_24',   label: 'Single 24"' },
-        { value: 'single_27',   label: 'Single 27"' },
-        { value: 'single_30',   label: 'Single 30"' },
-        { value: 'double_27',   label: 'Double 27"' },
-        { value: 'double_30',   label: 'Double 30"' },
-        { value: 'combo_steam', label: 'Combo / steam oven' },
-        { value: 'custom',      label: 'Custom (enter spec)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_oven_custom', type: 'text', label: 'Oven custom spec',
-      placeholder: 'e.g. 36" double wall oven',
-      showIf: (a) => a.kitchen_new_oven === 'custom' },
-
-    // Sink lives in the Appliances block — the seller picks the model,
-    // the size, and can add notes. Gated by "Changing appliances?" so
-    // the block only expands when something is actually being swapped.
-    { id: 'kitchen_new_sink_model', type: 'select', label: 'Sink model',
-      placeholder: 'Pick an option',
-      options: [
-        { value: 'keep',       label: 'Keep existing sink' },
-        { value: 'top_mount',  label: 'Top-mount (drop-in)' },
-        { value: 'under_mount',label: 'Under-mount' },
-        { value: 'farmhouse',  label: 'Farmhouse / apron-front (farm sink)' },
-        { value: 'workstation',label: 'Integrated / workstation' },
-        { value: 'bar',        label: 'Bar / prep sink (secondary)' },
-        { value: 'custom',     label: 'Custom (enter spec)' },
-      ],
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-    { id: 'kitchen_new_sink_custom', type: 'text', label: 'Sink custom spec',
-      placeholder: 'Material, finish, brand, etc.',
-      showIf: (a) => a.kitchen_new_sink_model === 'custom' },
-    { id: 'kitchen_new_sink_size', type: 'text', label: 'Sink size',
-      placeholder: 'e.g. 30" single bowl, 33" double bowl',
-      showIf: (a) => a.kitchen_appliances_change === 'yes' && a.kitchen_new_sink_model && a.kitchen_new_sink_model !== 'keep' },
-    { id: 'kitchen_new_sink_notes', type: 'text', label: 'Sink notes (optional)', optional: true,
-      placeholder: 'Garbage disposal, instant hot, special faucet, etc.',
-      showIf: (a) => a.kitchen_appliances_change === 'yes' && a.kitchen_new_sink_model && a.kitchen_new_sink_model !== 'keep' },
-
-    { id: 'kitchen_appliances_notes', type: 'text', label: 'Appliance notes (optional)', optional: true,
-      placeholder: 'Brand, color, panel-ready, delivery timing, etc.',
-      showIf: (a) => a.kitchen_appliances_change === 'yes' },
-
-    // Hood work
-    { id: 'kitchen_hood_work', type: 'single', label: 'Any hood work?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_hood_action', type: 'single', label: 'Hood — what kind of work?',
-      options: [
-        { value: 'new',     label: 'New installation (from scratch)' },
-        { value: 'replace', label: 'Replace existing hood' },
-        { value: 'relocate', label: 'Relocate existing hood' },
-      ],
-      showIf: (a) => a.kitchen_hood_work === 'yes' },
-    { id: 'kitchen_hood_work_loc', type: 'text', label: 'Hood location',
-      placeholder: 'Over range / island / wall',
-      showIf: (a) => a.kitchen_hood_work === 'yes' },
-    { id: 'kitchen_hood_work_notes', type: 'text', label: 'Hood notes (optional)', optional: true,
-      placeholder: 'Venting path, ceiling condition, anything unusual',
-      showIf: (a) => a.kitchen_hood_work === 'yes' },
-
-    // Gas line work
-    { id: 'kitchen_gas_work', type: 'single', label: 'Any gas line work?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_gas_action', type: 'single', label: 'Gas line — what kind of work?',
-      options: [
-        { value: 'new',      label: 'New gas line (from scratch)' },
-        { value: 'replace',  label: 'Replace existing line' },
-        { value: 'relocate', label: 'Relocate existing line' },
-      ],
-      showIf: (a) => a.kitchen_gas_work === 'yes' },
-    { id: 'kitchen_gas_work_loc', type: 'text', label: 'Gas line location',
-      showIf: (a) => a.kitchen_gas_work === 'yes' },
-    { id: 'kitchen_gas_work_notes', type: 'text', label: 'Gas line notes (optional)', optional: true,
-      placeholder: 'Distance from main, permit status, etc.',
-      showIf: (a) => a.kitchen_gas_work === 'yes' },
-
-    // Sink work
-    { id: 'kitchen_sink_work', type: 'single', label: 'Any sink plumbing work?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_sink_action', type: 'single', label: 'Sink — what kind of work?',
-      options: [
-        { value: 'new',      label: 'New installation (from scratch)' },
-        { value: 'replace',  label: 'Replace existing sink' },
-        { value: 'relocate', label: 'Relocate existing sink' },
-      ],
-      showIf: (a) => a.kitchen_sink_work === 'yes' },
-    { id: 'kitchen_sink_work_loc', type: 'text', label: 'Sink location',
-      placeholder: 'Under window / island / back wall',
-      showIf: (a) => a.kitchen_sink_work === 'yes' },
-    { id: 'kitchen_sink_work_notes', type: 'text', label: 'Sink notes (optional)', optional: true,
-      placeholder: 'Drain line move, garbage disposal, etc.',
-      showIf: (a) => a.kitchen_sink_work === 'yes' },
-
-    // Window work
-    { id: 'kitchen_window_work', type: 'single', label: 'Any window work?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_window_action', type: 'single', label: 'Window — what kind of work?',
-      options: [
-        { value: 'new',      label: 'New window (from scratch)' },
-        { value: 'replace',  label: 'Replace existing window' },
-        { value: 'relocate', label: 'Relocate / resize existing window' },
-      ],
-      showIf: (a) => a.kitchen_window_work === 'yes' },
-    { id: 'kitchen_window_work_loc', type: 'text', label: 'Window location',
-      showIf: (a) => a.kitchen_window_work === 'yes' },
-    { id: 'kitchen_window_work_notes', type: 'text', label: 'Window notes (optional)', optional: true,
-      placeholder: 'Rough opening size, header condition, trim match, etc.',
-      showIf: (a) => a.kitchen_window_work === 'yes' },
-
-    // Electrical
-    { id: 'kitchen_electrical_changes', type: 'single', label: 'Electrical / wiring changes?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_electrical_changes_desc', type: 'text', label: 'Electrical / wiring scope',
-      placeholder: 'New circuits, panel upgrade, dedicated lines…',
-      showIf: (a) => a.kitchen_electrical_changes === 'yes' },
-
-    // (Standalone Sink section removed — sink model/size/notes now live
-    // in the Appliances section so everything about a new sink is
-    // captured in one place.)
-
-    { _section: 'window', label: 'Window' },
-    { id: 'kitchen_window_type', type: 'text', label: 'Window type & size',
-      placeholder: 'e.g. Double-hung, 36" x 48"' },
-    { id: 'kitchen_window_loc', type: 'text', label: 'Window location' },
-
-    { _section: 'island', label: 'Island' },
-    { id: 'kitchen_island', type: 'single', label: 'Island',
-      options: [
-        { value: 'none',   label: "Don't have and don't want" },
-        { value: 'keep',   label: 'Have and keep' },
-        { value: 'remove', label: 'Have and remove' },
-        { value: 'add',    label: 'Add new' },
+        { value: 'custom',     label: 'Custom' },
       ] },
-    { id: 'kitchen_island_dims', type: 'text', label: 'Island dimensions',
-      placeholder: 'e.g. 8 ft x 4 ft',
-      showIf: (a) => a.kitchen_island === 'add' || a.kitchen_island === 'keep' },
-    { id: 'kitchen_island_loc', type: 'text', label: 'Island location',
-      showIf: (a) => a.kitchen_island === 'add' || a.kitchen_island === 'keep' },
-
-    { _section: 'pot_filler', label: 'Pot Filler' },
-    { id: 'kitchen_pot_filler', type: 'single', label: 'Pot filler?',
+    { id: 'kitchen_microwave_loc', type: 'text', label: 'Microwave location & spec', optional: true,
+      showIf: (a) => a.kitchen_microwave && a.kitchen_microwave !== 'keep' && a.kitchen_microwave !== 'none' },
+    { id: 'kitchen_oven', type: 'select', label: 'Oven',
+      options: [
+        { value: 'keep',           label: 'Keep existing' },
+        { value: 'none',           label: 'No separate oven' },
+        { value: 'single_gas',     label: 'Single — gas' },
+        { value: 'single_electric',label: 'Single — electric' },
+        { value: 'double_gas',     label: 'Double — gas' },
+        { value: 'double_electric',label: 'Double — electric' },
+        { value: 'custom',         label: 'Custom' },
+      ] },
+    { id: 'kitchen_oven_size', type: 'text', label: 'Oven size & spec',
+      showIf: (a) => a.kitchen_oven && !['keep', 'none'].includes(a.kitchen_oven) },
+    { id: 'kitchen_stove', type: 'select', label: 'Stove',
+      options: [
+        { value: 'keep',      label: 'Keep existing' },
+        { value: 'none',      label: 'No stove' },
+        { value: 'gas',       label: 'Gas' },
+        { value: 'electric',  label: 'Electric' },
+        { value: 'induction', label: 'Induction' },
+      ] },
+    { id: 'kitchen_stove_size', type: 'text', label: 'Stove size',
+      showIf: (a) => a.kitchen_stove && !['keep', 'none'].includes(a.kitchen_stove) },
+    { id: 'kitchen_cooktop', type: 'select', label: 'Cooktop',
+      options: [
+        { value: 'keep',      label: 'Keep existing' },
+        { value: 'none',      label: 'No separate cooktop' },
+        { value: 'gas',       label: 'Gas' },
+        { value: 'electric',  label: 'Electric' },
+        { value: 'induction', label: 'Induction' },
+      ] },
+    { id: 'kitchen_cooktop_size', type: 'text', label: 'Cooktop size',
+      showIf: (a) => a.kitchen_cooktop && !['keep', 'none'].includes(a.kitchen_cooktop) },
+    { id: 'kitchen_burner_rangetop', type: 'single', label: 'Burner rangetop?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_pot_filler_loc', type: 'text', label: 'Pot filler location',
-      showIf: (a) => a.kitchen_pot_filler === 'yes' },
+    { id: 'kitchen_burner_rangetop_size', type: 'text', label: 'Burner rangetop size',
+      showIf: (a) => a.kitchen_burner_rangetop === 'yes' },
+    { id: 'kitchen_steam_oven', type: 'single', label: 'Steam oven?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_steam_oven_specs', type: 'text', label: 'Steam oven gas/electric & size',
+      showIf: (a) => a.kitchen_steam_oven === 'yes' },
+    { id: 'kitchen_appliances_notes', type: 'text', label: 'Appliance notes', optional: true,
+      placeholder: 'Brand, color, panel-ready, delivery timing, etc.' },
 
-    { _section: 'finishes', label: 'Finishes & Materials' },
-    // Countertops
-    { id: 'kitchen_countertop_material', type: 'text', label: 'Countertop material',
-      placeholder: 'Quartz / granite / marble / butcher block…' },
-    { id: 'kitchen_countertop_layout', type: 'text', label: 'Countertop size / layout',
-      placeholder: 'Linear ft, seam locations, waterfall edges…' },
+    { _section: 'windows_doors', label: 'Windows & Doors' },
+    { id: 'kitchen_window_action', type: 'single', label: 'Window',
+      options: [
+        { value: 'keep',     label: 'Keep existing' },
+        { value: 'replace',  label: 'Replace' },
+        { value: 'relocate', label: 'Relocate (check outside area & siding type)' },
+      ] },
+    { id: 'kitchen_window_loc', type: 'text', label: 'Window location & notes',
+      showIf: (a) => a.kitchen_window_action === 'replace' || a.kitchen_window_action === 'relocate' },
+    { id: 'kitchen_door_action', type: 'single', label: 'Door',
+      options: [
+        { value: 'keep',     label: 'Keep existing' },
+        { value: 'replace',  label: 'Replace' },
+        { value: 'relocate', label: 'Relocate (check outside area & siding type)' },
+      ] },
+    { id: 'kitchen_door_loc', type: 'text', label: 'Door location & notes',
+      showIf: (a) => a.kitchen_door_action === 'replace' || a.kitchen_door_action === 'relocate' },
 
-    // Backsplash
+    { _section: 'lighting', label: 'Lighting & Electrical' },
+    { id: 'kitchen_recessed_light', type: 'single', label: 'Recessed lights?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_recessed_specs', type: 'text', label: 'Recessed quantity & location',
+      placeholder: 'e.g. 6 × 4" LED, evenly spaced over prep area',
+      showIf: (a) => a.kitchen_recessed_light === 'yes' },
+    { id: 'kitchen_undercabinet_light', type: 'single', label: 'Undercabinet light?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_undercabinet_specs', type: 'text', label: 'Undercabinet linear feet',
+      showIf: (a) => a.kitchen_undercabinet_light === 'yes' },
+    { id: 'kitchen_sconces', type: 'single', label: 'Sconces?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_sconces_specs', type: 'text', label: 'Sconces quantity & location',
+      showIf: (a) => a.kitchen_sconces === 'yes' },
+    { id: 'kitchen_pendants', type: 'single', label: 'Pendants?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_pendants_specs', type: 'text', label: 'Pendants quantity & location',
+      showIf: (a) => a.kitchen_pendants === 'yes' },
+    { id: 'kitchen_outlets_info', type: 'text', label: 'Outlets / switches — quantity & location', optional: true,
+      placeholder: 'New outlets on island, GFCI count, dimmers…' },
+
+    { _section: 'finishes', label: 'Floors, Tile & Trim' },
     { id: 'kitchen_backsplash_material', type: 'text', label: 'Backsplash material',
       placeholder: 'Subway tile, natural stone, slab, etc.' },
-    { id: 'kitchen_backsplash_area', type: 'number', label: 'Backsplash area (sqft)',
-      placeholder: 'e.g. 30' },
+    { id: 'kitchen_backsplash_pattern', type: 'text', label: 'Backsplash size & pattern' },
     { id: 'kitchen_backsplash_height', type: 'single', label: 'Backsplash height',
       options: [
         { value: 'full',   label: 'Full height (counter to ceiling / uppers)' },
         { value: 'normal', label: 'Standard 18"' },
-        { value: 'custom', label: 'Custom (specify)' },
+        { value: 'custom', label: 'Custom' },
       ] },
     { id: 'kitchen_backsplash_height_custom', type: 'text', label: 'Custom backsplash height',
       placeholder: 'e.g. 24" behind range only',
       showIf: (a) => a.kitchen_backsplash_height === 'custom' },
-
-    // Flooring — replacement Y/N gate, only ask details when replacing
-    { id: 'kitchen_floor_replace', type: 'single', label: 'Flooring replacement?',
+    { id: 'kitchen_floor_type', type: 'single', label: 'Floor material',
       options: [
-        { value: 'yes', label: 'Yes — replace' },
-        { value: 'no',  label: 'No — keep existing' },
-      ] },
-    { id: 'kitchen_floor_type', type: 'single', label: 'Flooring type',
-      options: [
+        { value: 'keep',     label: 'Keep existing' },
         { value: 'hardwood', label: 'Hardwood' },
         { value: 'tile',     label: 'Tile' },
         { value: 'vinyl',    label: 'Vinyl' },
-      ],
-      showIf: (a) => a.kitchen_floor_replace === 'yes' },
-    { id: 'kitchen_floor_area', type: 'number', label: 'Flooring area (sqft)',
-      placeholder: 'e.g. 200',
-      showIf: (a) => a.kitchen_floor_replace === 'yes' },
-
-    // Trim Work — seller picks which types apply; no quantity (they
-    // rarely know linear feet during a walkthrough).
-    { id: 'kitchen_trim', type: 'multi', label: 'Trim work',
-      helper: 'Select all that apply',
-      options: [
-        { value: 'crown',    label: 'Crown molding' },
-        { value: 'baseboard', label: 'Baseboard' },
-        { value: 'casings',  label: 'Casings' },
       ] },
-
-    // Painting
-    { id: 'kitchen_paint_scope', type: 'text', label: 'Painting scope / areas',
-      placeholder: 'Walls, ceiling, trim, cabinets…' },
-
-    { _section: 'lighting', label: 'Lighting & Electrical' },
-    { id: 'kitchen_under_cabinet', type: 'single', label: 'Under-cabinet lights?',
+    { id: 'kitchen_floor_specs', type: 'text', label: 'Floor material, size, stain color, area',
+      placeholder: 'e.g. 5" white oak, natural stain, ~250 sqft',
+      showIf: (a) => a.kitchen_floor_type && a.kitchen_floor_type !== 'keep' },
+    { id: 'kitchen_trim_work', type: 'single', label: 'Trim work?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_recessed_info', type: 'text', label: 'Recessed lighting — quantity & location',
-      placeholder: 'e.g. 6 × 4" LED, evenly spaced over prep area' },
-    { id: 'kitchen_outlets_info', type: 'text', label: 'Outlets / switches — quantity & location',
-      placeholder: 'New outlets on island, GFCI count, dimmers…' },
+    { id: 'kitchen_trim_specs', type: 'text', label: 'Crown molding model, size, quantity',
+      showIf: (a) => a.kitchen_trim_work === 'yes' },
+    { id: 'kitchen_painting', type: 'single', label: 'Painting?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'kitchen_painting_desc', type: 'text', label: 'Painting scope (rooms, finishes)',
+      showIf: (a) => a.kitchen_painting === 'yes' },
 
     { _section: 'client_supplied', label: 'Client-Supplied Items' },
-    // Client-Supplied Items (NOT provided by Omega)
-    // This is NOT a question about whether the client wants to buy —
-    // Omega does not supply these items at all, so the client is
-    // responsible for purchasing each one that applies to this job.
-    // Vendor ticks the items relevant to this specific kitchen so the
-    // client has a clear shopping list on the report.
     { id: 'kitchen_client_buys', type: 'multi',
-      label: 'Client-supplied items (not provided by Omega)',
-      helper: 'Omega does NOT provide these items. Check every one that applies to this job — the client must purchase them directly.',
+      label: 'Items the client must purchase (Omega does NOT supply)',
+      helper: 'Check every one that applies to this job',
       options: [
         { value: 'appliances',           label: 'Appliances' },
+        { value: 'farm_sink',            label: 'Farm sink or special sink' },
         { value: 'faucet',               label: 'Faucet' },
+        { value: 'pot_filler_faucet',    label: 'Pot filler faucet' },
         { value: 'pendants',             label: 'Pendants' },
-        { value: 'cabinet_knobs',        label: 'Cabinet knobs' },
-        { value: 'tile_nose',            label: 'Tile nose' },
-        { value: 'silicone_grout_color', label: 'Silicone matching grout color' },
-        { value: 'farmsink',             label: 'Farm sink or any special sink' },
-        { value: 'pot_filler',           label: 'Pot filler faucet' },
         { value: 'sconces',              label: 'Sconces' },
+        { value: 'cabinet_knobs',        label: 'Cabinet knobs' },
         { value: 'tile',                 label: 'Tile' },
+        { value: 'tile_nose',            label: 'Tile nose' },
         { value: 'tile_grout',           label: 'Tile grout' },
+        { value: 'silicone_grout_color', label: 'Silicone matching grout color' },
       ] },
 
-    { _section: 'permits', label: 'Permits & Inspections' },
+    { _section: 'permit_budget', label: 'Permit, Budget & Extras' },
     { id: 'kitchen_permit', type: 'single', label: 'Permit',
       options: [
-        { value: 'have',   label: 'Already have' },
-        { value: 'need',   label: 'Need to get' },
+        { value: 'have',         label: 'Already have' },
+        { value: 'need',         label: 'Need to get' },
         { value: 'not_required', label: 'Not required' },
-        { value: 'unsure', label: "Don't know" },
+        { value: 'unsure',       label: "Don't know" },
       ] },
     { id: 'kitchen_inspections', type: 'single', label: 'Inspections required?',
       options: [
@@ -633,16 +564,7 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'no',     label: 'No' },
         { value: 'unsure', label: "Don't know" },
       ] },
-
-    { _section: 'additional', label: 'Additional Requests' },
-    { id: 'kitchen_additional', type: 'single', label: 'Any other requests?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'kitchen_additional_desc', type: 'text', label: 'Describe additional requests',
-      showIf: (a) => a.kitchen_additional === 'yes' },
-
-    // Final section — what the client is willing to spend. Used as input
-    // for the estimator / cost projection to calibrate material tiers.
-    { _section: 'budget', label: 'Customer Budget' },
+    { id: 'kitchen_other_request', type: 'text', label: 'Any other request?', optional: true },
     { id: 'kitchen_budget_range', type: 'single', label: 'Client budget range',
       helper: 'What is the client comfortable spending on this kitchen?',
       options: [
@@ -656,34 +578,100 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'flexible',   label: 'Flexible / not disclosed' },
       ] },
     { id: 'kitchen_budget_notes', type: 'text', label: 'Budget notes (optional)', optional: true,
-      placeholder: 'Priorities (e.g. splurge on countertops, save on appliances), financing, must-haves vs nice-to-haves…' },
+      placeholder: 'Priorities, financing, must-haves vs nice-to-haves…' },
   ],
 
   // ─────────────────────────────────────────────────────────────────
-  // DECK / PATIO
+  // ROOFING — added 2026-04-27 from the field "ESTIMATE CHECKLIST" PDF.
+  // 6 blocks: overview, material, flashing, vents/pipes, repairs, permit.
+  // Yes/No gates open optional spec fields so the seller never types
+  // for a feature the client doesn't want.
   // ─────────────────────────────────────────────────────────────────
-  deck: [
-    { _section: 'general', label: 'General Information' },
-    { id: 'deck_type', type: 'single', label: 'New deck or replacement?',
-      options: [{ value: 'new', label: 'New' }, { value: 'replacement', label: 'Replacement' }] },
-
-    { id: 'deck_existing_structure', type: 'single', label: 'Is existing structure in good shape?',
+  roofing: [
+    { _section: 'overview', label: 'Project Overview' },
+    { id: 'roof_squares', type: 'number', label: 'How many squares?', placeholder: 'e.g. 25' },
+    { id: 'roof_layers', type: 'number', label: 'How many existing layers?', placeholder: 'e.g. 1', optional: true },
+    { id: 'roof_replacement_type', type: 'single', label: 'Replacement type',
       options: [
-        { value: 'good',    label: 'Yes — only replace decking' },
-        { value: 'rebuild', label: 'No — rebuild structure' },
-        { value: 'unsure',  label: "Don't know — needs evaluation" },
-      ],
-      showIf: (a) => a.deck_type === 'replacement' },
-
-    { id: 'deck_dims', type: 'dimensions', label: 'Dimensions', unit: 'ft' },
-
-    { id: 'deck_height', type: 'single', label: 'Deck height from ground',
-      options: [
-        { value: 'under_30',   label: 'Less than 30"' },
-        { value: '30_to_6ft',  label: '30" to 6 ft' },
-        { value: 'over_6ft',   label: 'More than 6 ft' },
+        { value: 'full',    label: 'Full replacement' },
+        { value: 'partial', label: 'Partial replacement' },
       ] },
 
+    { _section: 'roofing_material', label: 'Roofing Material' },
+    { id: 'roof_material', type: 'single', label: 'Roofing material',
+      options: [
+        { value: 'asphalt',       label: 'Asphalt shingles' },
+        { value: 'standing_seam', label: 'Standing seam metal' },
+        { value: 'cedar',         label: 'Cedar' },
+        { value: 'other',         label: 'Other' },
+      ] },
+    { id: 'roof_asphalt_specs', type: 'text', label: 'Asphalt shingles brand & color',
+      placeholder: 'e.g. GAF Timberline HDZ, Charcoal',
+      showIf: (a) => a.roof_material === 'asphalt' },
+    { id: 'roof_metal_color', type: 'text', label: 'Metal roofing color',
+      showIf: (a) => a.roof_material === 'standing_seam' },
+    { id: 'roof_other_material', type: 'text', label: 'Specify other material',
+      showIf: (a) => a.roof_material === 'other' },
+    { id: 'roof_underlayment', type: 'single', label: 'Underlayment?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+
+    { _section: 'flashing', label: 'Flashing' },
+    { id: 'roof_step_flashing', type: 'single', label: 'Step flashing?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_step_flashing_specs', type: 'text', label: 'Step flashing type & color',
+      showIf: (a) => a.roof_step_flashing === 'yes' },
+    { id: 'roof_eave_flashing', type: 'single', label: 'Eave flashing?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_eave_flashing_specs', type: 'text', label: 'Eave flashing type & color',
+      showIf: (a) => a.roof_eave_flashing === 'yes' },
+    { id: 'roof_drip_edge', type: 'single', label: 'Drip edge?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_drip_edge_specs', type: 'text', label: 'Drip edge type & color',
+      showIf: (a) => a.roof_drip_edge === 'yes' },
+    { id: 'roof_chimney_flashing', type: 'single', label: 'Chimney flashing?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_chimney_flashing_specs', type: 'text', label: 'Chimney flashing quantity & material',
+      showIf: (a) => a.roof_chimney_flashing === 'yes' },
+
+    { _section: 'vents_pipes', label: 'Vents & Pipes' },
+    { id: 'roof_boot_pipe', type: 'single', label: 'Boot pipe?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_boot_pipe_specs', type: 'text', label: 'Boot pipe type, size & quantity',
+      showIf: (a) => a.roof_boot_pipe === 'yes' },
+    { id: 'roof_ridge_vent', type: 'single', label: 'Ridge vent?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_ridge_vent_size', type: 'text', label: 'Ridge vent size',
+      showIf: (a) => a.roof_ridge_vent === 'yes' },
+
+    { _section: 'repairs', label: 'Repairs & Replacements' },
+    { id: 'roof_plywood_replace', type: 'single', label: 'Plywood replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_plywood_qty', type: 'text', label: 'Plywood quantity',
+      showIf: (a) => a.roof_plywood_replace === 'yes' },
+    { id: 'roof_gutter_replace', type: 'single', label: 'Gutter replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'roof_gutter_specs', type: 'text', label: 'Gutter linear feet & downspout quantity',
+      showIf: (a) => a.roof_gutter_replace === 'yes' },
+
+    { _section: 'permit_extras', label: 'Permit & Extras' },
+    { id: 'roof_permit', type: 'single', label: 'Permit',
+      options: [
+        { value: 'have',   label: 'Already have' },
+        { value: 'need',   label: 'Need to get' },
+        { value: 'unsure', label: "Don't know" },
+      ] },
+    { id: 'roof_other_request', type: 'text', label: 'Any other request?', optional: true },
+  ],
+
+  // ─────────────────────────────────────────────────────────────────
+  // DECK / PATIO — rebuilt 2026-04-27 from the field PDF. 6 blocks:
+  // overview, foundation/structure, railings/posts, decking surface,
+  // trim/extras, permit. The structural block is heavy on Yes/No gates
+  // because most replacement decks only need a handful of those.
+  // ─────────────────────────────────────────────────────────────────
+  deck: [
+    { _section: 'overview', label: 'Project Overview' },
+    { id: 'deck_dims', type: 'dimensions', label: 'Deck dimensions (L × W)', unit: 'ft' },
     { id: 'deck_material', type: 'single', label: 'Decking material',
       options: [
         { value: 'pt_wood',   label: 'Pressure Treated Wood' },
@@ -691,13 +679,33 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'composite', label: 'Composite (Trex / TimberTech)' },
         { value: 'pvc',       label: 'PVC (Azek)' },
       ] },
-
+    { id: 'deck_type', type: 'single', label: 'Project type',
+      options: [
+        { value: 'new',         label: 'New build' },
+        { value: 'replacement', label: 'Replacement' },
+        { value: 'extension',   label: 'Extension of existing deck' },
+      ] },
+    { id: 'deck_extension_desc', type: 'text', label: 'Describe deck extension',
+      showIf: (a) => a.deck_type === 'extension' },
+    { id: 'deck_building_plans', type: 'single', label: 'Building plans?',
+      options: [
+        { value: 'have',       label: 'Client has plans' },
+        { value: 'need',       label: 'Need to draw plans' },
+        { value: 'not_needed', label: 'Not needed' },
+      ] },
+    { id: 'deck_demolition', type: 'single', label: 'Demolition needed?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_height', type: 'single', label: 'Deck height from ground',
+      options: [
+        { value: 'under_30',  label: 'Less than 30"' },
+        { value: '30_to_6ft', label: '30" to 6 ft' },
+        { value: 'over_6ft',  label: 'More than 6 ft' },
+      ] },
     { id: 'deck_attachment', type: 'single', label: 'Attached or freestanding?',
       options: [
         { value: 'attached',     label: 'Attached' },
         { value: 'freestanding', label: 'Freestanding' },
       ] },
-
     { id: 'deck_siding', type: 'single', label: 'Exterior siding of the house',
       options: [
         { value: 'vinyl',  label: 'Vinyl siding' },
@@ -708,23 +716,88 @@ export const QUESTIONNAIRE_SCHEMAS = {
       ],
       showIf: (a) => a.deck_attachment === 'attached' },
 
-    { _section: 'site', label: 'Site Conditions' },
-    { id: 'deck_terrain', type: 'single', label: 'Terrain',
-      options: [
-        { value: 'flat',         label: 'Flat' },
-        { value: 'slight_slope', label: 'Slight slope' },
-        { value: 'steep_slope',  label: 'Steep slope' },
-        { value: 'rock',         label: 'Rocky' },
-      ] },
+    { _section: 'structure', label: 'Foundation & Structure' },
+    { id: 'deck_footings', type: 'single', label: 'Footings?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_footings_qty', type: 'number', label: 'Footings quantity',
+      showIf: (a) => a.deck_footings === 'yes' },
+    { id: 'deck_simpson_strong_tie', type: 'single', label: 'Simpson Strong Tie?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_simpson_qty', type: 'number', label: 'Strong Tie quantity (check inside too)',
+      showIf: (a) => a.deck_simpson_strong_tie === 'yes' },
+    { id: 'deck_floor_replace', type: 'single', label: 'Floor replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_floor_specs', type: 'text', label: 'Floor square feet, quantity, how many stairs',
+      showIf: (a) => a.deck_floor_replace === 'yes' },
+    { id: 'deck_stringer_replace', type: 'single', label: 'Stringer replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_stringer_specs', type: 'text', label: 'Stringer size & quantity',
+      showIf: (a) => a.deck_stringer_replace === 'yes' },
+    { id: 'deck_joist_replace', type: 'single', label: 'Joist replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_beam_replace', type: 'single', label: 'Beam replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_rim_board_replace', type: 'single', label: 'Rim board replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_flashing_replace', type: 'single', label: 'Flashing replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_flashing_desc', type: 'text', label: 'Describe flashing',
+      showIf: (a) => a.deck_flashing_replace === 'yes' },
+    { id: 'deck_post_install', type: 'single', label: 'Post installation?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_post_install_qty', type: 'number', label: 'Posts to install (quantity)',
+      showIf: (a) => a.deck_post_install === 'yes' },
+    { id: 'deck_post_replace', type: 'single', label: 'Post replacement?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_post_replace_qty', type: 'number', label: 'Posts to replace (quantity)',
+      showIf: (a) => a.deck_post_replace === 'yes' },
 
-    { _section: 'guardrail', label: 'Guardrail & Stairs' },
+    { _section: 'railings', label: 'Railings & Posts' },
+    { id: 'deck_handrail', type: 'single', label: 'Hand rail?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_handrail_material', type: 'text', label: 'Hand rail material (must be code compliant)',
+      showIf: (a) => a.deck_handrail === 'yes' },
+    { id: 'deck_railing', type: 'single', label: 'Railing?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_railing_specs', type: 'text', label: 'Railing material, quantity & balluster',
+      showIf: (a) => a.deck_railing === 'yes' },
+    { id: 'deck_railing_post', type: 'single', label: 'Railing post?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_railing_post_specs', type: 'text', label: 'Railing post material & quantity',
+      showIf: (a) => a.deck_railing_post === 'yes' },
+    { id: 'deck_post_sleeve', type: 'single', label: 'Post sleeve?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_post_sleeve_specs', type: 'text', label: 'Post sleeve material & quantity',
+      showIf: (a) => a.deck_post_sleeve === 'yes' },
+    { id: 'deck_post_skirt', type: 'single', label: 'Post skirt?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_post_skirt_specs', type: 'text', label: 'Post skirt material & quantity',
+      showIf: (a) => a.deck_post_skirt === 'yes' },
+
+    { _section: 'surface', label: 'Decking Surface' },
+    { id: 'deck_board_type', type: 'single', label: 'Deck board type',
+      options: [
+        { value: 'grooved', label: 'Grooved' },
+        { value: 'solid',   label: 'Solid' },
+      ] },
+    { id: 'deck_board_specs', type: 'text', label: 'Deck board material & quantity',
+      placeholder: 'e.g. Trex Transcend 5/4 × 6, ~600 sqft' },
+    { id: 'deck_hidden_screws', type: 'single', label: 'Hidden screws?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_hidden_screws_desc', type: 'text', label: 'Hidden screws system',
+      showIf: (a) => a.deck_hidden_screws === 'yes' },
+    { id: 'deck_picture_frame', type: 'single', label: 'Picture frame?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_picture_frame_specs', type: 'text', label: 'Picture frame material & quantity',
+      showIf: (a) => a.deck_picture_frame === 'yes' },
+
+    { _section: 'guardrail_stairs', label: 'Guardrail & Stairs' },
     { id: 'deck_guardrail', type: 'single', label: 'Guardrail (required above 30" in CT)',
       helper: 'Required by code if deck height > 30"',
       options: [
         { value: 'not_needed', label: 'Not needed' },
         { value: 'needed',     label: 'Yes — needed' },
       ] },
-
     { id: 'deck_guardrail_material', type: 'single', label: 'Guardrail material',
       options: [
         { value: 'pt_wood',  label: 'Pressure Treated Wood' },
@@ -733,27 +806,38 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'glass',    label: 'Glass' },
       ],
       showIf: (a) => a.deck_guardrail === 'needed' },
-
     { id: 'deck_stairs', type: 'single', label: 'Stairs',
       options: [
         { value: 'none', label: 'Not needed' },
         { value: 'yes',  label: 'Yes' },
       ] },
-
     { id: 'deck_stair_flights', type: 'single', label: 'How many flights?',
       options: [
-        { value: '1',   label: '1' },
-        { value: '2',   label: '2' },
-        { value: '3+',  label: '3 or more' },
+        { value: '1',  label: '1' },
+        { value: '2',  label: '2' },
+        { value: '3+', label: '3 or more' },
       ],
       showIf: (a) => a.deck_stairs === 'yes' },
-
     { id: 'deck_landing', type: 'single', label: 'Landing needed?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }],
       showIf: (a) => a.deck_stairs === 'yes' },
 
-    { _section: 'extras', label: 'Extras' },
-    { id: 'deck_extras', type: 'multi', label: 'Extras',
+    { _section: 'extras', label: 'Trim & Extras' },
+    { id: 'deck_gate', type: 'single', label: 'Gate?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_gate_specs', type: 'text', label: 'Gate material, quantity & size',
+      showIf: (a) => a.deck_gate === 'yes' },
+    { id: 'deck_fascia', type: 'single', label: 'Fascia board?',
+      options: [
+        { value: 'azek',        label: 'Azek' },
+        { value: 'primed_pine', label: 'Primed pine' },
+        { value: 'no',          label: 'No' },
+      ] },
+    { id: 'deck_lattice', type: 'single', label: 'Lattice?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_lattice_qty', type: 'number', label: 'Lattice quantity',
+      showIf: (a) => a.deck_lattice === 'yes' },
+    { id: 'deck_extras', type: 'multi', label: 'Other built-in extras',
       helper: 'Select all that apply',
       options: [
         { value: 'pergola',     label: 'Pergola / cover' },
@@ -762,8 +846,9 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'lighting',    label: 'Built-in lighting' },
         { value: 'gas_firepit', label: 'Gas line / Firepit' },
         { value: 'hot_tub',     label: 'Hot tub pad' },
-        { value: 'none',        label: 'None',              exclusive: true },
+        { value: 'none',        label: 'None', exclusive: true },
       ] },
+    { id: 'deck_special_request', type: 'text', label: 'Any special request?', optional: true },
 
     { _section: 'permit', label: 'Permit' },
     { id: 'deck_permit', type: 'single', label: 'Permit',
