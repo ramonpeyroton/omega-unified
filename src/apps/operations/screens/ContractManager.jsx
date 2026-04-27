@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Eye, Download, RotateCw, X, Plus, Copy, DollarSign } from 'lucide-react';
+import { Eye, Download, RotateCw, X, Plus, Copy, DollarSign, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getEnvelopeStatus, sendReminder, downloadSignedDocument } from '../../../shared/lib/docusign';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
 import { logAudit } from '../../../shared/lib/audit';
+import { findSimilarItems } from '../../../shared/lib/textSimilarity';
 
 export default function ContractManager({ user }) {
   const [loading, setLoading] = useState(true);
@@ -17,6 +18,12 @@ export default function ContractManager({ user }) {
   const [timeline, setTimeline] = useState([]);
   const [showCO, setShowCO] = useState(false);
   const [coForm, setCoForm] = useState({ job_id: '', description: '', amount: 0, reason: '' });
+  // Similarity warning state — when the operator hits Submit, we run
+  // a Jaccard match against every line item already on the estimate /
+  // signed contract for that job. If anything looks duplicate, we
+  // pause the insert and show this modal so they can decide whether
+  // to continue billing for an already-billed scope.
+  const [coWarning, setCoWarning] = useState(null); // { matches: [...], original: {coForm}, contractId }
 
   useEffect(() => { loadAll(); }, []);
 
@@ -126,6 +133,55 @@ Please confirm your approval.
     e.preventDefault();
     if (!coForm.job_id) { setToast({ type: 'warning', message: 'Select a job' }); return; }
     const contract = contracts.find((c) => c.job_id === coForm.job_id);
+
+    // Pull every line item already on this job's estimates and signed
+    // contract, then look for one that overlaps with what we're about
+    // to bill. Matches are sorted by score so the closest duplicate is
+    // shown first in the warning modal.
+    const text = `${coForm.description || ''} ${coForm.reason || ''}`.trim();
+    let matches = [];
+    if (text) {
+      try {
+        const [{ data: ests }, { data: ctrs }] = await Promise.all([
+          supabase.from('estimates').select('id, estimate_number, status, sections')
+            .eq('job_id', coForm.job_id).in('status', ['approved', 'signed', 'sent']),
+          supabase.from('contracts').select('id, line_items, signed_at')
+            .eq('job_id', coForm.job_id).not('signed_at', 'is', null),
+        ]);
+        const flat = [];
+        for (const e of (ests || [])) {
+          for (const sec of (Array.isArray(e.sections) ? e.sections : [])) {
+            for (const it of (sec.items || [])) {
+              flat.push({
+                description: it.description,
+                scope: it.scope,
+                _source: `Estimate OM-${e.estimate_number || '?'} (${e.status})`,
+              });
+            }
+          }
+        }
+        for (const c of (ctrs || [])) {
+          for (const it of (Array.isArray(c.line_items) ? c.line_items : [])) {
+            flat.push({
+              description: it.description,
+              scope: it.scope,
+              _source: 'Signed contract',
+            });
+          }
+        }
+        matches = findSimilarItems(text, flat, 0.5);
+      } catch { /* if the lookup fails, just skip the warning */ }
+    }
+
+    if (matches.length > 0) {
+      // Pause the insert and let the operator decide.
+      setCoWarning({ matches, contract });
+      return;
+    }
+    await actuallyInsertChangeOrder({ contract });
+  }
+
+  async function actuallyInsertChangeOrder({ contract }) {
     const { data, error } = await supabase.from('change_orders').insert([{
       job_id: coForm.job_id,
       contract_id: contract?.id || null,
@@ -138,6 +194,7 @@ Please confirm your approval.
     setChangeOrders((prev) => [data, ...prev]);
     logAudit({ user, action: 'change_order.create', entityType: 'change_order', entityId: data.id, details: { job_id: data.job_id, amount: data.amount, reason: data.reason } });
     setShowCO(false);
+    setCoWarning(null);
     setCoForm({ job_id: '', description: '', amount: 0, reason: '' });
     setToast({ type: 'success', message: 'Change order created' });
   }
@@ -307,6 +364,65 @@ Please confirm your approval.
                 <button onClick={() => downloadPdf(openDetail)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold hover:border-omega-orange">Download PDF</button>
                 <button onClick={() => resend(openDetail)} className="px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold">Resend</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Similarity warning — surfaces overlapping line items already
+          billed on this job's estimates / signed contract before the
+          insert lands. Operator can still continue (legitimate cases:
+          e.g. additional fixtures of the same kind), but they are
+          forced to acknowledge the duplicate first. */}
+      {coWarning && (
+        <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4" onClick={() => setCoWarning(null)}>
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[88vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 p-5 border-b border-amber-200 bg-amber-50">
+              <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-amber-900">Looks like this might already be billed</p>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  {coWarning.matches.length} item{coWarning.matches.length === 1 ? '' : 's'} on prior estimate / contract overlap with what you're about to charge.
+                </p>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-omega-stone">
+                <strong className="text-omega-charcoal">You're billing:</strong> "{coForm.description}"{coForm.amount ? ` — $${Number(coForm.amount).toLocaleString('en-US')}` : ''}
+              </p>
+              <div className="space-y-2">
+                {coWarning.matches.map((m, i) => (
+                  <div key={i} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-omega-charcoal">{m.description || '(no description)'}</p>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                        {Math.round(m._score * 100)}% match
+                      </span>
+                    </div>
+                    {m.scope && <p className="text-xs text-omega-slate mt-0.5 line-clamp-2">{m.scope}</p>}
+                    <p className="text-[10px] text-omega-stone mt-1 italic">From: {m._source}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-omega-stone">
+                If this Change Order is for <strong>extra</strong> work beyond what's listed above (e.g. extra fixtures, extra footage), continue. If it's the same scope, hit Cancel and adjust.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setCoWarning(null)}
+                className="px-4 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-omega-charcoal text-sm font-bold"
+              >
+                Cancel — let me adjust
+              </button>
+              <button
+                type="button"
+                onClick={() => actuallyInsertChangeOrder({ contract: coWarning.contract })}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold"
+              >
+                Continue anyway
+              </button>
             </div>
           </div>
         </div>

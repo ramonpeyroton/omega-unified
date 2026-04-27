@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
-  AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw,
+  AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
+import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
 
 // Defaults reused whenever a brand-new estimate is opened. Mirrors the
 // structure of the ServiceFusion template the owner provided.
@@ -175,6 +176,46 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       if (error) throw error;
       return data;
     }
+  }
+
+  // ─── Auto-fill from questionnaire ──────────────────────────────────
+  // Looks at the job's answers + service list and produces a draft set
+  // of sections (with prices = 0). Replaces whatever the seller has on
+  // screen — if they already typed line items, we ask first so we do
+  // not blow away their work.
+  const autofillPreview = useMemo(
+    () => autofillSectionsFromAnswers(job?.service, job?.answers),
+    [job?.service, job?.answers]
+  );
+  // Only show the button if (a) we know how to map this service AND
+  // (b) the answers actually produced at least one section. If the
+  // client kept everything as-is, there is nothing to seed.
+  const canShowAutofill = canAutofill((job?.service || '').split(',')[0]?.trim()) && autofillPreview.length > 0;
+
+  function autofillFromQuestionnaire() {
+    if (!autofillPreview.length) {
+      setToast({ type: 'error', message: 'No questionnaire answers to seed from.' });
+      return;
+    }
+    // Detect non-empty user input. The default state is one section
+    // titled "Section 1" with one fully-empty item — anything beyond
+    // that means the seller has typed something we should not lose.
+    const hasUserContent =
+      sections.length > 1 ||
+      (sections[0]?.items || []).some((it) => it.description?.trim() || it.scope?.trim() || Number(it.price) > 0) ||
+      (sections[0]?.title && sections[0].title !== 'Section 1');
+    if (hasUserContent) {
+      const ok = confirm('Replace the current sections with the auto-filled draft from the questionnaire? The current items will be discarded.');
+      if (!ok) return;
+    }
+    // Each generated section keeps the seller's defaults (one blank
+    // line at the bottom is convenient for adding extras inline).
+    const seeded = autofillPreview.map((s) => ({
+      title: s.title,
+      items: s.items.length ? s.items : [emptyItem()],
+    }));
+    setSections(seeded);
+    setToast({ type: 'success', message: `Drafted ${seeded.length} section${seeded.length === 1 ? '' : 's'} from the questionnaire. Review and add prices.` });
   }
 
   // ─── Multi-option helpers ──────────────────────────────────────────
@@ -464,12 +505,26 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
           />
         ))}
 
-        <button
-          onClick={addSection}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
-        >
-          <Plus className="w-4 h-4" /> Add Section
-        </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={addSection}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
+          >
+            <Plus className="w-4 h-4" /> Add Section
+          </button>
+          {canShowAutofill && (
+            <button
+              onClick={autofillFromQuestionnaire}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
+              title={`Seed ${autofillPreview.length} section${autofillPreview.length === 1 ? '' : 's'} from the questionnaire`}
+            >
+              <Wand2 className="w-4 h-4" /> Generate from questionnaire
+              <span className="text-[10px] font-bold bg-omega-orange/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                {autofillPreview.length} sec · {autofillPreview.reduce((n, s) => n + s.items.length, 0)} items
+              </span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Disclaimers — shown on the customer's signing page right above
