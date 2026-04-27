@@ -43,6 +43,17 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [contract, setContract] = useState(null);
   const [paymentPlan, setPaymentPlan] = useState([]);
 
+  // Standard Omega payment plan — used when neither the signed estimate
+  // nor an in-progress contract has one specified yet. Brenda can still
+  // edit it from the UI; this is just the starting point so she doesn't
+  // stare at an empty list.
+  const DEFAULT_PAYMENT_PLAN = [
+    { label: 'Deposit',                percent: 30 },
+    { label: 'Upon start',             percent: 30 },
+    { label: 'After painting',         percent: 30 },
+    { label: 'Upon completion',        percent: 10 },
+  ];
+
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [job?.id]);
 
   async function loadData() {
@@ -52,8 +63,16 @@ export default function EstimateFlow({ job, user, onBack }) {
       const { data: ctr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
       setEstimate(est || null);
       setContract(ctr || null);
-      if (est?.payment_plan) setPaymentPlan(est.payment_plan);
-      else if (ctr?.payment_plan) setPaymentPlan(ctr.payment_plan);
+      // Priority: customer-approved estimate plan → in-progress contract
+      // plan → standard 30/30/30/10 default. Avoids the "I open the
+      // flow and have to type four rows from memory" pain.
+      if (Array.isArray(est?.payment_plan) && est.payment_plan.length > 0) {
+        setPaymentPlan(est.payment_plan);
+      } else if (Array.isArray(ctr?.payment_plan) && ctr.payment_plan.length > 0) {
+        setPaymentPlan(ctr.payment_plan);
+      } else {
+        setPaymentPlan(DEFAULT_PAYMENT_PLAN);
+      }
       // Pick the starting step based on existing state
       if (ctr?.signed_at) setStep(4);
       else if (ctr) setStep(3);

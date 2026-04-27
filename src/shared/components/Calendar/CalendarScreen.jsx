@@ -14,8 +14,12 @@ import EventForm from './EventForm';
  *   user          the current session user (for permissions + audit)
  *   initialJobForVisit   if provided, opens the EventForm immediately
  *                         pre-filled with that job (used after New Lead)
+ *   onVisitScheduled  optional callback fired when the EventForm saves
+ *                     successfully — used by ReceptionistApp to clear
+ *                     its pending-visit banner once the visit is in
+ *                     the calendar.
  */
-export default function CalendarScreen({ user, initialJobForVisit = null }) {
+export default function CalendarScreen({ user, initialJobForVisit = null, onVisitScheduled = null }) {
   const today = new Date();
   const [year, setYear]       = useState(today.getFullYear());
   const [monthIndex, setMonth] = useState(today.getMonth());
@@ -123,7 +127,13 @@ export default function CalendarScreen({ user, initialJobForVisit = null }) {
           initialEvent={formState.event}
           prefillJob={formState.prefillJob}
           onClose={() => setFormState(null)}
-          onSaved={() => { setFormState(null); refresh(); }}
+          onSaved={(saved) => {
+            setFormState(null);
+            refresh();
+            // Notify the parent (e.g. ReceptionistApp) that a visit was
+            // scheduled so it can drop its pending-visit banner.
+            onVisitScheduled?.(saved);
+          }}
         />
       )}
     </div>

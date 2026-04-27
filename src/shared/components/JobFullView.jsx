@@ -18,6 +18,7 @@ import ContactSection from './ContactSection';
 import DocumentsSection from './DocumentsSection';
 import EstimateBuilder from './EstimateBuilder';
 import MaterialsSection from './MaterialsSection';
+import JobSubcontractorsSection from './JobSubcontractorsSection';
 import { logAudit } from '../lib/audit';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
@@ -33,6 +34,12 @@ const ESTIMATE_ROLES = new Set(['sales', 'salesperson', 'owner', 'operations', '
 
 // Roles allowed to see the Contact tab (send SMS / WhatsApp to subs + client).
 const CONTACT_ROLES = new Set(['manager', 'owner', 'operations', 'admin']);
+
+// Roles allowed to see the Subcontractors tab. Hidden from Manager
+// (Gabriel does the work, doesn't pick subs) and Receptionist (Rafaela
+// only handles leads). Sales sees the assignments so they can answer
+// client questions about who's doing what.
+const SUBS_ROLES = new Set(['owner', 'operations', 'sales', 'salesperson', 'admin', 'marketing']);
 
 function pipelinePaletteFor(key) {
   const c = PIPELINE_COLORS[key];
@@ -84,6 +91,7 @@ export default function JobFullView({
   const canSeeFinancials = FINANCIAL_ROLES.has(user?.role);
   const canSeeEstimate   = ESTIMATE_ROLES.has(user?.role);
   const canContact       = CONTACT_ROLES.has(user?.role);
+  const canSeeSubs       = SUBS_ROLES.has(user?.role);
 
   useEffect(() => {
     setJob(initialJob);
@@ -184,6 +192,7 @@ export default function JobFullView({
   const TABS = [
     { id: 'report',    label: 'Report',     icon: Sparkles },
     canSeeEstimate   && { id: 'estimate',   label: 'Estimate',   icon: Receipt },
+    canSeeSubs       && { id: 'subs',       label: 'Subs',       icon: HardHat },
     canContact       && { id: 'contact',    label: 'Contact',    icon: MessageSquare },
     { id: 'documents', label: 'Documents',  icon: FolderClosed },
     { id: 'time',      label: 'Time',       icon: Clock },
@@ -349,6 +358,10 @@ export default function JobFullView({
 
           {tab === 'contact' && canContact && (
             <ContactSection job={job} user={user} />
+          )}
+
+          {tab === 'subs' && canSeeSubs && (
+            <JobSubcontractorsSection job={job} user={user} />
           )}
 
           {tab === 'estimate' && canSeeEstimate && (
