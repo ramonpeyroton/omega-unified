@@ -42,8 +42,9 @@ basements, driveways, roofing, full renovations, new construction.
 - No React Router — **state-based routing inside each role App.jsx**; root
   `App.jsx` switches apps by `user.role` and detects `/admin-x9k2` via
   `window.location.pathname`.
-- Deploy: **manual** via `npx vercel --prod`. Not yet git-driven. Vercel
-  project is already linked (`.vercel/` folder exists).
+- Deploy: **manual** via `npx vercel --prod`. GitHub remote linked at
+  `github.com/ramonpeyroton/omega-owner`; Vercel ↔ GitHub auto-deploy
+  not yet wired. Vercel project linked locally (`.vercel/` folder).
 - AI: Claude (Anthropic) for reports/cost projection, Groq Llama 3.3 for
   Jarvis chat.
 
@@ -280,8 +281,9 @@ Financial tools (contracts, payments, change orders, audit) require
 ## 🐛 Known open items
 
 - **Deploy is manual** — run `npx vercel --prod` from the repo root.
-  GitHub remote not yet linked. To enable auto-deploy, link repo in
-  Vercel → Settings → Git.
+  GitHub remote IS linked at `github.com/ramonpeyroton/omega-owner`,
+  but Vercel ↔ GitHub auto-deploy is not yet wired. To enable
+  auto-deploy, link repo in Vercel → Settings → Git.
 - **Legacy `JobDetailDrawer`** still exists but is no longer the primary
   path. `JobFullView` is used from PipelineKanban + dashboards. If you
   make UX changes, apply to both or delete the drawer.
@@ -330,4 +332,4 @@ Financial tools (contracts, payments, change orders, audit) require
 
 ---
 
-_Last updated: 2026-04-19 — Ramon + Claude (Opus 4.7)_
+_Last updated: 2026-04-28 — Ramon + Claude (Opus 4.7)_
