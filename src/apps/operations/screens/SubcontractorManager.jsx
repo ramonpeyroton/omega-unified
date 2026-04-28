@@ -10,6 +10,40 @@ import SubcontractorCardsView from '../components/SubcontractorCardsView';
 import { logAudit } from '../../../shared/lib/audit';
 import { formatPhoneInput, toE164 } from '../../../shared/lib/phone';
 
+// Curated list of trades shown as autocomplete suggestions in the
+// Add/Edit Sub forms. <datalist> means Brenda can pick one with a
+// click OR type something custom (e.g. "Cabinet refinishing") that
+// isn't on the list — best of both worlds vs. a hard <select>.
+const TRADE_OPTIONS = [
+  'Demolition',
+  'Framing / Carpentry',
+  'Plumbing',
+  'Electrical',
+  'HVAC',
+  'Insulation',
+  'Drywall / Sheetrock',
+  'Taping / Mudding',
+  'Tile',
+  'Flooring',
+  'Hardwood',
+  'Painting',
+  'Roofing',
+  'Siding',
+  'Masonry / Concrete',
+  'Excavation',
+  'Glass / Windows',
+  'Doors / Trim',
+  'Cabinetry',
+  'Countertop',
+  'Plumbing Fixtures',
+  'Appliances',
+  'Cleaning',
+  'Landscaping',
+  'Decking',
+  'Survey',
+  'Building Plans',
+];
+
 function maskTaxId(taxId) {
   if (!taxId) return '—';
   const s = String(taxId);
@@ -274,6 +308,13 @@ export default function SubcontractorManager({ user }) {
     <div className="flex-1 overflow-auto bg-omega-cloud">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+      {/* Shared trade autocomplete — both Add and Edit Sub forms reference
+          this via <input list="omega-trades">. Pre-fills the most common
+          trades Omega works with; Brenda can still type anything custom. */}
+      <datalist id="omega-trades">
+        {TRADE_OPTIONS.map((t) => <option key={t} value={t} />)}
+      </datalist>
+
       <header className="px-6 md:px-8 py-6 bg-white border-b border-gray-200 sticky top-0 z-10">
         <h1 className="text-2xl font-bold text-omega-charcoal">Subcontractors</h1>
         <p className="text-sm text-omega-stone mt-1">Roster, COI tracking and agreements</p>
@@ -456,6 +497,15 @@ export default function SubcontractorManager({ user }) {
                       placeholder="(203) 555-1234"
                       className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
                     />
+                  ) : f.k === 'trade' ? (
+                    <input
+                      type="text"
+                      list="omega-trades"
+                      value={subForm[f.k] || ''}
+                      onChange={(e) => setSubForm({ ...subForm, [f.k]: e.target.value })}
+                      placeholder="Pick or type…"
+                      className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                    />
                   ) : (
                     <input type={f.type || 'text'} required={!!f.required} value={subForm[f.k]} onChange={(e) => setSubForm({ ...subForm, [f.k]: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
                   )}
@@ -586,6 +636,15 @@ export default function SubcontractorManager({ user }) {
                       value={editForm[f.k] || ''}
                       onChange={(e) => setEditForm({ ...editForm, [f.k]: formatPhoneInput(e.target.value) })}
                       placeholder="(203) 555-1234"
+                      className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                    />
+                  ) : f.k === 'trade' ? (
+                    <input
+                      type="text"
+                      list="omega-trades"
+                      value={editForm[f.k] || ''}
+                      onChange={(e) => setEditForm({ ...editForm, [f.k]: e.target.value })}
+                      placeholder="Pick or type…"
                       className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
                     />
                   ) : (
