@@ -247,13 +247,38 @@ git config --global user.email "276171615+ramonpeyroton@users.noreply.github.com
 
 ## Trabalho híbrido (duas máquinas)
 
-Ramon trabalha em dois computadores (trabalho e casa). Em ambos:
+Ramon trabalha em dois computadores (trabalho e casa). Em ambos a
+pasta local é a mesma: `C:\Users\ramon\Documents\omega-unified`.
 
-- A pasta local é a mesma: `C:\Users\ramon\Documents\omega-unified`.
-- Sempre `git pull` ao começar a sessão.
-- Sempre `git push` ao terminar — antes de fechar a máquina.
-- `.claude/` está no `.gitignore`, então cada máquina tem seu próprio
-  estado/config local do Claude Code (permissões, MCPs, etc).
+### Mnemônico (decora isso)
+
+- 🌅 **Começou a trabalhar?** → **`pull`** (puxa do GitHub o que foi
+  feito na outra máquina).
+- 🌙 **Vai parar?** → **`go`** (Ramon fala "go" e o Claude faz
+  `commit` + `push` — manda tudo pro GitHub).
+
+```
+push  =  EMPURRAR  (minha máquina  →  GitHub)
+pull  =  PUXAR     (GitHub         →  minha máquina)
+```
+
+### Comandos que Ramon usa em chat
+
+| Ramon diz | Claude faz |
+|---|---|
+| "começando" / "puxa o último" / "puxa de casa" | `git pull` |
+| "go" / "manda" / "commita, push e deploy" | `git add` + `git commit` + `git push` (deploy é automático na Vercel) |
+| "tá sincronizado?" | `git status` + diff vs `origin/main` |
+
+### Por que isso importa
+
+- Sem `pull` ao começar: trabalha em cima de versão velha → conflito
+  na hora de pushar.
+- Sem `go` ao terminar: a outra máquina amanhã não tem como pegar o
+  que foi feito.
+- `.claude/` está no `.gitignore` — cada máquina tem seu próprio
+  estado/config local do Claude Code (permissões, MCPs, etc), por
+  isso não sincroniza.
 
 ---
 
