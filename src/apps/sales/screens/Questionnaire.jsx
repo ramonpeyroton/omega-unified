@@ -377,15 +377,26 @@ function QuestionField({ question, value, onChange, answers }) {
 }
 
 // ─── Main screen ────────────────────────────────────────────────────
-// The Questionnaire opens with a service-picker step so the seller
-// confirms (or adjusts) which services this project covers *before*
-// diving into project-detail questions. The receptionist may have
-// flagged one or two services during intake, but the seller is the one
-// actually in front of the client — they can add / remove here.
-// Once confirmed, the schema rebuilds and the existing flow runs.
+// Most of the time the seller arrives here with `job.service` already
+// populated — either by the receptionist during phone intake, or by
+// the seller themselves on the brand-new "What service?" picker that
+// kicks off the New Job flow. So we skip the service-picker step in
+// that common case and go straight to the questions.
+//
+// We still keep the picker around for the two legitimate edit cases:
+//   1. Receptionist mis-categorized the lead on the phone
+//   2. Client changes their mind between the call and the visit
+// Both are reachable via the small "Edit services" link rendered next
+// to the section header — opens the same picker on demand.
+//
+// If the job arrived with NO service set (legacy data, edge case), we
+// still default to opening the picker first so we don't drop the
+// seller into an empty questionnaire.
 export default function Questionnaire(props) {
   const { job, onJobUpdated } = props;
-  const [servicesConfirmed, setServicesConfirmed] = useState(false);
+  // Treat the picker as "already passed" when the job has a service
+  // assigned. The seller can re-open it with the editor button below.
+  const [servicesConfirmed, setServicesConfirmed] = useState(() => !!job?.service);
 
   const schema = useMemo(() => getSchemaForServices(job.service), [job.service]);
 
@@ -402,9 +413,11 @@ export default function Questionnaire(props) {
     );
   }
 
-  // Schemas tagged with section markers switch to a block-per-page UI
-  // (every visible question in a section stacked on one scrollable page).
-  // Schemas without markers keep the legacy one-question-per-page flow.
+  // Both variants already render a <ServicesEditorButton> in their
+  // headers — that opens the same picker as a modal when the seller
+  // genuinely needs to add/remove services mid-flow (client changed
+  // their mind, receptionist mis-categorized). So we don't need an
+  // extra "edit services" callback here; the button handles it.
   if (hasSectionMarkers(schema)) {
     return <SectionModeQuestionnaire {...props} schema={schema} />;
   }
