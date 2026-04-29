@@ -451,19 +451,33 @@ visualmente dentro do contexto do projeto.
 - **Sprint 3 — Frontend leitura:** ✅ **concluído.** Componente
   `src/shared/components/ProjectChat.jsx` substitui a render anterior
   na aba **Daily Logs** de `JobFullView`. Polling de 30s, empty state
-  com input pra colar `slack_channel_id`, validação `^[CG][A-Z0-9]{8,}$`,
-  parser leve de Slack mrkdwn (`*bold*` `_italic_` `~strike~` `` `code` ``),
-  parse da credit-line `*Nome (role)*\n` que `send-message.js` prepende
-  pra atribuir o autor humano. `DailyLogsSection` legacy permanece no
-  codebase — não foi deletado.
-- **Sprint 4 — Frontend escrita + uploads:** input de mensagem usando
-  `/api/slack/send-message` + endpoint novo `api/slack/upload-file.js`.
+  com input pra colar `slack_channel_id`, parser leve de Slack mrkdwn,
+  parse da credit-line e fallback pra `users.list` (lookup de
+  `user_id → real_name`) pra mensagens postadas direto no Slack.
+  `DailyLogsSection` legacy permanece no codebase — não foi deletado.
+- **Sprint 4 — Frontend escrita + uploads:** ✅ **concluído.** Caixa
+  de mensagem com Enter-to-send + Shift+Enter pra nova linha.
+  Botão paperclip pra anexar imagem (jpeg, png, webp, heic, heif).
+  `browser-image-compression` em Web Worker antes de upload (target
+  2 MB / quality 0.8 / max 2400px), hard-cap 4 MB pós-compressão pra
+  ficar abaixo do limite ~4.5 MB do body do Vercel. Anexos enviados
+  via multipart/form-data pra `api/slack/send-message` (mesmo endpoint;
+  parsing via `formidable` quando Content-Type é multipart). Imagens
+  postadas direto no Slack aparecem no app como thumbnail inline (max
+  320×240) graças ao novo endpoint `api/slack/file-proxy.js` que
+  baixa o arquivo com o token e devolve sem auth pro browser.
+  Avatares no chat usam `colorFromName` pra dar uma cor estável por
+  pessoa (paleta de 8 hues).
 
-**Status atual:** Sprints 2 e 3 concluídos. Pendente do Ramon (uma vez
-só): rodar `migration 023` e setar `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
-na Vercel. Sem isso, a aba Daily Logs mostra "Couldn't load Slack
-messages: Slack not configured" mas não quebra nada. Sprint 4 (escrita)
-pendente, a ser executado em sessão futura.
+**Status atual:** Feature **Chat por projeto via Slack** entregue
+end-to-end (Sprints 1-4). Em produção precisa: `migration 023` rodada,
+bucket `job-covers` com policies (ver migration 021), env vars
+`SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET` na Vercel, e scopes do
+Slack App: `channels:history`, `channels:read`, `chat:write`,
+`files:read`, `files:write`, `users:read`. Próximas iterações
+(opcionais, fora do roadmap original): mensagens em tempo real via
+Slack Events API, OAuth por usuário, lookup automático de canais ao
+criar job, threads e reactions.
 
 **Regra do projeto:** cada Sprint termina com `commit + push` antes de
 iniciar o próximo. Sem trabalho não-commitado entre sprints.
