@@ -954,15 +954,37 @@ function htmlEscape(s) {
 // orange family for color consistency with the rest of the app.
 const MENTION_CLASS = 'inline-flex items-baseline px-1.5 rounded bg-omega-pale text-omega-dark font-semibold';
 
-// Heal old messages that came in with literal HTML in the body
-// (paste-of-rendered-html issue from before the paste-handler fix).
-// Decodes the typical &amp;amp; double-escape that happens when a
-// rendered URL is copy-pasted out of a chat row and back in.
+// Decode HTML entities up to N rounds. Slack escapes <, > and & in
+// the API payload, so a previously-poisoned message comes back with
+// "&lt;a href=&quot;...&quot;&gt;...&lt;/a&gt;" — plus the URL inside
+// often carries a double-escaped &amp;amp; from when it was copied
+// out of an already-rendered chat row. Two rounds is enough to peel
+// both layers without touching content that legitimately contains
+// HTML-entity-looking text.
+function decodeEntities(s, rounds = 2) {
+  let out = String(s || '');
+  for (let i = 0; i < rounds; i++) {
+    if (!/&(amp|lt|gt|quot|#39);/i.test(out)) break;
+    out = out
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+  return out;
+}
+
+// Heal messages that came in carrying literal HTML in the body — the
+// paste-of-rendered-HTML scenario from before the paste-handler fix.
+// We decode the entities Slack added on its way through the API first,
+// THEN strip the <a href="X">...</a> tags down to bare X. The URL pass
+// in renderSlackMrkdwn picks X up afterwards as a clickable link.
 function unwrapLiteralAnchors(text) {
-  return String(text || '')
+  return decodeEntities(text)
     .replace(
       /<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi,
-      (_, href) => href.replace(/&amp;amp;/g, '&').replace(/&amp;/g, '&'),
+      (_, href) => href,
     );
 }
 
