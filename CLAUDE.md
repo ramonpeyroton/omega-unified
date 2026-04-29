@@ -443,15 +443,24 @@ visualmente dentro do contexto do projeto.
 **Cronograma planejado** (4 sprints, 8-10 dias úteis):
 
 - **Sprint 1 — Fundação:** criar Slack App, configurar permissões,
-  gerar tokens, teste de conexão básica.
-- **Sprint 2 — Backend:** APIs `get-messages` e `send-message`, coluna
-  no Supabase.
-- **Sprint 3 — Frontend leitura:** componente `<DailyLogs />` mostrando
-  mensagens dentro do card.
-- **Sprint 4 — Frontend escrita + uploads:** input de mensagem e anexos.
+  gerar tokens, teste de conexão básica. *(work fora do código —
+  feito no dashboard do Slack pelo Ramon)*
+- **Sprint 2 — Backend:** ✅ **concluído.** APIs em `api/slack/`,
+  helpers compartilhados em `api/_lib/`, migration 023 adiciona
+  `jobs.slack_channel_id`, dependência `@slack/web-api` instalada.
+- **Sprint 3 — Frontend leitura:** reaproveitar a aba existente
+  **"Daily Logs"** em `JobFullView` (substitui o render atual baseado
+  na tabela `daily_logs` por mensagens do Slack via `/api/slack/
+  get-messages`). A tabela `daily_logs` original permanece intacta
+  como histórico — não dropar.
+- **Sprint 4 — Frontend escrita + uploads:** input de mensagem usando
+  `/api/slack/send-message` + endpoint novo `api/slack/upload-file.js`.
 
-**Status atual:** planejamento concluído, Sprint 1 pendente (a ser
-executado em sessão futura).
+**Status atual:** Sprint 2 concluído (backend pronto). Pendente do
+Ramon: rodar a `migration 023`, criar o Slack App (Sprint 1) e setar
+`SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET` na Vercel. Sem isso, as
+APIs novas retornam `500 Slack not configured`. Sprint 3 (frontend
+da aba) pendente, a ser executado em sessão futura.
 
 **Regra do projeto:** cada Sprint termina com `commit + push` antes de
 iniciar o próximo. Sem trabalho não-commitado entre sprints.
