@@ -977,15 +977,59 @@ function decodeEntities(s, rounds = 2) {
 
 // Heal messages that came in carrying literal HTML in the body — the
 // paste-of-rendered-HTML scenario from before the paste-handler fix.
-// We decode the entities Slack added on its way through the API first,
-// THEN strip the <a href="X">...</a> tags down to bare X. The URL pass
-// in renderSlackMrkdwn picks X up afterwards as a clickable link.
+//
+// Strategy is intentionally aggressive after a stretch of regex misses
+// in the wild: hand the body to the browser's own HTML parser via
+// DOMParser, find every <a href="..."> element (no matter how the
+// attributes are ordered, quoted or wrapped), replace each one with
+// a text node that contains JUST the URL, then take the resulting
+// textContent. Anything else in the body — plain words, mrkdwn like
+// *bold*, Slack-angle-bracket URLs <https://...> — is preserved
+// because text content is left untouched, and the URL pass downstream
+// turns the bare URLs into clickable links.
+//
+// We only invoke the DOM parser when there's an actual "<a" trace in
+// the input. That short-circuit keeps regular messages out of the
+// parser's quirky HTML5 token-soup behavior — e.g. it would otherwise
+// silently drop a stray "<-" used inside a sentence.
 function unwrapLiteralAnchors(text) {
-  return decodeEntities(text)
-    .replace(
-      /<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi,
-      (_, href) => href,
+  let s = decodeEntities(text);
+
+  if (!/<a\b/i.test(s)) return s;
+
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    // SSR / non-DOM env. Best-effort regex strip.
+    return s.replace(/<a\b[\s\S]*?<\/a\s*>/gi, (match) => {
+      const hrefMatch = match.match(/href\s*=\s*["']?([^"'\s>]+)/i);
+      return hrefMatch ? hrefMatch[1] : '';
+    });
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(
+      `<!doctype html><body><div id="root">${s}</div></body>`,
+      'text/html',
     );
+    const root = doc.getElementById('root');
+    if (!root) return s;
+
+    // Replace each <a href="X"> element with a plain text node
+    // containing X. We don't keep the label because it's almost always
+    // identical to the URL anyway and the URL pass downstream will
+    // make it clickable again with the brand styling.
+    root.querySelectorAll('a[href]').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      a.replaceWith(doc.createTextNode(href));
+    });
+    // Strip remaining <a> tags without href (rare).
+    root.querySelectorAll('a').forEach((a) => {
+      a.replaceWith(doc.createTextNode(a.textContent || ''));
+    });
+
+    return root.textContent || s;
+  } catch {
+    return s; // Best effort
+  }
 }
 
 function renderSlackMrkdwn(text) {
