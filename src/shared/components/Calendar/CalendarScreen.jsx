@@ -17,14 +17,20 @@
 //   • category legend at the bottom uses CategoryBadge from the design system
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  DndContext, PointerSensor, TouchSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
 import { Filter, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
   loadEventsForMonth,
   EVENT_KIND_META,
   canCreateAnyEvent,
+  canEditKind,
+  updateEvent,
   isoDateCT,
 } from '../../lib/calendar';
+import { logAudit } from '../../lib/audit';
 import MonthView from './MonthView';
 import DayDrawer from './DayDrawer';
 import EventForm from './EventForm';
@@ -56,6 +62,79 @@ export default function CalendarScreen({
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const canCreate = canCreateAnyEvent(user?.role);
+
+  // Drag-and-drop sensors. PointerSensor handles desktop; TouchSensor
+  // with a 200ms hold + 8px tolerance is the same configuration the
+  // PipelineKanban uses — quick taps still register as cell clicks
+  // (delay isn't met) but a hold-and-drag moves the event to a new day.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
+
+  function handleDragEnd(dragEvent) {
+    const e = dragEvent.active?.data?.current?.event;
+    const targetIso = dragEvent.over?.data?.current?.iso;
+    if (!e || !targetIso) return;
+
+    // Permission gate — drag is also gated client-side by the canDrag
+    // prop, but checking here too prevents a stale state race.
+    if (!canEditKind(user?.role, e.kind)) return;
+
+    const sourceIso = isoDateCT(new Date(e.starts_at));
+    if (sourceIso === targetIso) return; // no-op
+
+    // Convert YYYY-MM-DD strings to noon-CT Date objects so we can
+    // compare day-by-day without timezone surprises.
+    const [sy, sm, sd] = sourceIso.split('-').map(Number);
+    const [ty, tm, td] = targetIso.split('-').map(Number);
+    const sourceDay = new Date(Date.UTC(sy, sm - 1, sd));
+    const targetDay = new Date(Date.UTC(ty, tm - 1, td));
+    const diffMs = targetDay.getTime() - sourceDay.getTime();
+
+    const oldStart = new Date(e.starts_at);
+    const oldEnd   = e.ends_at ? new Date(e.ends_at) : null;
+    const newStart = new Date(oldStart.getTime() + diffMs).toISOString();
+    const newEnd   = oldEnd
+      ? new Date(oldEnd.getTime() + diffMs).toISOString()
+      : null;
+
+    // Optimistic update so the pill snaps to the target day immediately.
+    setEvents((prev) =>
+      prev.map((row) =>
+        row.id === e.id
+          ? { ...row, starts_at: newStart, ends_at: newEnd ?? row.ends_at }
+          : row,
+      ),
+    );
+
+    // Persist + audit.
+    (async () => {
+      try {
+        const patch = newEnd
+          ? { starts_at: newStart, ends_at: newEnd }
+          : { starts_at: newStart };
+        await updateEvent(e.id, patch);
+        logAudit({
+          user,
+          action: 'event.move',
+          entityType: 'calendar_event',
+          entityId: e.id,
+          details: { from: sourceIso, to: targetIso, kind: e.kind, title: e.title },
+        });
+      } catch (err) {
+        console.error('[calendar] move failed:', err);
+        // Roll back on failure so the pill returns to its original day.
+        setEvents((prev) =>
+          prev.map((row) =>
+            row.id === e.id
+              ? { ...row, starts_at: oldStart.toISOString(), ends_at: oldEnd?.toISOString() ?? row.ends_at }
+              : row,
+          ),
+        );
+      }
+    })();
+  }
 
   // Auto-open EventForm when arriving from "Schedule Visit" on New Lead.
   useEffect(() => {
@@ -174,15 +253,22 @@ export default function CalendarScreen({
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
           {/* Left column: month grid + legend */}
           <div className="space-y-4 min-w-0">
-            <MonthView
-              year={year}
-              monthIndex={monthIndex}
-              events={filteredEvents}
-              onDayClick={(iso) => setDrawerIso(iso)}
-              onPrevMonth={prevMonth}
-              onNextMonth={nextMonth}
-              onToday={gotoToday}
-            />
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <MonthView
+                year={year}
+                monthIndex={monthIndex}
+                events={filteredEvents}
+                onDayClick={(iso) => setDrawerIso(iso)}
+                onPrevMonth={prevMonth}
+                onNextMonth={nextMonth}
+                onToday={gotoToday}
+                canDragEvent={(e) => canEditKind(user?.role, e.kind)}
+              />
+            </DndContext>
 
             {/* Legend — uses the design-system CategoryBadge so colors stay synced. */}
             <div className="flex items-center gap-2 flex-wrap px-1">

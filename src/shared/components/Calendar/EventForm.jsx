@@ -63,6 +63,49 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
   const [conflict,     setConflict]     = useState(null);
   const [toast,        setToast]        = useState(null);
 
+  // "Existing client" picker — only used when the form was opened
+  // from "+ New Event" (no prefillJob, no editing). Lists every job
+  // in the catalog so the receptionist (or anyone else) can attach
+  // the new event to an already-known client without re-typing
+  // their name + address.
+  const [jobs, setJobs] = useState([]);
+  const [clientPick, setClientPick] = useState('');
+  useEffect(() => {
+    if (prefillJob || editing) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from('jobs')
+        .select('id, name, client_name, address, city, service')
+        .order('client_name', { ascending: true })
+        .limit(500);
+      if (active) setJobs(data || []);
+    })();
+    return () => { active = false; };
+  }, [prefillJob, editing]);
+
+  function jobLabel(job) {
+    const name = job.client_name || job.name || 'Untitled';
+    const addr = [job.address, job.city].filter(Boolean).join(', ');
+    return addr ? `${name} — ${addr}` : name;
+  }
+
+  function handlePickExistingClient(value) {
+    setClientPick(value);
+    if (!value) { setJobId(null); return; }
+    const job = jobs.find((j) => jobLabel(j) === value);
+    if (!job) return;
+    setJobId(job.id);
+    // Pre-fill location if user hasn't typed one yet — keeps the form
+    // consistent with how prefillJob behaves.
+    if (!location) setLocation(job.address || '');
+    if (autoTitle) {
+      const kindLabel = EVENT_KIND_META[kind]?.label || kind;
+      const name = job.client_name || job.name || '';
+      setTitle(name ? `${name} — ${kindLabel}` : kindLabel);
+    }
+  }
+
   // Auto-title when the user changes kind / job — but only if they
   // haven't typed a custom title themselves yet.
   const [autoTitle, setAutoTitle] = useState(!editing && !initialEvent?.title);
@@ -209,6 +252,32 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
               ))}
             </select>
           </Field>
+
+          {/* Existing-client picker — only when not coming in with a
+              prefilled job and not in edit mode. Uses an HTML5 datalist
+              so it behaves like a typical autocomplete on every browser
+              and on iPad without extra deps. */}
+          {!prefillJob && !editing && (
+            <Field label="Existing client (optional)">
+              <input
+                list="omega-existing-clients"
+                value={clientPick}
+                onChange={(e) => handlePickExistingClient(e.target.value)}
+                placeholder="Type a client name to attach to an existing job…"
+                className={inputCls}
+              />
+              <datalist id="omega-existing-clients">
+                {jobs.map((j) => (
+                  <option key={j.id} value={jobLabel(j)} />
+                ))}
+              </datalist>
+              {jobId && (
+                <p className="text-[10px] text-omega-stone mt-1">
+                  Linked to an existing job — title and location auto-filled.
+                </p>
+              )}
+            </Field>
+          )}
 
           <Field label="Title">
             <input

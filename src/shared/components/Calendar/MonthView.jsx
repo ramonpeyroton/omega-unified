@@ -10,6 +10,7 @@
 // can swap this in without touching its own logic.
 
 import { useMemo } from 'react';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import {
   buildMonthGrid, formatMonthCT, EVENT_KIND_META, isoDateCT,
@@ -34,8 +35,45 @@ function parseEventTitle(rawTitle, kindLabel) {
   return { primary: title, secondary: '' };
 }
 
+// Wraps an event pill with the @dnd-kit draggable hook. Drag-and-drop
+// is enabled through `canDragEvent` — when not allowed (the user's role
+// can't edit that event's kind) the pill falls back to a plain div.
+function DraggablePill({ event, canDrag, children }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `evt:${event.id}`,
+    data: { event },
+    disabled: !canDrag,
+  });
+  const style = {
+    touchAction: canDrag ? 'none' : undefined,
+    cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'default',
+    opacity: isDragging ? 0.4 : 1,
+    ...(transform
+      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 }
+      : {}),
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
+// Wraps a day cell with the @dnd-kit droppable hook. Drag-over state
+// adds a soft orange ring so the user can see which cell would receive
+// the event if they let go right now.
+function DroppableCell({ iso, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `day:${iso}`, data: { iso } });
+  return (
+    <div ref={setNodeRef} className={isOver ? 'ring-2 ring-omega-orange ring-inset' : ''}>
+      {children}
+    </div>
+  );
+}
+
 export default function MonthView({
   year, monthIndex, events, onDayClick, onPrevMonth, onNextMonth, onToday,
+  canDragEvent = () => false,
 }) {
   const cells = useMemo(() => buildMonthGrid(year, monthIndex), [year, monthIndex]);
   const todayIso = isoDateCT(new Date());
@@ -113,15 +151,15 @@ export default function MonthView({
           const isLastRow = idx >= 35;
 
           return (
-            <button
-              key={c.iso}
-              onClick={() => onDayClick?.(c.iso, dayEvents)}
-              className={`group relative min-h-[92px] sm:min-h-[110px] p-2 text-left transition ${
-                c.isCurrentMonth ? 'bg-white' : 'bg-omega-cloud/40'
-              } ${isLastCol ? '' : 'border-r border-gray-100'} ${
-                isLastRow ? '' : 'border-b border-gray-100'
-              } ${isToday ? 'ring-1 ring-inset ring-omega-orange/60' : 'hover:bg-omega-cloud/60'}`}
-            >
+            <DroppableCell key={c.iso} iso={c.iso}>
+              <div
+                onClick={() => onDayClick?.(c.iso, dayEvents)}
+                className={`group relative min-h-[92px] sm:min-h-[110px] p-2 text-left transition cursor-pointer ${
+                  c.isCurrentMonth ? 'bg-white' : 'bg-omega-cloud/40'
+                } ${isLastCol ? '' : 'border-r border-gray-100'} ${
+                  isLastRow ? '' : 'border-b border-gray-100'
+                } ${isToday ? 'ring-1 ring-inset ring-omega-orange/60' : 'hover:bg-omega-cloud/60'}`}
+              >
               <div className="flex items-center justify-between">
                 {isToday ? (
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-omega-orange text-white text-[11px] font-bold tabular-nums">
@@ -143,12 +181,12 @@ export default function MonthView({
                   const meta = EVENT_KIND_META[e.kind] || { color: '#6B7280', label: e.kind };
                   const { primary, secondary } = parseEventTitle(e.title, meta.label);
                   return (
-                    <div
-                      key={e.id}
-                      className="flex items-start gap-1.5 px-1.5 py-1 rounded-md overflow-hidden"
-                      style={{ background: meta.color + '1F' /* ~12% */ }}
-                      title={e.title}
-                    >
+                    <DraggablePill key={e.id} event={e} canDrag={canDragEvent(e)}>
+                      <div
+                        className="flex items-start gap-1.5 px-1.5 py-1 rounded-md overflow-hidden"
+                        style={{ background: meta.color + '1F' /* ~12% */ }}
+                        title={e.title}
+                      >
                       <span
                         className="mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0"
                         style={{ background: meta.color }}
@@ -166,14 +204,16 @@ export default function MonthView({
                           </p>
                         )}
                       </div>
-                    </div>
+                      </div>
+                    </DraggablePill>
                   );
                 })}
                 {extra > 0 && (
                   <p className="text-[10px] font-bold text-omega-orange pl-1">+{extra} more</p>
                 )}
               </div>
-            </button>
+              </div>
+            </DroppableCell>
           );
         })}
       </div>
