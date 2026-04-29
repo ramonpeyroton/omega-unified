@@ -16,4 +16,32 @@
 alter table public.jobs
   add column if not exists cover_photo_url text;
 
--- That's it. No constraint, no default — null means "no photo yet".
+
+-- ─── Storage policies for the `job-covers` bucket ──────────────────
+-- Marking the bucket as PUBLIC in the Supabase dashboard only enables
+-- reads (the <img src="..."/> tag works without auth). Uploads, updates
+-- and deletes still go through Row-Level Security on storage.objects,
+-- and a brand-new bucket has no policies — so the first upload attempt
+-- fails with: "new row violates row-level security policy".
+--
+-- These four policies match the rest of the app's permissive RLS model
+-- (everything is gated client-side by the PIN-login role, not by
+-- Supabase Auth). Run AFTER you create the bucket.
+--
+-- Idempotent: drops first so re-running the file is safe.
+
+drop policy if exists "job_covers_anon_select" on storage.objects;
+create policy "job_covers_anon_select" on storage.objects
+  for select using (bucket_id = 'job-covers');
+
+drop policy if exists "job_covers_anon_insert" on storage.objects;
+create policy "job_covers_anon_insert" on storage.objects
+  for insert with check (bucket_id = 'job-covers');
+
+drop policy if exists "job_covers_anon_update" on storage.objects;
+create policy "job_covers_anon_update" on storage.objects
+  for update using (bucket_id = 'job-covers');
+
+drop policy if exists "job_covers_anon_delete" on storage.objects;
+create policy "job_covers_anon_delete" on storage.objects
+  for delete using (bucket_id = 'job-covers');
