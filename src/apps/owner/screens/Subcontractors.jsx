@@ -3,15 +3,23 @@ import { Search, Plus, Phone, Mail, X, Edit2, Trash2, UserPlus, Users } from 'lu
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
+import { subDisplayNames } from '../../../shared/lib/subcontractor';
 
 const SPECIALTIES = ['Plumbing', 'Electrical', 'Tile', 'Framing', 'Drywall', 'Painting', 'Roofing', 'HVAC', 'Flooring', 'Landscaping', 'Concrete', 'Masonry', 'Millwork', 'Glazing', 'General'];
 
 function SubModal({ sub, onSave, onClose }) {
-  const [form, setForm] = useState(sub || { name: '', phone: '', email: '', specialty: '' });
+  const [form, setForm] = useState(
+    sub || { contact_name: '', name: '', phone: '', email: '', specialty: '' }
+  );
   const [saving, setSaving] = useState(false);
 
+  // Per Ramon: at least the contact name is required (we always know
+  // the person; the LLC is sometimes blank for solo subs). The Save
+  // button stays disabled until that's filled.
+  const canSave = !!form.contact_name?.trim();
+
   const handleSave = async () => {
-    if (!form.name.trim()) return;
+    if (!canSave) return;
     setSaving(true);
     await onSave(form);
     setSaving(false);
@@ -27,9 +35,11 @@ function SubModal({ sub, onSave, onClose }) {
 
         <div className="space-y-4">
           {[
-            { key: 'name', label: 'Name *', placeholder: 'Full name / Company' },
-            { key: 'phone', label: 'Phone', placeholder: '(203) 555-0100' },
-            { key: 'email', label: 'Email', placeholder: 'contact@company.com' },
+            // Contact name leads — that's the day-to-day identity.
+            { key: 'contact_name', label: 'Contact Name *', placeholder: 'Pedro Silva' },
+            { key: 'name',         label: 'Company Name',   placeholder: 'ABC Plumbing LLC' },
+            { key: 'phone',        label: 'Phone',          placeholder: '(203) 555-0100' },
+            { key: 'email',        label: 'Email',          placeholder: 'contact@company.com' },
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
               <label className="block text-xs font-semibold text-omega-slate uppercase tracking-wider mb-1.5">{label}</label>
@@ -50,7 +60,7 @@ function SubModal({ sub, onSave, onClose }) {
 
         <div className="flex gap-3 mt-6">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-gray-200 text-omega-slate font-semibold text-sm hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={saving || !form.name.trim()}
+          <button onClick={handleSave} disabled={saving || !canSave}
             className="flex-1 py-3 rounded-xl bg-omega-orange text-white font-semibold text-sm hover:bg-omega-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
             {saving ? <LoadingSpinner size={16} color="text-white" /> : null}
             {sub ? 'Save Changes' : 'Add Sub'}
@@ -98,7 +108,15 @@ export default function Subcontractors() {
   }
 
   const filtered = subs.filter((s) => {
-    const matchSearch = !search || s.name?.toLowerCase().includes(search.toLowerCase()) || s.specialty?.toLowerCase().includes(search.toLowerCase());
+    // Search hits both names + specialty so typing the contact's first
+    // name is enough to find the row, even if it was registered under
+    // an LLC the operator doesn't remember.
+    const q = search.toLowerCase();
+    const matchSearch =
+      !search ||
+      s.contact_name?.toLowerCase().includes(q) ||
+      s.name?.toLowerCase().includes(q) ||
+      s.specialty?.toLowerCase().includes(q);
     const matchSpec = specialty === 'all' || s.specialty === specialty;
     return matchSearch && matchSpec;
   });
@@ -150,15 +168,20 @@ export default function Subcontractors() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filtered.map((sub) => (
+            {filtered.map((sub) => {
+              const { primary, secondary } = subDisplayNames(sub);
+              return (
               <div key={sub.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-omega-orange/40 hover:shadow-sm transition-all">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-omega-orange">{sub.name?.charAt(0).toUpperCase()}</span>
+                      <span className="text-sm font-bold text-omega-orange">{primary.charAt(0).toUpperCase()}</span>
                     </div>
-                    <div>
-                      <p className="font-semibold text-omega-charcoal text-sm">{sub.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-omega-charcoal text-sm truncate">{primary}</p>
+                      {secondary && (
+                        <p className="text-[11px] text-omega-stone truncate">{secondary}</p>
+                      )}
                       {sub.specialty && <span className="text-xs font-medium text-omega-orange">{sub.specialty}</span>}
                     </div>
                   </div>
@@ -172,7 +195,8 @@ export default function Subcontractors() {
                   {sub.email && <a href={`mailto:${sub.email}`} className="flex items-center gap-2 text-xs text-omega-stone hover:text-omega-orange transition-colors"><Mail className="w-3.5 h-3.5" />{sub.email}</a>}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

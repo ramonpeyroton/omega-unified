@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Plus, HardHat, Phone, Mail, MapPin, CheckCircle2, Clock, DollarSign, Edit3 } from 'lucide-react';
 import COIBadge, { getCoiState } from './COIBadge';
+import { subDisplayNames } from '../../../shared/lib/subcontractor';
 
 // Agreement status palette mirrors the chip style used elsewhere.
 const AGR_STATUS_META = {
@@ -102,6 +103,10 @@ export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSu
         const subAgreements = agreementsBySub.get(sub.id) || [];
         const totalValue = subAgreements.reduce((sum, a) => sum + (Number(a.their_estimate) || 0), 0);
         const completedCount = subAgreements.filter((a) => a.status === 'completed' || a.status === 'signed').length;
+        // Per Ramon: contact name is what the field crew recognizes day
+        // to day, so it leads the card. Company name (if any) drops to
+        // a secondary line below in muted text.
+        const { primary, secondary } = subDisplayNames(sub);
 
         return (
           <div key={sub.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -110,7 +115,7 @@ export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSu
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-lg font-bold text-omega-charcoal">{sub.name}</h3>
+                    <h3 className="text-lg font-bold text-omega-charcoal">{primary}</h3>
                     {sub.trade && (
                       <span className="text-[10px] font-bold uppercase tracking-wider text-omega-stone bg-white border border-gray-200 px-2 py-0.5 rounded">
                         {sub.trade}
@@ -118,6 +123,9 @@ export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSu
                     )}
                     <COIBadge expiryDate={sub.coi_expiry_date} />
                   </div>
+                  {secondary && (
+                    <p className="text-xs text-omega-stone mt-0.5 truncate">{secondary}</p>
+                  )}
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-omega-stone flex-wrap">
                     {sub.phone && (
                       <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {sub.phone}</span>

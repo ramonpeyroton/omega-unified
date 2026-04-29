@@ -63,7 +63,7 @@ export default function SubcontractorManager({ user }) {
   const [showAddSub, setShowAddSub] = useState(false);
   const [showAddAgr, setShowAddAgr] = useState(false);
   const [subForm, setSubForm] = useState({
-    name: '', trade: '', phone: '', email: '', tax_id: '',
+    name: '', contact_name: '', trade: '', phone: '', email: '', tax_id: '',
     insurance_company: '', insurance_policy_number: '', coi_expiry_date: '',
     // Sub-facing pages (offer Accept/Reject) translate based on this.
     // The internal app stays in English no matter what.
@@ -122,6 +122,7 @@ export default function SubcontractorManager({ user }) {
     setEditSub(sub);
     setEditForm({
       name: sub.name || '',
+      contact_name: sub.contact_name || '',
       trade: sub.trade || '',
       phone: sub.phone || '',
       email: sub.email || '',
@@ -234,7 +235,7 @@ export default function SubcontractorManager({ user }) {
         setSubs((prev) => [data, ...prev]);
       }
       setShowAddSub(false);
-      setSubForm({ name: '', trade: '', phone: '', email: '', tax_id: '', insurance_company: '', insurance_policy_number: '', coi_expiry_date: '', preferred_language: 'en' });
+      setSubForm({ name: '', contact_name: '', trade: '', phone: '', email: '', tax_id: '', insurance_company: '', insurance_policy_number: '', coi_expiry_date: '', preferred_language: 'en' });
       setCoiFile(null);
       setToast({ type: 'success', message: 'Subcontractor added' });
     } catch (err) {
@@ -477,14 +478,19 @@ export default function SubcontractorManager({ user }) {
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                { k: 'name', label: 'Name', required: true, colSpan: 2 },
-                { k: 'trade', label: 'Trade' },
-                { k: 'phone', label: 'Phone', type: 'phone' },
-                { k: 'email', label: 'Email', type: 'email' },
-                { k: 'tax_id', label: 'Tax ID' },
-                { k: 'insurance_company', label: 'Insurance Company' },
-                { k: 'insurance_policy_number', label: 'Policy Number' },
-                { k: 'coi_expiry_date', label: 'COI Expiry Date', type: 'date' },
+                // Contact name comes first — at Omega the field crew
+                // recognizes subs by the person, not the LLC, so making
+                // it the very first field nudges new entries into the
+                // right shape from day one.
+                { k: 'contact_name', label: 'Contact Name', required: true, colSpan: 2 },
+                { k: 'name',         label: 'Company Name', required: true, colSpan: 2 },
+                { k: 'trade',        label: 'Trade' },
+                { k: 'phone',        label: 'Phone', type: 'phone' },
+                { k: 'email',        label: 'Email', type: 'email' },
+                { k: 'tax_id',       label: 'Tax ID' },
+                { k: 'insurance_company',        label: 'Insurance Company' },
+                { k: 'insurance_policy_number',  label: 'Policy Number' },
+                { k: 'coi_expiry_date',          label: 'COI Expiry Date', type: 'date' },
               ].map((f) => (
                 <div key={f.k} className={f.colSpan === 2 ? 'sm:col-span-2' : ''}>
                   <label className="text-xs font-semibold text-omega-stone uppercase">{f.label}</label>
@@ -618,14 +624,19 @@ export default function SubcontractorManager({ user }) {
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                { k: 'name', label: 'Name', required: true, colSpan: 2 },
-                { k: 'trade', label: 'Trade' },
-                { k: 'phone', label: 'Phone', type: 'phone' },
-                { k: 'email', label: 'Email', type: 'email' },
-                { k: 'tax_id', label: 'Tax ID' },
-                { k: 'insurance_company', label: 'Insurance Company' },
-                { k: 'insurance_policy_number', label: 'Policy Number' },
-                { k: 'coi_expiry_date', label: 'COI Expiry Date', type: 'date' },
+                // Contact name comes first — at Omega the field crew
+                // recognizes subs by the person, not the LLC, so making
+                // it the very first field nudges new entries into the
+                // right shape from day one.
+                { k: 'contact_name', label: 'Contact Name', required: true, colSpan: 2 },
+                { k: 'name',         label: 'Company Name', required: true, colSpan: 2 },
+                { k: 'trade',        label: 'Trade' },
+                { k: 'phone',        label: 'Phone', type: 'phone' },
+                { k: 'email',        label: 'Email', type: 'email' },
+                { k: 'tax_id',       label: 'Tax ID' },
+                { k: 'insurance_company',        label: 'Insurance Company' },
+                { k: 'insurance_policy_number',  label: 'Policy Number' },
+                { k: 'coi_expiry_date',          label: 'COI Expiry Date', type: 'date' },
               ].map((f) => (
                 <div key={f.k} className={f.colSpan === 2 ? 'sm:col-span-2' : ''}>
                   <label className="text-xs font-semibold text-omega-stone uppercase">{f.label}</label>
