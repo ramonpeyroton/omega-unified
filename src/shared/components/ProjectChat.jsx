@@ -33,7 +33,7 @@ import {
   Image as ImageIcon, X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import Avatar from './ui/Avatar';
+import Avatar, { colorFromName } from './ui/Avatar';
 
 const POLL_MS = 30_000;
 
@@ -506,9 +506,14 @@ function MessageRow({ message }) {
   const when = useMemo(() => formatSlackTimestamp(message.ts), [message.ts]);
   const html = useMemo(() => renderSlackMrkdwn(body), [body]);
 
+  // Color the avatar from the resolved author name so each person
+  // in the channel gets a stable, distinct hue. Anonymous rows fall
+  // back to muted fog (handled by colorFromName itself).
+  const avatarColor = colorFromName(author);
+
   return (
     <li className="flex items-start gap-3 py-3">
-      <Avatar name={author || '?'} size="sm" color={author ? 'orange' : 'fog'} />
+      <Avatar name={author || '?'} size="sm" color={avatarColor} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
           <p className="text-sm font-semibold text-omega-charcoal">{author || 'Slack user'}</p>
