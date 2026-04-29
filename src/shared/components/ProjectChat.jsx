@@ -470,10 +470,20 @@ function MessageComposer({ jobId, user, onSent }) {
   }
 
   async function send() {
-    const trimmed = text.trim();
-    if ((!trimmed && !file) || sending) return;
+    // Defensive sanitization: if the user pasted rich-text from a
+    // rendered chat (or anywhere else with anchor tags in the
+    // clipboard), reduce <a href="X">...</a> back to bare X so the
+    // Slack post reads naturally instead of dumping HTML markup.
+    // We don't strip ALL tags — that would mangle messages with
+    // legitimate angle brackets (e.g. "I'll be there <- 5pm"). Only
+    // anchors get rewritten.
+    const cleaned = text
+      .replace(/<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi, '$1')
+      .trim();
+    if ((!cleaned && !file) || sending) return;
     setSending(true);
     setError('');
+    const trimmed = cleaned;
     try {
       // Branch: multipart when there's a file, JSON otherwise. Each
       // path goes to the SAME endpoint — the server detects which by
@@ -526,6 +536,29 @@ function MessageComposer({ jobId, user, onSent }) {
       e.preventDefault();
       send();
     }
+  }
+
+  // Force plain-text paste. When the clipboard holds rich text (e.g.
+  // a copy-paste from the rendered chat itself), browsers default to
+  // pasting the HTML representation into the textarea — which then
+  // gets posted to Slack literally as <a href="..."> markup. Reading
+  // text/plain instead always gives us just the URL/visible text.
+  function handlePaste(e) {
+    const plain = e.clipboardData?.getData('text/plain');
+    const html  = e.clipboardData?.getData('text/html');
+    if (!html || !plain) return; // Plain-only clipboard — let it be.
+    e.preventDefault();
+    const ta   = e.currentTarget;
+    const start = ta.selectionStart ?? text.length;
+    const end   = ta.selectionEnd   ?? text.length;
+    const next  = text.slice(0, start) + plain + text.slice(end);
+    setText(next);
+    // Place caret after the inserted block in the next tick so React
+    // has flushed the new value.
+    requestAnimationFrame(() => {
+      const pos = start + plain.length;
+      ta.setSelectionRange(pos, pos);
+    });
   }
 
   const busy = sending || compressing;
@@ -596,6 +629,7 @@ function MessageComposer({ jobId, user, onSent }) {
           value={text}
           onChange={(e) => { setText(e.target.value); if (error) setError(''); }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={file ? 'Add a caption (optional)…' : 'Write a message…'}
           disabled={busy}
           className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:border-omega-orange focus:outline-none disabled:opacity-50"
@@ -807,16 +841,25 @@ function MessageRow({ message, withBorder = true }) {
 //   3. Backend-resolved Slack user name (message.user_name) — for posts
 //      typed directly inside Slack with no prefix.
 //
-// Empty body is allowed for the new format so a credit-only message
-// (image attached, no caption: text="Brenda:") still extracts the
-// author correctly.
+// The Sprint 4 regex MUST start with a capital letter (a real person's
+// first name). Without that guard, a Slack-wrapped URL like
+// "<https://drive.google.com/...>" would get parsed as
+//   author = "<https"
+//   body   = "//drive.google.com/..."
+// because there's a colon in the URL. The capital-letter prefix kills
+// that misread cleanly — URLs always start with the lowercase scheme.
+//
+// Empty body is allowed so a credit-only message (image attached, no
+// caption: "Brenda:") still extracts the author correctly.
 function parseAuthorAndBody(message) {
   const text = message.text || '';
 
-  // Sprint 4 format. Allow empty body (after the colon) for image-only
-  // posts that come through send-message without a caption.
-  const newFmt = text.match(/^([^:\n]{1,60}):\s*([\s\S]*)$/);
-  if (newFmt && /[A-Za-z]/.test(newFmt[1])) {
+  // Sprint 4 format — strict. First char must be a Latin uppercase
+  // letter, then up to 59 more chars that are letters / spaces /
+  // periods / apostrophes / hyphens (covers names like "Mr. Silva",
+  // "Mary-Anne", "D'Souza"). Then a colon and optional body.
+  const newFmt = text.match(/^([A-Z][A-Za-zÀ-ÿ.'\- ]{0,59}):\s*([\s\S]*)$/);
+  if (newFmt) {
     return { author: newFmt[1].trim(), body: newFmt[2] };
   }
 
