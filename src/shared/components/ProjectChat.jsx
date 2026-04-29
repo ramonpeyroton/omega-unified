@@ -474,11 +474,16 @@ function MessageComposer({ jobId, user, onSent }) {
     // rendered chat (or anywhere else with anchor tags in the
     // clipboard), reduce <a href="X">...</a> back to bare X so the
     // Slack post reads naturally instead of dumping HTML markup.
+    // Also un-double-escape the typical &amp;amp; sequence that
+    // creeps into URLs through round-trips of the rendered chat.
     // We don't strip ALL tags — that would mangle messages with
     // legitimate angle brackets (e.g. "I'll be there <- 5pm"). Only
     // anchors get rewritten.
     const cleaned = text
-      .replace(/<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi, '$1')
+      .replace(
+        /<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi,
+        (_, href) => href.replace(/&amp;amp;/g, '&').replace(/&amp;/g, '&'),
+      )
       .trim();
     if ((!cleaned && !file) || sending) return;
     setSending(true);
@@ -538,25 +543,46 @@ function MessageComposer({ jobId, user, onSent }) {
     }
   }
 
-  // Force plain-text paste. When the clipboard holds rich text (e.g.
-  // a copy-paste from the rendered chat itself), browsers default to
-  // pasting the HTML representation into the textarea — which then
-  // gets posted to Slack literally as <a href="..."> markup. Reading
-  // text/plain instead always gives us just the URL/visible text.
+  // Force plain-text paste, with an extra pass for HTML hidden inside
+  // the clipboard's text/plain entry.
+  //
+  // Two failure modes we need to defuse:
+  //   1. Clipboard has both text/plain and text/html. Browsers prefer
+  //      HTML and end up inserting <a href="..."> markup. Solved by
+  //      reading text/plain explicitly.
+  //   2. Clipboard's text/plain LOOKS LIKE HTML — happens when the
+  //      user selects a previously-broken chat row (one that's
+  //      showing the raw <a href...> as text) and copies it. The
+  //      "plain" copy IS the HTML literal. Detect that pattern and
+  //      reduce <a href="X">label</a> back to bare X.
   function handlePaste(e) {
-    const plain = e.clipboardData?.getData('text/plain');
-    const html  = e.clipboardData?.getData('text/html');
-    if (!html || !plain) return; // Plain-only clipboard — let it be.
+    const plain = e.clipboardData?.getData('text/plain') || '';
+    const html  = e.clipboardData?.getData('text/html')  || '';
+    const looksLikeHtml = /<a\s+[^>]*href=/i.test(plain);
+    if (!html && !looksLikeHtml) return;
+
     e.preventDefault();
-    const ta   = e.currentTarget;
+
+    let final = plain;
+    if (looksLikeHtml) {
+      final = plain
+        .replace(
+          /<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi,
+          (_, href) => href.replace(/&amp;amp;/g, '&').replace(/&amp;/g, '&'),
+        );
+    } else if (!plain && html) {
+      // Edge case: only HTML in clipboard. Strip tags via the DOM.
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      final = tmp.textContent || '';
+    }
+
+    const ta = e.currentTarget;
     const start = ta.selectionStart ?? text.length;
     const end   = ta.selectionEnd   ?? text.length;
-    const next  = text.slice(0, start) + plain + text.slice(end);
-    setText(next);
-    // Place caret after the inserted block in the next tick so React
-    // has flushed the new value.
+    setText(text.slice(0, start) + final + text.slice(end));
     requestAnimationFrame(() => {
-      const pos = start + plain.length;
+      const pos = start + final.length;
       ta.setSelectionRange(pos, pos);
     });
   }
@@ -928,8 +954,22 @@ function htmlEscape(s) {
 // orange family for color consistency with the rest of the app.
 const MENTION_CLASS = 'inline-flex items-baseline px-1.5 rounded bg-omega-pale text-omega-dark font-semibold';
 
+// Heal old messages that came in with literal HTML in the body
+// (paste-of-rendered-html issue from before the paste-handler fix).
+// Decodes the typical &amp;amp; double-escape that happens when a
+// rendered URL is copy-pasted out of a chat row and back in.
+function unwrapLiteralAnchors(text) {
+  return String(text || '')
+    .replace(
+      /<a\s+[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi,
+      (_, href) => href.replace(/&amp;amp;/g, '&').replace(/&amp;/g, '&'),
+    );
+}
+
 function renderSlackMrkdwn(text) {
-  let s = String(text || '').replace(/&/g, '&amp;');
+  // Pre-pass: collapse any leftover <a> tags into bare URLs so the
+  // URL detector below picks them up cleanly as real links.
+  let s = unwrapLiteralAnchors(text).replace(/&/g, '&amp;');
 
   // Slack <url|label> — label can contain spaces but no '>' or '|'.
   s = s.replace(
