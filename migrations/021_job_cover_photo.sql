@@ -45,3 +45,11 @@ create policy "job_covers_anon_update" on storage.objects
 drop policy if exists "job_covers_anon_delete" on storage.objects;
 create policy "job_covers_anon_delete" on storage.objects
   for delete using (bucket_id = 'job-covers');
+
+
+-- ─── Reload PostgREST schema cache ─────────────────────────────────
+-- Without this, the API can keep returning "Could not find the
+-- 'cover_photo_url' column of 'jobs' in the schema cache" for a few
+-- minutes after the ALTER TABLE — even though the column exists.
+-- This NOTIFY tells PostgREST to refresh immediately.
+notify pgrst, 'reload schema';
