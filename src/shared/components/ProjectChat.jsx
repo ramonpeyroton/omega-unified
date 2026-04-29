@@ -32,6 +32,7 @@ import {
   Loader2, AlertCircle, MessageCircle, Link2, RefreshCw, Paperclip, Send,
   Image as ImageIcon, X,
 } from 'lucide-react';
+import imageCompression from 'browser-image-compression';
 import { supabase } from '../lib/supabase';
 import Avatar, { colorFromName } from './ui/Avatar';
 
@@ -246,7 +247,7 @@ export default function ProjectChat({ job, user, onJobUpdated }) {
       />
 
       <p className="pt-3 text-[10px] text-omega-fog text-center">
-        Auto-refreshes every 30s · Auto-compression of images coming next
+        Auto-refreshes every 30s · Images auto-compressed before upload
       </p>
     </div>
   );
@@ -304,14 +305,23 @@ function FileAttachment({ file }) {
 
 const ACCEPTED_FILE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const ACCEPTED_FILE_INPUT = '.jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif';
-// 4 MB ceiling — leaves headroom under the ~4.5 MB Vercel body cap so
-// multipart overhead doesn't push us over. Validated again server-side.
+// Target after compression. 2 MB keeps quality high while staying well
+// below the Vercel body limit. Anything still bigger than 4 MB after
+// compression is rejected — the user is asked for a smaller photo.
+const COMPRESS_TARGET_MB = 2;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+// Cap image dimensions so a 12,000-px iPhone shot doesn't take 30s in
+// the compressor. Long side capped at 2400 — still enough resolution
+// for site photos when zoomed in.
+const COMPRESS_MAX_DIMENSION = 2400;
+const COMPRESS_QUALITY = 0.8;
 
 function MessageComposer({ jobId, user, onSent }) {
   const [text, setText] = useState('');
-  const [file, setFile] = useState(null);          // File object
+  const [file, setFile] = useState(null);          // post-compression File
+  const [originalSize, setOriginalSize] = useState(0); // bytes BEFORE compression
   const [preview, setPreview] = useState(null);    // object-URL for thumbnail
+  const [compressing, setCompressing] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const taRef = useRef(null);
@@ -327,13 +337,15 @@ function MessageComposer({ jobId, user, onSent }) {
 
   function clearFile() {
     setFile(null);
+    setOriginalSize(0);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  function pickFile(e) {
+  async function pickFile(e) {
     const f = e.target.files?.[0];
     if (!f) return;
     setError('');
+
     // HEIC files sometimes report empty mimetype in browsers that
     // don't natively decode them — accept by extension as a backup.
     const looksImage =
@@ -344,12 +356,54 @@ function MessageComposer({ jobId, user, onSent }) {
       e.target.value = '';
       return;
     }
-    if (f.size > MAX_FILE_BYTES) {
-      setError(`Image too large (${(f.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB. Auto-compression comes in the next update.`);
+
+    // Compress in a Web Worker so the UI stays responsive even on
+    // 10MB+ iPhone shots. We always run it (even on small files)
+    // for consistency and to strip Photos metadata.
+    setCompressing(true);
+    setOriginalSize(f.size);
+    try {
+      let compressed;
+      try {
+        compressed = await imageCompression(f, {
+          maxSizeMB: COMPRESS_TARGET_MB,
+          maxWidthOrHeight: COMPRESS_MAX_DIMENSION,
+          initialQuality: COMPRESS_QUALITY,
+          useWebWorker: true,
+          // Strip orientation EXIF; the lib applies it to pixels first.
+          fileType: 'image/jpeg',
+        });
+      } catch (compressionErr) {
+        // Most likely failure mode: HEIC on a non-Safari browser. Fall
+        // back to the original file IF it's already small enough — the
+        // server will reject anything over 4MB, so the user still gets
+        // a clean error instead of a silent corruption.
+        if (f.size <= MAX_FILE_BYTES) {
+          compressed = f;
+        } else {
+          throw compressionErr;
+        }
+      }
+
+      // Server enforces the same 4MB cap. Mirror it client-side so the
+      // user sees the message before the upload round-trip.
+      if (compressed.size > MAX_FILE_BYTES) {
+        setError(`Even after compression the image is ${(compressed.size / 1024 / 1024).toFixed(1)} MB — over the 4 MB limit. Try a smaller photo.`);
+        e.target.value = '';
+        return;
+      }
+
+      setFile(compressed);
+    } catch (err) {
+      // Surfaced when HEIC/HEIF fails AND fallback isn't possible.
+      const msg = /heic|heif/i.test(err?.message || '')
+        ? 'Could not read this HEIC photo in your browser. Try Safari, or convert to JPG first.'
+        : `Could not process this image: ${err?.message || 'unknown error'}`;
+      setError(msg);
       e.target.value = '';
-      return;
+    } finally {
+      setCompressing(false);
     }
-    setFile(f);
   }
 
   async function send() {
@@ -411,12 +465,31 @@ function MessageComposer({ jobId, user, onSent }) {
     }
   }
 
-  const canSend = (text.trim().length > 0 || !!file) && !sending;
+  const busy = sending || compressing;
+  const canSend = (text.trim().length > 0 || !!file) && !busy;
+  const compressionRatio = file && originalSize
+    ? Math.max(0, 1 - (file.size / originalSize))
+    : 0;
 
   return (
     <div className="border-t border-gray-100 mt-3 pt-3">
-      {/* File preview chip — only shown when an image is queued. */}
-      {file && (
+      {/* Compression in progress chip. */}
+      {compressing && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl bg-omega-pale/50 border border-omega-pale">
+          <Loader2 className="w-4 h-4 text-omega-orange animate-spin flex-shrink-0" />
+          <p className="text-xs font-semibold text-omega-charcoal">
+            Compressing image…
+          </p>
+          {originalSize > 0 && (
+            <p className="text-[10px] text-omega-stone ml-auto">
+              {(originalSize / 1024 / 1024).toFixed(1)} MB
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* File preview chip — only shown when a compressed image is ready. */}
+      {file && !compressing && (
         <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-xl bg-omega-cloud border border-gray-200 max-w-full">
           {preview ? (
             <img
@@ -433,6 +506,11 @@ function MessageComposer({ jobId, user, onSent }) {
             <p className="text-xs font-semibold text-omega-charcoal truncate">{file.name}</p>
             <p className="text-[10px] text-omega-stone">
               {(file.size / 1024 / 1024).toFixed(2)} MB
+              {compressionRatio > 0.05 && (
+                <span className="text-omega-orange font-semibold ml-1.5">
+                  −{Math.round(compressionRatio * 100)}%
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -456,7 +534,7 @@ function MessageComposer({ jobId, user, onSent }) {
           onChange={(e) => { setText(e.target.value); if (error) setError(''); }}
           onKeyDown={handleKeyDown}
           placeholder={file ? 'Add a caption (optional)…' : 'Write a message…'}
-          disabled={sending}
+          disabled={busy}
           className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:border-omega-orange focus:outline-none disabled:opacity-50"
         />
         <input
@@ -469,7 +547,7 @@ function MessageComposer({ jobId, user, onSent }) {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={sending || !!file}
+          disabled={busy || !!file}
           title={file ? 'Remove the current image first' : 'Attach an image'}
           aria-label="Attach image"
           className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-gray-200 text-omega-stone hover:border-omega-orange hover:text-omega-orange disabled:opacity-50 transition flex-shrink-0"
@@ -494,7 +572,7 @@ function MessageComposer({ jobId, user, onSent }) {
         <p className="text-xs text-red-600 mt-1.5">{error}</p>
       )}
       <p className="text-[10px] text-omega-stone mt-1.5">
-        <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">Enter</kbd> to send · <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">Shift+Enter</kbd> for new line · <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">📎</kbd> for image (max 4 MB)
+        <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">Enter</kbd> to send · <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">Shift+Enter</kbd> for new line · <kbd className="px-1 py-0.5 rounded bg-omega-cloud border border-gray-200 font-mono">📎</kbd> images auto-compressed (~2 MB target, 4 MB max)
       </p>
     </div>
   );
