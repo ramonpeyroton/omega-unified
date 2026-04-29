@@ -322,10 +322,32 @@ Outra sessão **não deve refazer ou questionar** sem pedir antes:
   owner/manager/sales separados.
 - **`.claude/`** ignorado via `.gitignore`. Permissões e estado do
   Claude Code são per-machine.
-- **Receptionist é iPad/PC only** — não precisa funcionar em mobile
-  (exceção ao mobile-first geral). Resto do app é mobile-first.
+- **Viewport prioritário por role** — não tratar tudo como mobile-first.
+  Cada papel acessa de um dispositivo padrão e o layout deve priorizar ele:
+
+  | Role | Dispositivo principal | Notas |
+  |------|----------------------|-------|
+  | Attila (sales) | 📱 **tablet** | tablet-first |
+  | Gabriel (manager) | 📱 **tablet** | tablet-first |
+  | Receptionist | 💻 **iPad/PC** | nunca tratar como celular |
+  | Inácio (owner) | 🖥️ **desktop** | desktop-first |
+  | Brenda (operations) | 🖥️ **desktop** | desktop-first |
+  | Ramon (marketing) | 🖥️ **desktop** | desktop-first |
+  | Screen | 🖥️ **desktop/TV** | read-only |
+  | Admin | 🖥️ **desktop** | rota oculta |
+
 - **Admin é hardcoded** — não está na tabela `users`. Não permitir que
   apareça em "Users & Access".
+- **Logo única em `src/assets/logo.png`** — todos os `Logo.jsx` (Owner,
+  Admin, Sales, Manager, Operations, Receptionist) e Login/AdminLogin
+  importam desse caminho central. **Nunca** duplicar a logo dentro de
+  `src/apps/<role>/assets/`. Para favicon/OG/emails, manter cópia
+  espelhada em `public/logo.png`.
+- **Sidebars são INDEPENDENTES por role** — não há um componente
+  compartilhado. Cada `src/apps/<role>/components/Sidebar.jsx` é seu
+  próprio arquivo. Se mudar o visual da sidebar, propagar manualmente
+  pros 5 arquivos (Owner, Admin, Manager, Operations, Receptionist).
+  Sales/Screen/Marketing usam padrões próprios — verificar antes.
 - **Idioma:** UI em inglês, comentários e conversa com Ramon em PT-BR.
 
 ---
@@ -365,9 +387,10 @@ Outra sessão **não deve refazer ou questionar** sem pedir antes:
 4. **Delete Job PIN** = Owner PIN (`3333`). Hardcoded em
    `JobFullView.jsx` e `JobDetailDrawer.jsx`. Se PINs mudarem,
    atualizar ambos.
-5. **Mobile-first** com mínimo 390px de largura, exceto receptionist.
-   Botões mínimo 40px de altura no mobile, inputs 16px de fonte (evita
-   zoom do iOS).
+5. **Viewport por role** (ver tabela em "Decisões de arquitetura").
+   Resumo: Attila/Gabriel = tablet-first, Receptionist = iPad/PC,
+   resto = desktop-first. Botões mínimo 40px no touch (tablet),
+   inputs 16px de fonte em mobile/tablet (evita zoom do iOS).
 
 ---
 
@@ -385,6 +408,15 @@ E o Claude Code edita a seção apropriada. Atualizar também:
 ---
 
 ## Última atualização
+
+**2026-04-29** — Ramon + Claude (Opus 4.7).
+Logo centralizada em `src/assets/logo.png` (deletadas 5 cópias
+duplicadas em `src/apps/<role>/assets/`). Adicionada tabela de
+**viewports por role** (Attila/Gabriel = tablet, Receptionist = iPad/PC,
+resto = desktop) — substitui a antiga regra "mobile-first geral".
+Registrada decisão: **sidebars são independentes por role** (não há
+componente compartilhado). Início do redesign visual da sidebar do
+Owner (próxima rodada).
 
 **2026-04-28** — Ramon + Claude (Opus 4.7).
 Reescrita completa do CLAUDE.md baseada na análise do estado real do
