@@ -252,6 +252,50 @@ export default function ProjectChat({ job, user, onJobUpdated }) {
   );
 }
 
+// ─── File attachment (image inline / chip fallback) ──────────────
+// Images render as a clickable thumbnail using the local proxy
+// endpoint (api/slack/file-proxy) so the browser can load the bytes
+// without seeing the Slack token. Anything non-image keeps the
+// pre-existing chip look.
+function FileAttachment({ file }) {
+  const [broken, setBroken] = useState(false);
+  const isImage = (file.mimetype || '').startsWith('image/');
+  const proxySrc = file.proxy_url || (file.id ? `/api/slack/file-proxy?id=${encodeURIComponent(file.id)}` : null);
+  const openHref = file.permalink || file.url || proxySrc || '#';
+
+  if (isImage && proxySrc && !broken) {
+    return (
+      <a
+        href={openHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-block rounded-xl overflow-hidden border border-gray-200 hover:border-omega-orange transition"
+        title={file.name || 'image'}
+      >
+        <img
+          src={proxySrc}
+          alt={file.name || ''}
+          loading="lazy"
+          onError={() => setBroken(true)}
+          className="block max-w-[320px] max-h-[240px] w-auto h-auto object-contain bg-omega-cloud"
+        />
+      </a>
+    );
+  }
+
+  // Non-image OR image that failed to load — keep the chip.
+  return (
+    <a
+      href={openHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-omega-cloud text-xs font-medium text-omega-charcoal hover:text-omega-orange hover:bg-omega-pale/60 transition"
+    >
+      <Paperclip className="w-3 h-3" /> {file.name || 'attachment'}
+    </a>
+  );
+}
+
 // ─── Message composer ─────────────────────────────────────────────
 // Textarea + paperclip + send. Enter sends, Shift+Enter inserts a
 // newline. The paperclip opens a file picker restricted to images
@@ -475,17 +519,10 @@ function MessageRow({ message }) {
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {Array.isArray(message.files) && message.files.length > 0 && (
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-2 space-y-2">
             {message.files.map((f) => (
               <li key={f.id}>
-                <a
-                  href={f.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-omega-cloud text-xs font-medium text-omega-charcoal hover:text-omega-orange hover:bg-omega-pale/60 transition"
-                >
-                  <Paperclip className="w-3 h-3" /> {f.name || 'attachment'}
-                </a>
+                <FileAttachment file={f} />
               </li>
             ))}
           </ul>
@@ -500,19 +537,21 @@ function MessageRow({ message }) {
 // send-message.js prepends a credit line before the user's text.
 // Pull that out so the row shows the human author + clean body.
 //
-// Two formats are supported because the credit line shape changed
-// between Sprint 3 and Sprint 4:
-//   * Sprint 4+ (current):  "Ramon Peyroton: hello"
-//   * Sprint 3 (legacy):    "*Ramon Peyroton (sales)*\nhello"
-// Direct Slack-typed posts (no credit line) fall through with no author.
+// Three sources of "who said this" are tried, in order of trust:
+//   1. Sprint 4+ credit line  "Ramon Peyroton: hello"
+//   2. Sprint 3 legacy credit line  "*Ramon Peyroton (sales)*\nhello"
+//   3. Backend-resolved Slack user name (message.user_name) — for posts
+//      typed directly inside Slack with no prefix.
+//
+// Empty body is allowed for the new format so a credit-only message
+// (image attached, no caption: text="Brenda:") still extracts the
+// author correctly.
 function parseAuthorAndBody(message) {
   const text = message.text || '';
 
-  // Sprint 4 format. Restrict the "name" half a bit so we don't
-  // mistakenly steal the start of a normal message that happens to
-  // contain a colon (e.g. "URL: https://…"). Names are short, fit
-  // on one line, and don't contain ":" or newlines.
-  const newFmt = text.match(/^([^:\n]{1,60}):\s([\s\S]+)$/);
+  // Sprint 4 format. Allow empty body (after the colon) for image-only
+  // posts that come through send-message without a caption.
+  const newFmt = text.match(/^([^:\n]{1,60}):\s*([\s\S]*)$/);
   if (newFmt && /[A-Za-z]/.test(newFmt[1])) {
     return { author: newFmt[1].trim(), body: newFmt[2] };
   }
@@ -523,7 +562,9 @@ function parseAuthorAndBody(message) {
     return { author: stripRoleSuffix(oldFmt[1].trim()), body: oldFmt[2] };
   }
 
-  return { author: '', body: text };
+  // No credit line — fall back to the Slack user-id → real-name lookup
+  // the backend resolved via users.list (requires users:read scope).
+  return { author: message.user_name || '', body: text };
 }
 
 // "Pedro Silva (sales)" → "Pedro Silva". Keeps the avatar initial nice.
