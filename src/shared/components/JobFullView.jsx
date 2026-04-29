@@ -19,6 +19,7 @@ import DocumentsSection from './DocumentsSection';
 import EstimateBuilder from './EstimateBuilder';
 import MaterialsSection from './MaterialsSection';
 import JobSubcontractorsSection from './JobSubcontractorsSection';
+import JobCoverPhotoUpload from './JobCoverPhotoUpload';
 import { logAudit } from '../lib/audit';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
@@ -432,6 +433,7 @@ export default function JobFullView({
               onOpenEstimateFlow={() => { onOpenEstimateFlow?.(job); onClose?.(); }}
               onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
               onDelete={openDeleteModal}
+              onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
             />
           )}
         </div>
@@ -495,12 +497,20 @@ export default function JobFullView({
 function DetailsTab({
   job, estimate, contract,
   editing, setEditing, form, setForm, saveEdits, saving,
-  onOpenEstimateFlow, onOpenQuestionnaire, onDelete,
+  onOpenEstimateFlow, onOpenQuestionnaire, onDelete, onJobUpdated,
 }) {
   return (
     <div className="space-y-5">
       {/* Client info card */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+        {/* Cover photo — sits above the field grid so the user notices
+            it on first read of the tab. Stays visible whether or not
+            the form is in "edit mode" since the upload widget itself
+            is its own self-contained editor. */}
+        <div className="mb-5 pb-5 border-b border-gray-100">
+          <JobCoverPhotoUpload job={job} onUpdated={onJobUpdated} />
+        </div>
+
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="text-lg font-bold text-omega-charcoal">Client & Job Info</h2>
           <div className="flex items-center gap-2">

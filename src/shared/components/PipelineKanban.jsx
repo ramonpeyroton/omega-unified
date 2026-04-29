@@ -10,7 +10,10 @@ import {
   useDraggable,
   useDroppable,
 } from '@dnd-kit/core';
-import { Search, Filter, AlertTriangle, PhoneIncoming, Trash2 } from 'lucide-react';
+import {
+  Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
+  Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
@@ -23,66 +26,186 @@ import { logAudit } from '../lib/audit';
 // The actual PIN (3333) is still required inside DeleteJobModal.
 const CAN_DELETE_JOB = new Set(['owner', 'operations', 'admin']);
 
-// ─── Pipeline columns (order matters) ──────────────────────────────
-// Kept as a derived constant so color + order live in ONE place
-// (`phaseBreakdown.js`). Anyone needing column metadata imports
-// PIPELINE_COLUMNS from here as before.
+// ─── Pipeline columns ──────────────────────────────────────────────
+// Column metadata is derived from phaseBreakdown.js so order, label
+// and color all live in ONE place. Anyone needing column metadata
+// imports PIPELINE_COLUMNS from here as before.
 export const PIPELINE_COLUMNS = PIPELINE_ORDER.map((id) => ({
   id,
   label: PIPELINE_STEP_LABEL[id] || id,
+  hex: PIPELINE_COLORS[id]?.hex || '#6B7280',
   headerBg: PIPELINE_COLORS[id]?.tailwindBg || 'bg-gray-400',
-  headerText: 'text-white',
   colBg: PIPELINE_COLORS[id]?.soft || 'bg-gray-50',
 }));
 
-// ─── Job Card (simplified) ─────────────────────────────────────────
+const COLUMN_BY_ID = Object.fromEntries(PIPELINE_COLUMNS.map((c) => [c.id, c]));
+
+// Compact USD formatter for column totals — always shows the $ sign and
+// uses K/M abbreviations once we cross thresholds so the header stays
+// quiet ("$1.2M" reads better than "$1,234,567" in a narrow column).
+function fmtMoneyShort(n) {
+  if (!n) return '$0';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000)     return `$${Math.round(n / 1_000).toLocaleString()}K`;
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
+// Subtle "X days ago" — we want vibe, not precision. Falls back to
+// the locale date string if the row is older than ~3 weeks.
+function relTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days < 0) return d.toLocaleDateString();
+  if (days === 0) return 'today';
+  if (days === 1) return '1d ago';
+  if (days < 21)  return `${days}d ago`;
+  return d.toLocaleDateString();
+}
+
+// Pick a card-footer icon that matches the pipeline phase. Just visual
+// flavor — clicking still opens JobFullView, the icon doesn't drive UX.
+function footerIconFor(status) {
+  switch (status) {
+    case 'estimate_draft':       return FileText;
+    case 'estimate_sent':        return Mail;
+    case 'estimate_negotiating': return MessageIconFallback;
+    case 'estimate_approved':    return CheckCircle2;
+    case 'contract_sent':        return Mail;
+    case 'contract_signed':      return Hammer;
+    case 'in_progress':          return Zap;
+    case 'completed':            return CheckCircle2;
+    case 'estimate_rejected':    return XCircle;
+    default:                     return MapPin;
+  }
+}
+// Tiny inline component used as a stand-in icon for "negotiating".
+function MessageIconFallback(props) {
+  // 16-square message bubble; reused fallback to avoid pulling another lucide import.
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+// ─── Cover image (or pretty placeholder) ──────────────────────────
+// Always rendered at aspect 2:1 with object-cover so a square or
+// portrait upload gets center-cropped horizontally instead of making
+// cards taller. When the job has no cover yet we paint a soft tinted
+// background using the column's hex + a tiny house icon — keeps the
+// kanban looking "complete" before anyone uploads anything.
+function CardCover({ url, columnHex }) {
+  if (url) {
+    return (
+      <div className="aspect-[2/1] bg-omega-cloud overflow-hidden">
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          className="w-full h-full object-cover"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="aspect-[2/1] flex items-center justify-center"
+      style={{
+        background: `linear-gradient(135deg, ${columnHex}1A 0%, ${columnHex}33 100%)`,
+      }}
+    >
+      <Home className="w-8 h-8" style={{ color: columnHex, opacity: 0.55 }} />
+    </div>
+  );
+}
+
+// ─── Service badge — colored to match the column ──────────────────
+function ServiceBadge({ service, columnHex }) {
+  if (!service) return null;
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-md font-bold text-[10px] uppercase tracking-wider"
+      style={{
+        background: columnHex + '26' /* ~15% */,
+        color: columnHex,
+      }}
+    >
+      {service}
+    </span>
+  );
+}
+
+// ─── Job Card ─────────────────────────────────────────────────────
 function JobCard({ job, coiWarning, onOpen, onDelete, canDelete, isDragging }) {
   const address = [job.address, job.city].filter(Boolean).join(', ');
-  const step = PIPELINE_STEP_LABEL[job.pipeline_status || 'new_lead'] || 'New Lead';
   const calledIn = job.created_by === 'receptionist';
+  const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
+  const FooterIcon = footerIconFor(job.pipeline_status);
+
   return (
     <div
       onClick={(e) => { if (!isDragging) onOpen(job); }}
-      className={`group relative select-none bg-white border border-gray-200 rounded-lg p-2.5 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${
-        isDragging ? 'opacity-60' : ''
+      className={`group relative select-none bg-white rounded-2xl shadow-card border border-black/[0.04] overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 cursor-grab active:cursor-grabbing transition-all ${
+        isDragging ? 'opacity-60 rotate-1' : ''
       }`}
     >
-      {/* Delete (trash icon) — hidden until hover, never blocks drag. */}
+      {/* Cover banner — landscape, auto-cropped */}
+      <CardCover url={job.cover_photo_url} columnHex={col.hex} />
+
+      {/* Delete (trash) — top-right, only on hover */}
       {canDelete && !isDragging && (
         <button
           type="button"
-          onPointerDown={(e) => e.stopPropagation()}    // don't start a drag
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onDelete?.(job); }}
-          className="absolute top-1.5 right-1.5 p-1 rounded-md text-omega-stone/40 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+          className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-omega-stone hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
           title="Delete job (requires Owner PIN)"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       )}
 
-      <div className="flex items-start justify-between gap-1 pr-5">
-        <p className="font-bold text-sm text-omega-charcoal truncate flex-1">{job.client_name || job.name || 'Untitled'}</p>
-        {coiWarning && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" title="Sub with COI expiring" />}
-      </div>
-      {address && <p className="text-[11px] text-omega-stone truncate mt-0.5">{address}</p>}
+      <div className="p-3">
+        {/* Client + COI warning */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-bold text-sm text-omega-charcoal leading-tight truncate flex-1">
+            {job.client_name || job.name || 'Untitled'}
+          </p>
+          {coiWarning && (
+            <AlertTriangle
+              className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5"
+              title="Sub with COI expiring"
+            />
+          )}
+        </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {job.service && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold text-[10px] uppercase">
-            {job.service}
-          </span>
+        {address && (
+          <p className="text-[11px] text-omega-stone truncate mt-0.5">{address}</p>
         )}
-        {calledIn && (
-          <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[10px] uppercase"
-            title="Called in to reception"
-          >
-            <PhoneIncoming className="w-2.5 h-2.5" /> Called In
-          </span>
-        )}
-      </div>
 
-      <p className="mt-2 text-[11px] font-medium text-omega-slate truncate">{step}</p>
+        {/* Service + called-in badges */}
+        {(job.service || calledIn) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <ServiceBadge service={job.service} columnHex={col.hex} />
+            {calledIn && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 font-semibold text-[10px] uppercase"
+                title="Called in to reception"
+              >
+                <PhoneIncoming className="w-2.5 h-2.5" /> Called In
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Footer: small icon + relative time */}
+        <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-omega-stone">
+          <FooterIcon className="w-3 h-3" />
+          <span>{relTime(job.last_touch || job.updated_at || job.created_at)}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -90,15 +213,9 @@ function JobCard({ job, coiWarning, onOpen, onDelete, canDelete, isDragging }) {
 // ─── Draggable wrapper ─────────────────────────────────────────────
 // `touchAction: 'none'` is THE fix for iPad/tablet drag — without it,
 // iOS Safari intercepts the touchmove event for native vertical scroll
-// before @dnd-kit's TouchSensor sees it, so the card just sits there
-// while the page scrolls. Setting touch-action: none on the draggable
-// surface tells the browser "I'm handling all gestures here." Combined
-// with the TouchSensor's 150ms activation delay, a quick tap still
-// scrolls (delay isn't met) but a held-then-dragged gesture moves the
-// card.
-//
-// `cursor: grab` / `grabbing` is just visual feedback so it's obvious
-// the card is interactive on desktop too.
+// before @dnd-kit's TouchSensor sees it. Combined with the TouchSensor's
+// 150ms activation delay, a quick tap still scrolls (delay isn't met)
+// but a held-then-dragged gesture moves the card.
 function DraggableJobCard({ id, children }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
   const style = {
@@ -121,8 +238,8 @@ function DroppableColumn({ columnId, children, isOver }) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-h-[200px] p-2 rounded-lg transition-all ${
-        isOver ? 'ring-2 ring-[#D4AF37] ring-offset-2' : ''
+      className={`flex-1 min-h-[200px] p-2 transition-all ${
+        isOver ? 'ring-2 ring-omega-orange ring-inset rounded-2xl' : ''
       }`}
     >
       {children}
@@ -131,7 +248,10 @@ function DroppableColumn({ columnId, children, isOver }) {
 }
 
 // ─── Main component ────────────────────────────────────────────────
-export default function PipelineKanban({ user, filterBySalesperson = false, readOnly = false, onOpenEstimateFlow, onOpenQuestionnaire }) {
+export default function PipelineKanban({
+  user, filterBySalesperson = false, readOnly = false,
+  onOpenEstimateFlow, onOpenQuestionnaire,
+}) {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -182,7 +302,7 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
     }
   }
 
-  // Maps
+  // Most recent estimate per job — used for column totals.
   const estByJob = useMemo(() => {
     const map = {};
     estimates.forEach((e) => {
@@ -193,7 +313,7 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
     return map;
   }, [estimates]);
 
-  // Jobs with an assigned sub whose COI is expiring within 30 days or expired
+  // Jobs with an assigned sub whose COI is expiring within 30 days or expired.
   const coiWarningByJob = useMemo(() => {
     const expiringSubs = new Set();
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -208,16 +328,13 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
     return warn;
   }, [subs, assignments]);
 
-  // Salesperson filter — case-insensitive match. If nothing matches we fall
-  // back to showing all jobs so the screen is never empty.
-  // TODO: replace with a real Supabase Auth `created_by` UUID check once PIN
-  //       login is swapped for proper auth. Right now we rely on `user.name`
-  //       being written to `jobs.salesperson_name` at creation time.
+  // Salesperson filter — case-insensitive match. Falls back to all jobs
+  // when nobody matches (otherwise the screen would be silently empty).
   const salesMatches = useMemo(() => {
     if (!filterBySalesperson || !user?.name) return null;
     const u = user.name.trim().toLowerCase();
     const hits = jobs.filter((j) => (j.salesperson_name || '').trim().toLowerCase() === u);
-    return hits.length > 0 ? new Set(hits.map((j) => j.id)) : null; // null = show all
+    return hits.length > 0 ? new Set(hits.map((j) => j.id)) : null;
   }, [jobs, filterBySalesperson, user?.name]);
 
   const visibleJobs = useMemo(() => {
@@ -235,22 +352,27 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
     });
   }, [jobs, filterCity, filterService, filterPm, searchText, canSeePmFilter, salesMatches]);
 
-  const showSalesFallbackBanner = filterBySalesperson && user?.name && salesMatches === null && jobs.length > 0;
+  const showSalesFallbackBanner =
+    filterBySalesperson && user?.name && salesMatches === null && jobs.length > 0;
 
-  const cityOptions = useMemo(() => Array.from(new Set(jobs.map((j) => j.city).filter(Boolean))).sort(), [jobs]);
+  const cityOptions    = useMemo(() => Array.from(new Set(jobs.map((j) => j.city).filter(Boolean))).sort(), [jobs]);
   const serviceOptions = useMemo(() => Array.from(new Set(jobs.map((j) => j.service).filter(Boolean))).sort(), [jobs]);
-  const pmOptions = useMemo(() => Array.from(new Set(jobs.map((j) => j.pm_name).filter(Boolean))).sort(), [jobs]);
+  const pmOptions      = useMemo(() => Array.from(new Set(jobs.map((j) => j.pm_name).filter(Boolean))).sort(), [jobs]);
 
-  // Group jobs by pipeline_status
-  const jobsByColumn = useMemo(() => {
-    const map = {};
-    PIPELINE_COLUMNS.forEach((c) => { map[c.id] = []; });
+  // Group jobs + sum estimate totals by pipeline column.
+  const { jobsByColumn, totalsByColumn } = useMemo(() => {
+    const grouped = {};
+    const totals = {};
+    PIPELINE_COLUMNS.forEach((c) => { grouped[c.id] = []; totals[c.id] = 0; });
     visibleJobs.forEach((j) => {
-      const key = PIPELINE_COLUMNS.some((c) => c.id === j.pipeline_status) ? j.pipeline_status : 'new_lead';
-      map[key].push(j);
+      const key = COLUMN_BY_ID[j.pipeline_status] ? j.pipeline_status : 'new_lead';
+      grouped[key].push(j);
+      const est = estByJob[j.id];
+      const amount = Number(est?.total) || 0;
+      totals[key] += amount;
     });
-    return map;
-  }, [visibleJobs]);
+    return { jobsByColumn: grouped, totalsByColumn: totals };
+  }, [visibleJobs, estByJob]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
   function handleDragStart(event) {
@@ -270,23 +392,28 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
     setActiveId(null);
     setOverColumn(null);
     if (!activeJobId || !targetCol) return;
-    if (!PIPELINE_COLUMNS.some((c) => c.id === targetCol)) return;
+    if (!COLUMN_BY_ID[targetCol]) return;
 
     const job = jobs.find((j) => j.id === activeJobId);
     if (!job) return;
     const previous = job.pipeline_status || 'new_lead';
     if (previous === targetCol) return;
 
-    // Optimistic update
     setSavingId(activeJobId);
-    setJobs((prev) => prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: targetCol } : j)));
+    setJobs((prev) =>
+      prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: targetCol } : j))
+    );
 
-    const { error } = await supabase.from('jobs').update({ pipeline_status: targetCol }).eq('id', activeJobId);
+    const { error } = await supabase
+      .from('jobs')
+      .update({ pipeline_status: targetCol })
+      .eq('id', activeJobId);
     setSavingId(null);
 
     if (error) {
-      // Revert
-      setJobs((prev) => prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: previous } : j)));
+      setJobs((prev) =>
+        prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: previous } : j))
+      );
       setToast({ type: 'error', message: `Failed to move job: ${error.message}` });
       return;
     }
@@ -306,7 +433,13 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
 
   const activeJob = activeId ? jobs.find((j) => j.id === activeId) : null;
 
-  if (loading) return <div className="flex-1 flex items-center justify-center"><LoadingSpinner size={32} /></div>;
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <LoadingSpinner size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-omega-cloud">
@@ -317,7 +450,9 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
           <div>
             <h1 className="text-2xl font-bold text-omega-charcoal">Pipeline</h1>
             <p className="text-sm text-omega-stone mt-1">
-              {filterBySalesperson ? 'Your jobs — drag cards between phases' : 'All jobs — drag cards between phases'}
+              {filterBySalesperson
+                ? 'Your jobs — drag cards between phases'
+                : 'All jobs — drag cards between phases'}
             </p>
           </div>
           {savingId && <span className="text-xs text-omega-stone">Saving…</span>}
@@ -331,30 +466,45 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               placeholder="Search client or job…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm"
+              className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none transition"
             />
           </div>
-          <select value={filterCity} onChange={(e) => setFilterCity(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+          <select
+            value={filterCity}
+            onChange={(e) => setFilterCity(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none transition"
+          >
             <option value="all">All cities</option>
             {cityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+          <select
+            value={filterService}
+            onChange={(e) => setFilterService(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none transition"
+          >
             <option value="all">All services</option>
             {serviceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           {canSeePmFilter ? (
-            <select value={filterPm} onChange={(e) => setFilterPm(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+            <select
+              value={filterPm}
+              onChange={(e) => setFilterPm(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none transition"
+            >
               <option value="all">All PMs</option>
               {pmOptions.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           ) : <div />}
-          <button onClick={clearFilters} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold hover:border-omega-orange flex items-center justify-center gap-2">
+          <button
+            onClick={clearFilters}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold hover:border-omega-orange hover:text-omega-orange flex items-center justify-center gap-2 transition"
+          >
             <Filter className="w-4 h-4" /> Clear filters
           </button>
         </div>
 
         {showSalesFallbackBanner && (
-          <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+          <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200">
             <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-amber-900">
               No jobs matched your name yet. Showing all jobs for now — jobs must be assigned to "{user.name}" to appear in your personal view.
@@ -363,26 +513,51 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
         )}
       </header>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
         <div className="flex-1 overflow-x-auto overflow-y-auto">
           <div
-            className="h-full p-3 gap-2"
+            className="h-full p-4 gap-3"
             style={{
               display: 'grid',
-              gridTemplateColumns: `repeat(${PIPELINE_COLUMNS.length}, minmax(150px, 1fr))`,
-              minWidth: `${PIPELINE_COLUMNS.length * 150}px`,
+              gridTemplateColumns: `repeat(${PIPELINE_COLUMNS.length}, minmax(220px, 1fr))`,
+              minWidth: `${PIPELINE_COLUMNS.length * 220}px`,
             }}
           >
             {PIPELINE_COLUMNS.map((col) => {
               const list = jobsByColumn[col.id] || [];
+              const total = totalsByColumn[col.id] || 0;
               return (
-                <div key={col.id} className={`flex flex-col rounded-lg border border-gray-200 ${col.colBg}`}>
-                  <div className={`flex items-center justify-between px-2 py-1.5 rounded-t-lg ${col.headerBg} ${col.headerText}`}>
-                    <p className="font-bold text-[11px] uppercase tracking-wide truncate">{col.label}</p>
-                    <span className="text-[10px] font-semibold bg-white/25 px-1.5 py-0.5 rounded-full flex-shrink-0">{list.length}</span>
+                <div
+                  key={col.id}
+                  className="flex flex-col rounded-2xl bg-white shadow-card border border-black/[0.04] overflow-hidden"
+                >
+                  {/* Colored header strip — column color is the source of truth */}
+                  <div
+                    className="px-3 py-2.5 text-white"
+                    style={{ background: col.hex }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-bold text-[11px] uppercase tracking-wider truncate">
+                        {col.label}
+                      </p>
+                      <span className="text-[10px] font-bold bg-white/25 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                        {list.length}
+                      </span>
+                    </div>
+                    {/* Disguised total — small, semi-transparent, non-shouty */}
+                    <p className="text-[11px] font-semibold text-white/70 mt-0.5 tabular-nums">
+                      {fmtMoneyShort(total)}
+                    </p>
                   </div>
+
                   <DroppableColumn columnId={col.id} isOver={overColumn === col.id}>
-                    <div className="flex flex-col gap-2 min-h-[100px]">
+                    <div className="flex flex-col gap-2.5 min-h-[100px]">
                       {list.map((j) => (
                         <DraggableJobCard key={j.id} id={j.id}>
                           {({ isDragging }) => (
@@ -398,7 +573,9 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
                         </DraggableJobCard>
                       ))}
                       {list.length === 0 && (
-                        <p className="text-[10px] text-omega-fog text-center py-6 border-2 border-dashed border-gray-200 rounded-lg">Drop here</p>
+                        <p className="text-[10px] text-omega-fog text-center py-6 border-2 border-dashed border-gray-200 rounded-xl">
+                          Drop here
+                        </p>
                       )}
                     </div>
                   </DroppableColumn>
@@ -410,7 +587,7 @@ export default function PipelineKanban({ user, filterBySalesperson = false, read
 
         <DragOverlay>
           {activeJob && (
-            <div style={{ opacity: 0.8, width: 160 }}>
+            <div style={{ opacity: 0.85, width: 220 }}>
               <JobCard
                 job={activeJob}
                 coiWarning={coiWarningByJob.has(activeJob.id)}

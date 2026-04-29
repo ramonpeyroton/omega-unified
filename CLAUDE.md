@@ -302,6 +302,13 @@ pull  =  PUXAR     (GitHub         →  minha máquina)
   os dois ou apagar o drawer.
 - **`react-router-dom` em `package.json`** sem nenhum import — pode
   ser removido numa limpeza.
+- **Migration `021_job_cover_photo.sql` + bucket `job-covers`** — a
+  feature de cover photo no Pipeline kanban depende de:
+  1. Rodar `migrations/021_job_cover_photo.sql` no Supabase (adiciona
+     `cover_photo_url TEXT` em `jobs`).
+  2. Criar o bucket **público** `job-covers` em Supabase Storage.
+  Frontend lida com `null` graciosamente (mostra placeholder) — então
+  a app não quebra antes do setup, mas a feature só funciona depois.
 
 ---
 
