@@ -8,6 +8,7 @@ import MessageTemplates from './screens/MessageTemplates';
 import ScreenOverride from './screens/ScreenOverride';
 import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
+import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -32,6 +33,7 @@ export default function App({ user, onLogout }) {
       case 'audit':     return <AuditLog />;
       case 'templates': return <MessageTemplates user={user} />;
       case 'calendar':  return <CalendarScreen user={user} />;
+      case 'finance':   return <FinanceScreen user={user} />;
       case 'screen':    return <ScreenOverride user={user} />;
       default:          return <UsersAccess user={user} />;
     }

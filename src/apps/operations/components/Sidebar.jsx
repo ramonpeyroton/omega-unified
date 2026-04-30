@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, FileText, FilePen, Users, GitBranch, LogOut, Calendar } from 'lucide-react';
+import { LayoutDashboard, FileText, FilePen, Users, GitBranch, LogOut, Calendar, DollarSign } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -10,6 +10,7 @@ const NAV = [
   { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
   { id: 'pipeline',        label: 'Project Pipeline', icon: GitBranch },
   { id: 'calendar',        label: 'Calendar',         icon: Calendar },
+  { id: 'finance',         label: 'Finance',          icon: DollarSign },
   { id: 'contracts',       label: 'Contracts',        icon: FileText },
   { id: 'subcontractors',  label: 'Subcontractors',   icon: Users },
 ];

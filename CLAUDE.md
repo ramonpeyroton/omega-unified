@@ -509,6 +509,48 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-04-30 (noite — Finance v1)** — Ramon + Claude (Opus 4.7).
+Sprint 1 da área Financeiro entregue. Item "Finance" novo na sidebar
+de **owner / operations / admin** (Brenda + Inácio + admin). Página
+com 3 abas: **Company** (agregados — saldos QB virão na v2),
+**Clients** (contratos signed com payment milestones), **Subs**
+(espelho pros agreements).
+
+**Modelo de dados** (migration 026):
+- `bank_accounts` — lista das contas da empresa (CRUD inline na própria
+  Finance via botão "Bank Accounts" no header).
+- `payment_milestones` — uma row por parcela. Materializadas a partir
+  do JSONB `contracts.payment_plan` quando o contrato é assinado (via
+  webhook DocuSign) ou no primeiro acesso à Finance (defensive
+  `ensureMilestonesForContract` se a row não existe).
+- `sub_payments` — espelho reverso pros `subcontractor_agreements`
+  (mesma lógica via `ensureSubPaymentsForAgreement`).
+
+Status enum: `pending | partial | paid`. **Overdue nunca é guardado**
+— é projeção UI a partir de `due_date < hoje - 3 dias` (regra: 3 dias
+de carência conforme pedido). Pagamento parcial fica na MESMA
+milestone (received_amount acumula até atingir due_amount).
+
+**Plug-ins novos:**
+- `api/docusign-webhook.js` — ao receber signed/completed, invoca
+  `materializePaymentMilestones` (contrato) ou `materializeSubPayments`
+  (agreement) inline. Idempotente. Falha silenciosa não bloqueia o
+  signing.
+- `src/shared/lib/finance.js` — helpers compartilhados: `effectiveStatus`,
+  `milestoneAmount`, `ensureMilestonesForContract`, `markMilestoneReceived`,
+  `ensureSubPaymentsForAgreement`, `markSubPaymentPaid`, `loadFinanceTotals`.
+- Audit log via `audit_log` em toda mark-received / mark-paid /
+  bank_account.create / update / activate / deactivate.
+
+**Pendências do Ramon antes de testar em produção:**
+- Rodar **migration 026** no Supabase (`migrations/026_finance.sql`).
+- (Opcional, próxima onda) Setup OAuth do QuickBooks pra v2.
+
+**Sprint 2 do Finance — adiada pra outra rodada:**
+- QuickBooks read-only (saldos das 3 contas).
+- Lembretes automáticos (cron Vercel + notification in-app).
+- Tab Company com mais agregados (gráficos? evolução mensal?).
+
 **2026-04-30 (tarde — username login)** — Ramon + Claude (Opus 4.7).
 Início da Fase 3 do auth track (auth hardening), parcial e
 retrocompatível:

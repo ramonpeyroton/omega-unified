@@ -92,7 +92,9 @@ export default async function handler(req, res) {
 
     if (contract) {
       const patch = { docusign_status: status };
-      if (event === 'envelope-signed' || status === 'completed' || status === 'signed') {
+      const becomingSigned =
+        event === 'envelope-signed' || status === 'completed' || status === 'signed';
+      if (becomingSigned) {
         patch.status = 'signed';
         patch.signed_at = completedAt || new Date().toISOString();
         await supabase.from('jobs').update({ status: 'contracted' }).eq('id', contract.job_id);
@@ -102,6 +104,20 @@ export default async function handler(req, res) {
         patch.status = 'sent';
       }
       await supabase.from('contracts').update(patch).eq('id', contract.id);
+
+      // When the customer signs, materialize payment_milestones from the
+      // payment_plan JSONB so the Finance area has rows to track. Idempotent
+      // (we'd skip if rows already exist, but that's unlikely on first sign).
+      if (becomingSigned) {
+        try {
+          await materializePaymentMilestones(contract);
+        } catch (err) {
+          // Non-fatal — the contract is signed regardless. Finance UI has
+          // a defensive ensureMilestonesForContract() that re-runs on open.
+          console.warn('[docusign-webhook] milestone materialization failed:', err?.message);
+        }
+      }
+
       res.status(200).json({ ok: true, kind: 'contract' });
       return;
     }
@@ -115,7 +131,9 @@ export default async function handler(req, res) {
 
     if (agr) {
       const patch = { docusign_status: status };
-      if (event === 'envelope-signed' || status === 'completed' || status === 'signed') {
+      const becomingSigned =
+        event === 'envelope-signed' || status === 'completed' || status === 'signed';
+      if (becomingSigned) {
         patch.status = 'signed';
         patch.signed_at = completedAt || new Date().toISOString();
       } else if (event === 'envelope-declined' || status === 'declined') {
@@ -124,6 +142,16 @@ export default async function handler(req, res) {
         patch.status = 'sent';
       }
       await supabase.from('subcontractor_agreements').update(patch).eq('id', agr.id);
+
+      // Materialize sub_payments rows so we can track payments to the sub.
+      if (becomingSigned) {
+        try {
+          await materializeSubPayments(agr);
+        } catch (err) {
+          console.warn('[docusign-webhook] sub_payments materialization failed:', err?.message);
+        }
+      }
+
       res.status(200).json({ ok: true, kind: 'agreement' });
       return;
     }
@@ -132,4 +160,100 @@ export default async function handler(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message || 'Webhook error' });
   }
+}
+
+// ─── Materialization helpers (server-side) ───────────────────────
+// Inlined so this serverless function stays self-contained — no
+// dependency on /src/shared/lib/finance.js (which is browser-side).
+//
+// Both helpers are idempotent: they bail if milestones already exist
+// for the given contract / agreement.
+
+function milestoneAmount(item, totalAmount) {
+  if (!item) return 0;
+  if (item.amount != null && item.amount !== '') return Number(item.amount) || 0;
+  if (item.percent != null && totalAmount != null) {
+    return (Number(totalAmount) || 0) * (Number(item.percent) || 0) / 100;
+  }
+  return 0;
+}
+
+async function materializePaymentMilestones(contract) {
+  if (!contract?.id) return;
+  const { data: existing } = await supabase
+    .from('payment_milestones')
+    .select('id')
+    .eq('contract_id', contract.id)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+
+  const plan = Array.isArray(contract.payment_plan) ? contract.payment_plan : [];
+  if (plan.length === 0) return;
+
+  const rows = plan.map((p, idx) => {
+    const amount = milestoneAmount(p, contract.total_amount);
+    const wasPaid = !!p.paid;
+    return {
+      contract_id: contract.id,
+      job_id: contract.job_id || null,
+      order_idx: idx,
+      label: p.label || `Installment ${idx + 1}`,
+      due_amount: amount,
+      due_date: p.due_date || null,
+      received_amount: wasPaid ? amount : 0,
+      received_at: wasPaid ? (p.paid_at || new Date().toISOString()) : null,
+      status: wasPaid ? 'paid' : 'pending',
+    };
+  });
+  await supabase.from('payment_milestones').insert(rows);
+}
+
+async function materializeSubPayments(agreement) {
+  if (!agreement?.id) return;
+  const { data: existing } = await supabase
+    .from('sub_payments')
+    .select('id')
+    .eq('agreement_id', agreement.id)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+
+  // Pull the originating offer if the agreement doesn't carry the plan.
+  let plan = Array.isArray(agreement.payment_plan) ? agreement.payment_plan : null;
+  let total = Number(agreement.their_estimate || agreement.total_amount || 0);
+  let subId = agreement.subcontractor_id || null;
+  let jobId = agreement.job_id || null;
+
+  if (!plan && agreement.offer_id) {
+    const { data: offer } = await supabase
+      .from('subcontractor_offers')
+      .select('payment_plan, their_estimate, subcontractor_id, job_id')
+      .eq('id', agreement.offer_id)
+      .maybeSingle();
+    if (offer) {
+      plan = Array.isArray(offer.payment_plan) ? offer.payment_plan : null;
+      total = total || Number(offer.their_estimate || 0);
+      subId = subId || offer.subcontractor_id || null;
+      jobId = jobId || offer.job_id || null;
+    }
+  }
+
+  if (!plan || plan.length === 0) return;
+
+  const rows = plan.map((p, idx) => {
+    const amount = milestoneAmount(p, total);
+    const wasPaid = !!p.paid;
+    return {
+      agreement_id: agreement.id,
+      subcontractor_id: subId,
+      job_id: jobId,
+      order_idx: idx,
+      label: p.label || `Installment ${idx + 1}`,
+      due_amount: amount,
+      due_date: p.due_date || null,
+      paid_amount: wasPaid ? amount : 0,
+      paid_at: wasPaid ? (p.paid_at || new Date().toISOString()) : null,
+      status: wasPaid ? 'paid' : 'pending',
+    };
+  });
+  await supabase.from('sub_payments').insert(rows);
 }

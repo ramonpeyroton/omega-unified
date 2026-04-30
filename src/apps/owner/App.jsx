@@ -13,6 +13,7 @@ import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
 import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
+import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -101,6 +102,8 @@ export default function App({ user, onLogout }) {
         );
       case 'calendar':
         return <CalendarScreen user={user} />;
+      case 'finance':
+        return <FinanceScreen user={user} />;
       case 'estimate-flow':
         return selectedJob
           ? <EstimateFlow job={selectedJob} user={user} onBack={() => setScreen('pipeline')} />

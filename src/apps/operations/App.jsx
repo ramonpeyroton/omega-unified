@@ -7,6 +7,7 @@ import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
 import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
+import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -46,6 +47,8 @@ export default function App({ user, onLogout }) {
         return <PipelineKanban user={user} filterBySalesperson={false} onOpenEstimateFlow={openEstimate} />;
       case 'calendar':
         return <CalendarScreen user={user} />;
+      case 'finance':
+        return <FinanceScreen user={user} />;
       default:
         return <Dashboard onOpenEstimate={openEstimate} onNavigate={navigate} user={user} />;
     }
