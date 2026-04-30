@@ -6,10 +6,14 @@ import {
   TouchSensor,
   useSensor,
   useSensors,
-  closestCenter,
-  useDraggable,
+  closestCorners,
   useDroppable,
 } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
@@ -210,17 +214,26 @@ function JobCard({ job, coiWarning, onOpen, onDelete, canDelete, isDragging }) {
   );
 }
 
-// ─── Draggable wrapper ─────────────────────────────────────────────
+// ─── Sortable wrapper ──────────────────────────────────────────────
+// Each card is sortable AND droppable. Drop on another card → reorders
+// (or moves between columns and inserts at that card's slot). Drop on
+// the column container → moves to the bottom of that column. The
 // `touchAction: 'none'` is THE fix for iPad/tablet drag — without it,
 // iOS Safari intercepts the touchmove event for native vertical scroll
 // before @dnd-kit's TouchSensor sees it. Combined with the TouchSensor's
 // 150ms activation delay, a quick tap still scrolls (delay isn't met)
 // but a held-then-dragged gesture moves the card.
-function DraggableJobCard({ id, children }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+function SortableJobCard({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({ id });
   const style = {
     touchAction: 'none',
     cursor: isDragging ? 'grabbing' : 'grab',
+    // We deliberately ignore @dnd-kit/sortable's `transition` value here.
+    // Cards animate via the parent column's flex layout — re-running
+    // the React render after handleDragEnd (which mutates `jobs`
+    // ordering) is enough. Adding a CSS transition on transform makes
+    // the card snap visibly after the drop, which the user reads as
+    // a glitch.
     ...(transform
       ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 }
       : {}),
@@ -233,12 +246,17 @@ function DraggableJobCard({ id, children }) {
 }
 
 // ─── Droppable column ──────────────────────────────────────────────
+// `overflow-y-auto` is the fix for "I can't see the cards at the bottom
+// of New Lead anymore" — without it the column grew past the viewport
+// and the parent's overflow-hidden silently clipped them. Now each
+// column scrolls independently. `min-h-[200px]` ensures empty columns
+// still register a hit area for cross-column drops.
 function DroppableColumn({ columnId, children, isOver }) {
   const { setNodeRef } = useDroppable({ id: columnId });
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-h-[200px] p-2 transition-all ${
+      className={`flex-1 min-h-[200px] p-2 overflow-y-auto transition-all ${
         isOver ? 'ring-2 ring-omega-orange ring-inset rounded-2xl' : ''
       }`}
     >
@@ -265,6 +283,13 @@ export default function PipelineKanban({
   const [openJob, setOpenJob] = useState(null);
   const [deleteJob, setDeleteJob] = useState(null);
 
+  // True once we observe a "column does not exist" error from Supabase
+  // for `pipeline_position`. Toggled at runtime so the kanban keeps
+  // working in environments where migration 028 hasn't been applied
+  // yet (the deploy beats the SQL by a minute or two). When true, we
+  // skip both the order-by and the UPDATE field that mention it.
+  const [positionMigrationMissing, setPositionMigrationMissing] = useState(false);
+
   const canDelete = !readOnly && CAN_DELETE_JOB.has(user?.role);
 
   // Filters
@@ -285,13 +310,35 @@ export default function PipelineKanban({
   async function loadAll() {
     setLoading(true);
     try {
-      const [{ data: j }, { data: e }, { data: s }, { data: a }] = await Promise.all([
-        supabase.from('jobs').select('*').order('created_at', { ascending: false }),
+      // Order: pipeline_position ASC NULLS LAST, then created_at DESC.
+      // Cards the seller has positioned manually win; the rest fall back
+      // to "newest first" so a brand-new lead still pops to the top.
+      const [jobsResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
+        positionMigrationMissing
+          ? supabase.from('jobs').select('*').order('created_at', { ascending: false })
+          : supabase
+              .from('jobs').select('*')
+              .order('pipeline_position', { ascending: true, nullsFirst: false })
+              .order('created_at', { ascending: false }),
         supabase.from('estimates').select('*'),
         supabase.from('subcontractors').select('id, coi_expiry_date'),
         supabase.from('phase_subcontractor_assignments').select('job_id, subcontractor_id'),
       ]);
-      setJobs(j || []);
+
+      let jobsData = jobsResp.data;
+      if (jobsResp.error && /pipeline_position/.test(jobsResp.error.message || '')) {
+        // Migration 028 hasn't been applied. Retry with legacy ordering
+        // and remember so future refreshes skip the bad column straight away.
+        setPositionMigrationMissing(true);
+        const fallback = await supabase
+          .from('jobs').select('*')
+          .order('created_at', { ascending: false });
+        jobsData = fallback.data;
+      } else if (jobsResp.error) {
+        throw jobsResp.error;
+      }
+
+      setJobs(jobsData || []);
       setEstimates(e || []);
       setSubs(s || []);
       setAssignments(a || []);
@@ -375,6 +422,42 @@ export default function PipelineKanban({
   }, [visibleJobs, estByJob]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
+  // The drag target (`event.over.id`) can be either a column id or
+  // another job's id. Helpers below normalize that.
+  function resolveTargetColumn(overId) {
+    if (!overId) return null;
+    if (COLUMN_BY_ID[overId]) return overId;            // dropped on column
+    const overJob = jobs.find((j) => j.id === overId);  // dropped on a card
+    return overJob ? (overJob.pipeline_status || 'new_lead') : null;
+  }
+
+  // Spacing constant — large enough that midpoint inserts can keep
+  // halving for ~50 nests at the same slot before float precision
+  // bites. In practice the seller will drop in different spots over
+  // time, which keeps the spread wide.
+  const POS_GAP = 1000;
+
+  // Compute a `pipeline_position` value for the moved card so it lands
+  // immediately before the row at `dropIndex` in the target column.
+  // `dropIndex >= targetList.length` means "append to the bottom".
+  function computeNewPosition(targetList, dropIndex) {
+    if (targetList.length === 0) return POS_GAP;
+    if (dropIndex <= 0) {
+      const first = Number(targetList[0].pipeline_position);
+      return Number.isFinite(first) ? first - POS_GAP : POS_GAP;
+    }
+    if (dropIndex >= targetList.length) {
+      const last = Number(targetList[targetList.length - 1].pipeline_position);
+      return Number.isFinite(last) ? last + POS_GAP : POS_GAP * (dropIndex + 1);
+    }
+    const before = Number(targetList[dropIndex - 1].pipeline_position);
+    const after  = Number(targetList[dropIndex].pipeline_position);
+    if (Number.isFinite(before) && Number.isFinite(after)) return (before + after) / 2;
+    if (Number.isFinite(before)) return before + POS_GAP;
+    if (Number.isFinite(after))  return after - POS_GAP;
+    return POS_GAP * (dropIndex + 1);
+  }
+
   function handleDragStart(event) {
     if (readOnly) return;
     setActiveId(event.active.id);
@@ -382,49 +465,92 @@ export default function PipelineKanban({
 
   function handleDragOver(event) {
     if (readOnly) return;
-    setOverColumn(event.over?.id || null);
+    setOverColumn(resolveTargetColumn(event.over?.id));
   }
 
   async function handleDragEnd(event) {
     if (readOnly) { setActiveId(null); setOverColumn(null); return; }
     const activeJobId = event.active?.id;
-    const targetCol = event.over?.id;
+    const overId = event.over?.id;
     setActiveId(null);
     setOverColumn(null);
-    if (!activeJobId || !targetCol) return;
-    if (!COLUMN_BY_ID[targetCol]) return;
+    if (!activeJobId || !overId || activeJobId === overId) return;
+
+    const targetCol = resolveTargetColumn(overId);
+    if (!targetCol) return;
 
     const job = jobs.find((j) => j.id === activeJobId);
     if (!job) return;
     const previous = job.pipeline_status || 'new_lead';
-    if (previous === targetCol) return;
+
+    // Reconstruct the target column's current order from the SAME jobs
+    // array (already sorted by pipeline_position then created_at via
+    // loadAll). We strip the moved card so dropIndex math stays correct.
+    const targetList = jobs
+      .filter((j) => (j.pipeline_status || 'new_lead') === targetCol && j.id !== activeJobId);
+
+    let dropIndex;
+    if (overId === targetCol) {
+      // Dropped onto the column container — bottom of the list.
+      dropIndex = targetList.length;
+    } else {
+      const idx = targetList.findIndex((j) => j.id === overId);
+      // Defensive: if the over-card isn't in the rebuilt list (shouldn't
+      // happen, but cross-column drops can race state updates), append.
+      dropIndex = idx === -1 ? targetList.length : idx;
+    }
+
+    const newPosition = computeNewPosition(targetList, dropIndex);
+
+    // No-op detection: same column AND same position-neighbors.
+    if (previous === targetCol && Number(job.pipeline_position) === newPosition) return;
 
     setSavingId(activeJobId);
     setJobs((prev) =>
-      prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: targetCol } : j))
+      prev.map((j) => (j.id === activeJobId
+        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition }
+        : j))
     );
 
-    const { error } = await supabase
+    const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition };
+    const legacyPatch = { pipeline_status: targetCol };
+    let { error } = await supabase
       .from('jobs')
-      .update({ pipeline_status: targetCol })
+      .update(positionMigrationMissing ? legacyPatch : fullPatch)
       .eq('id', activeJobId);
+
+    // If we tried to write pipeline_position but the migration is
+    // missing, retry without it so the column-move still persists.
+    // From there on the kanban operates in legacy mode (no in-column
+    // reorder) until the migration ships.
+    if (error && /pipeline_position/.test(error.message || '')) {
+      setPositionMigrationMissing(true);
+      const retry = await supabase.from('jobs').update(legacyPatch).eq('id', activeJobId);
+      error = retry.error;
+    }
     setSavingId(null);
 
     if (error) {
       setJobs((prev) =>
-        prev.map((j) => (j.id === activeJobId ? { ...j, pipeline_status: previous } : j))
+        prev.map((j) => (j.id === activeJobId
+          ? { ...j, pipeline_status: previous, pipeline_position: job.pipeline_position }
+          : j))
       );
       setToast({ type: 'error', message: `Failed to move job: ${error.message}` });
       return;
     }
-    logAudit({
-      user,
-      action: 'job.move',
-      entityType: 'job',
-      entityId: activeJobId,
-      details: { from: previous, to: targetCol, client: job.client_name },
-    });
-    setToast({ type: 'success', message: 'Job moved' });
+    if (previous !== targetCol) {
+      // Only audit cross-column moves — silent reorder within a column
+      // would just spam the audit log without adding signal.
+      logAudit({
+        user,
+        action: 'job.move',
+        entityType: 'job',
+        entityId: activeJobId,
+        details: { from: previous, to: targetCol, client: job.client_name },
+      });
+      setToast({ type: 'success', message: 'Job moved' });
+    }
   }
 
   function clearFilters() {
@@ -451,8 +577,8 @@ export default function PipelineKanban({
             <h1 className="text-2xl font-bold text-omega-charcoal">Pipeline</h1>
             <p className="text-sm text-omega-stone mt-1">
               {filterBySalesperson
-                ? 'Your jobs — drag cards between phases'
-                : 'All jobs — drag cards between phases'}
+                ? 'Your jobs — drag to reorder or move between phases'
+                : 'All jobs — drag to reorder or move between phases'}
             </p>
           </div>
           {savingId && <span className="text-xs text-omega-stone">Saving…</span>}
@@ -515,7 +641,10 @@ export default function PipelineKanban({
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        // closestCorners gives nicer feel than closestCenter when a card
+        // is hovering between two siblings — the closest *edge* wins, so
+        // dropping at the top vs bottom of a card is unambiguous.
+        collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
@@ -557,27 +686,32 @@ export default function PipelineKanban({
                   </div>
 
                   <DroppableColumn columnId={col.id} isOver={overColumn === col.id}>
-                    <div className="flex flex-col gap-2.5 min-h-[100px]">
-                      {list.map((j) => (
-                        <DraggableJobCard key={j.id} id={j.id}>
-                          {({ isDragging }) => (
-                            <JobCard
-                              job={j}
-                              coiWarning={coiWarningByJob.has(j.id)}
-                              onOpen={readOnly ? () => {} : setOpenJob}
-                              onDelete={setDeleteJob}
-                              canDelete={canDelete}
-                              isDragging={isDragging}
-                            />
-                          )}
-                        </DraggableJobCard>
-                      ))}
-                      {list.length === 0 && (
-                        <p className="text-[10px] text-omega-fog text-center py-6 border-2 border-dashed border-gray-200 rounded-xl">
-                          Drop here
-                        </p>
-                      )}
-                    </div>
+                    <SortableContext
+                      items={list.map((j) => j.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="flex flex-col gap-2.5 min-h-[100px]">
+                        {list.map((j) => (
+                          <SortableJobCard key={j.id} id={j.id}>
+                            {({ isDragging }) => (
+                              <JobCard
+                                job={j}
+                                coiWarning={coiWarningByJob.has(j.id)}
+                                onOpen={readOnly ? () => {} : setOpenJob}
+                                onDelete={setDeleteJob}
+                                canDelete={canDelete}
+                                isDragging={isDragging}
+                              />
+                            )}
+                          </SortableJobCard>
+                        ))}
+                        {list.length === 0 && (
+                          <p className="text-[10px] text-omega-fog text-center py-6 border-2 border-dashed border-gray-200 rounded-xl">
+                            Drop here
+                          </p>
+                        )}
+                      </div>
+                    </SortableContext>
                   </DroppableColumn>
                 </div>
               );
