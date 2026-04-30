@@ -404,14 +404,400 @@ function roofingSections(a) {
   return [overviewS, flashS, repairS].filter((s) => s.items.length > 0);
 }
 
+// ─── FLOORING ────────────────────────────────────────────────────────
+// Maps the flooring questionnaire (15 fields, see questionnaire.js)
+// into a draft estimate. Empty sections are filtered out at the end.
+function flooringSections(a) {
+  const overviewS = emptySection('Project Overview');
+  const removeS   = emptySection('Existing Floor Removal');
+  const subS      = emptySection('Subfloor Prep');
+  const installS  = emptySection('New Flooring Installation');
+  const trimS     = emptySection('Baseboards & Transitions');
+  const stairsS   = emptySection('Stairs');
+  const logS      = emptySection('Logistics');
+
+  // Overview
+  if (Array.isArray(a.floor_areas) && a.floor_areas.length) {
+    const labels = {
+      living: 'Living Room', dining: 'Dining Room', kitchen: 'Kitchen',
+      hallway: 'Hallway', bedroom: 'Bedrooms', bathroom: 'Bathrooms',
+      basement: 'Basement', whole: 'Whole house',
+    };
+    const rooms = a.floor_areas.map((k) => labels[k] || k).join(', ');
+    pushItem(overviewS, 'Areas covered',
+      `${rooms}${a.floor_total_sqft ? ` · ${a.floor_total_sqft} sq ft total.` : '.'}`);
+  } else if (a.floor_total_sqft) {
+    pushItem(overviewS, 'Total area', `${a.floor_total_sqft} sq ft.`);
+  }
+
+  // Existing floor removal
+  if (a.floor_existing_remove === 'yes') {
+    pushItem(removeS, 'Existing floor removal',
+      `Remove and haul away existing ${a.floor_existing_type || 'floor'}.`);
+  } else if (a.floor_existing_remove === 'no') {
+    pushItem(removeS, 'Install over existing',
+      `New floor will be installed directly over the existing ${a.floor_existing_type || 'surface'}.`);
+  }
+
+  // Subfloor
+  if (a.floor_subfloor === 'minor') {
+    pushItem(subS, 'Subfloor patching', 'Minor patching of subfloor before install.');
+  } else if (a.floor_subfloor === 'replace') {
+    pushItem(subS, 'Partial subfloor replacement',
+      'Replace damaged subfloor sections as needed before install.');
+  } else if (a.floor_subfloor === 'unknown') {
+    pushItem(subS, 'Subfloor inspection',
+      'Inspect subfloor on demo and quote any required repairs as a change order.');
+  }
+
+  // New flooring install
+  if (a.floor_new_material) {
+    const matLabels = {
+      hardwood:   'Solid hardwood',
+      engineered: 'Engineered wood',
+      lvp:        'LVP / vinyl plank',
+      laminate:   'Laminate',
+      tile:       'Tile / porcelain',
+      carpet:     'Carpet',
+      concrete:   'Polished concrete',
+    };
+    const mat = matLabels[a.floor_new_material] || a.floor_new_material;
+    const detailParts = [];
+    if (a.floor_material_brand) detailParts.push(`Brand/line: ${a.floor_material_brand}.`);
+    if (a.floor_material_color) detailParts.push(`Color: ${a.floor_material_color}.`);
+    if (a.floor_pattern && a.floor_pattern !== 'straight') {
+      detailParts.push(`Install pattern: ${a.floor_pattern}.`);
+    }
+    pushItem(installS, `${mat} install`,
+      `Supply${a.floor_material_brand ? ' (or accept client-supplied)' : ''} and install ${mat.toLowerCase()}${a.floor_total_sqft ? ` over ${a.floor_total_sqft} sq ft` : ''}. ${detailParts.join(' ')}`.trim());
+  }
+
+  // Baseboards
+  if (a.floor_baseboards === 'replace') {
+    pushItem(trimS, 'Baseboard replacement', 'Remove existing baseboards and install new.');
+  } else if (a.floor_baseboards === 'new') {
+    pushItem(trimS, 'New baseboards', 'Install baseboards where currently missing.');
+  }
+
+  // Transitions
+  if (a.floor_transitions && a.floor_transitions !== 'na') {
+    const tLabels = {
+      match:    'Matching transition strips at doors and room boundaries.',
+      contrast: 'Contrasting transition strips at doors and room boundaries.',
+      flush:    'Flush transitions (no strip) at doors and room boundaries.',
+    };
+    pushItem(trimS, 'Door / room transitions', tLabels[a.floor_transitions] || '');
+  }
+
+  // Stairs
+  if (a.floor_stairs === 'yes') {
+    pushItem(stairsS, 'Stair flooring',
+      `${a.floor_stair_count ? `${a.floor_stair_count} treads. ` : ''}Install material to match floor; rounded nosing on each tread.`);
+  }
+
+  // Logistics
+  if (a.floor_furniture === 'omega') {
+    pushItem(logS, 'Furniture moving',
+      'Omega moves and re-positions furniture before and after install.');
+  }
+  if (a.floor_timeline === 'rush') {
+    pushItem(logS, 'Rush schedule', 'Project to be completed within 1-2 weeks of start.');
+  }
+
+  return [overviewS, removeS, subS, installS, trimS, stairsS, logS]
+    .filter((s) => s.items.length > 0);
+}
+
+// ─── STARTER PACKS (services without a questionnaire) ───────────────
+// Generic-but-useful section/item skeletons for jobs that don't go
+// through a detailed questionnaire. Items have empty scope and price 0
+// — the seller fills both based on the actual conversation with the
+// client. Feels like ~30 seconds of work to delete what doesn't apply
+// instead of staring at a blank estimate.
+//
+// Each starter pack ignores `a` entirely (no questionnaire to read).
+
+function additionStarter(_a) {
+  return [
+    { title: 'Site Prep & Demolition',
+      items: [
+        { description: 'Excavation and site preparation', scope: '', price: 0 },
+        { description: 'Removal of existing structures (if any)', scope: '', price: 0 },
+        { description: 'Hauling and disposal',                   scope: '', price: 0 },
+      ] },
+    { title: 'Foundation',
+      items: [
+        { description: 'Footings and foundation walls', scope: '', price: 0 },
+        { description: 'Slab pour',                     scope: '', price: 0 },
+        { description: 'Waterproofing',                 scope: '', price: 0 },
+      ] },
+    { title: 'Framing',
+      items: [
+        { description: 'Floor structure',  scope: '', price: 0 },
+        { description: 'Wall framing',     scope: '', price: 0 },
+        { description: 'Roof structure',   scope: '', price: 0 },
+      ] },
+    { title: 'Exterior Envelope',
+      items: [
+        { description: 'Sheathing and weather barrier', scope: '', price: 0 },
+        { description: 'Roofing tie-in to existing',     scope: '', price: 0 },
+        { description: 'Siding to match existing',       scope: '', price: 0 },
+        { description: 'Windows and exterior doors',     scope: '', price: 0 },
+      ] },
+    { title: 'MEP Rough-in',
+      items: [
+        { description: 'Plumbing rough-in',  scope: '', price: 0 },
+        { description: 'Electrical rough-in', scope: '', price: 0 },
+        { description: 'HVAC tie-in / new system', scope: '', price: 0 },
+      ] },
+    { title: 'Insulation & Drywall',
+      items: [
+        { description: 'Insulation (walls, ceiling, floor)', scope: '', price: 0 },
+        { description: 'Drywall, taping and finishing',       scope: '', price: 0 },
+      ] },
+    { title: 'Interior Finishes',
+      items: [
+        { description: 'Interior doors and trim', scope: '', price: 0 },
+        { description: 'Paint',                   scope: '', price: 0 },
+        { description: 'Flooring',                scope: '', price: 0 },
+      ] },
+    { title: 'Permits & Closeout',
+      items: [
+        { description: 'Permit fees (passed through to client)', scope: '', price: 0 },
+        { description: 'Final inspection and punch list',         scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function basementStarter(_a) {
+  return [
+    { title: 'Site Prep',
+      items: [
+        { description: 'Cleanup of existing basement',   scope: '', price: 0 },
+        { description: 'Moisture inspection / mitigation', scope: '', price: 0 },
+      ] },
+    { title: 'Framing',
+      items: [
+        { description: 'Wall framing',   scope: '', price: 0 },
+        { description: 'Soffits / drops to hide ducting and beams', scope: '', price: 0 },
+      ] },
+    { title: 'Insulation & Vapor Barrier',
+      items: [
+        { description: 'Vapor barrier behind framed walls', scope: '', price: 0 },
+        { description: 'Wall and ceiling insulation',        scope: '', price: 0 },
+      ] },
+    { title: 'MEP Rough-in',
+      items: [
+        { description: 'Electrical rough-in (outlets, switches, lights)', scope: '', price: 0 },
+        { description: 'Plumbing rough-in (only if a bathroom is included)', scope: '', price: 0 },
+        { description: 'HVAC extension from existing system',              scope: '', price: 0 },
+      ] },
+    { title: 'Drywall & Finish',
+      items: [
+        { description: 'Drywall, taping and finishing', scope: '', price: 0 },
+        { description: 'Paint',                          scope: '', price: 0 },
+        { description: 'Interior doors and trim',         scope: '', price: 0 },
+      ] },
+    { title: 'Flooring',
+      items: [
+        { description: 'New flooring (LVP, tile or carpet — confirm with client)', scope: '', price: 0 },
+      ] },
+    { title: 'Code Compliance',
+      items: [
+        { description: 'Egress window install (if required by code)', scope: '', price: 0 },
+        { description: 'Smoke / CO detectors',                         scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function drivewayStarter(_a) {
+  return [
+    { title: 'Site Prep',
+      items: [
+        { description: 'Removal of existing driveway surface (if any)', scope: '', price: 0 },
+        { description: 'Excavation and grading',                          scope: '', price: 0 },
+        { description: 'Hauling and disposal',                            scope: '', price: 0 },
+      ] },
+    { title: 'Base & Drainage',
+      items: [
+        { description: 'Compacted gravel base',                  scope: '', price: 0 },
+        { description: 'Drainage tie-in or French drain (if needed)', scope: '', price: 0 },
+      ] },
+    { title: 'Surface',
+      items: [
+        { description: 'Surface install (asphalt / concrete / pavers — confirm with client)', scope: '', price: 0 },
+        { description: 'Edging or borders',                                                    scope: '', price: 0 },
+        { description: 'Sealing (asphalt only)',                                                scope: '', price: 0 },
+      ] },
+    { title: 'Apron & Cleanup',
+      items: [
+        { description: 'Apron / curb cut (if required by town)', scope: '', price: 0 },
+        { description: 'Final cleanup and re-grading of edges',   scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function surveyStarter(_a) {
+  return [
+    { title: 'Survey Work',
+      items: [
+        { description: 'Site visit and walk-through',          scope: '', price: 0 },
+        { description: 'Boundary survey',                       scope: '', price: 0 },
+        { description: 'Topographic mapping',                   scope: '', price: 0 },
+        { description: 'Stake placement at corners',            scope: '', price: 0 },
+      ] },
+    { title: 'Deliverables',
+      items: [
+        { description: 'Stamped survey PDF',                    scope: '', price: 0 },
+        { description: 'Electronic file (CAD / shapefile)',      scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function buildingPlansStarter(_a) {
+  return [
+    { title: 'Design',
+      items: [
+        { description: 'Initial site review and measurements',   scope: '', price: 0 },
+        { description: 'Schematic design / concepts',            scope: '', price: 0 },
+        { description: 'Design development with client',         scope: '', price: 0 },
+      ] },
+    { title: 'Construction Documents',
+      items: [
+        { description: 'Floor plans',                            scope: '', price: 0 },
+        { description: 'Elevations',                              scope: '', price: 0 },
+        { description: 'Sections and details',                    scope: '', price: 0 },
+        { description: 'Structural notes',                        scope: '', price: 0 },
+      ] },
+    { title: 'Permit Package',
+      items: [
+        { description: 'Permit application drawings',            scope: '', price: 0 },
+        { description: 'Revisions per municipal feedback',       scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function fullrenoStarter(_a) {
+  return [
+    { title: 'Demolition & Site Prep',
+      items: [
+        { description: 'Selective or full demolition',           scope: '', price: 0 },
+        { description: 'Floor and surface protection',           scope: '', price: 0 },
+        { description: 'Hauling and disposal',                    scope: '', price: 0 },
+      ] },
+    { title: 'Structural Changes',
+      items: [
+        { description: 'New layout framing changes',             scope: '', price: 0 },
+        { description: 'Beam install or wall removal (if required)', scope: '', price: 0 },
+      ] },
+    { title: 'MEP Rough-in',
+      items: [
+        { description: 'Plumbing rough-in',                       scope: '', price: 0 },
+        { description: 'Electrical rough-in',                     scope: '', price: 0 },
+        { description: 'HVAC update',                              scope: '', price: 0 },
+      ] },
+    { title: 'Insulation & Drywall',
+      items: [
+        { description: 'Insulation (where opened up)',            scope: '', price: 0 },
+        { description: 'Drywall, taping and finishing',           scope: '', price: 0 },
+      ] },
+    { title: 'Kitchen Renovation',
+      items: [
+        { description: 'Cabinets and countertops',                scope: '', price: 0 },
+        { description: 'Backsplash',                                scope: '', price: 0 },
+        { description: 'Appliances install',                       scope: '', price: 0 },
+      ] },
+    { title: 'Bathroom(s) Renovation',
+      items: [
+        { description: 'Bathroom #1 — fixtures, tile, vanity',     scope: '', price: 0 },
+        { description: 'Additional bathrooms (if any)',            scope: '', price: 0 },
+      ] },
+    { title: 'Flooring & Finishes',
+      items: [
+        { description: 'Flooring throughout',                       scope: '', price: 0 },
+        { description: 'Interior doors, trim and millwork',         scope: '', price: 0 },
+        { description: 'Paint',                                      scope: '', price: 0 },
+      ] },
+    { title: 'Permits & Closeout',
+      items: [
+        { description: 'Permit fees (passed through to client)',    scope: '', price: 0 },
+        { description: 'Final inspection and punch list',            scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function newconstructionStarter(_a) {
+  return [
+    { title: 'Site Prep',
+      items: [
+        { description: 'Excavation, grading and erosion control', scope: '', price: 0 },
+        { description: 'Utility tie-ins (water, sewer, electric, gas)', scope: '', price: 0 },
+      ] },
+    { title: 'Foundation',
+      items: [
+        { description: 'Footings, foundation walls and slab',     scope: '', price: 0 },
+        { description: 'Waterproofing and drainage',                scope: '', price: 0 },
+      ] },
+    { title: 'Framing',
+      items: [
+        { description: 'Floor structure',                           scope: '', price: 0 },
+        { description: 'Wall framing (all floors)',                  scope: '', price: 0 },
+        { description: 'Roof structure',                             scope: '', price: 0 },
+      ] },
+    { title: 'Exterior Envelope',
+      items: [
+        { description: 'Sheathing and weather barrier',           scope: '', price: 0 },
+        { description: 'Roofing',                                    scope: '', price: 0 },
+        { description: 'Siding',                                     scope: '', price: 0 },
+        { description: 'Windows and exterior doors',                 scope: '', price: 0 },
+      ] },
+    { title: 'MEP Rough-in',
+      items: [
+        { description: 'Plumbing rough-in (entire house)',         scope: '', price: 0 },
+        { description: 'Electrical rough-in (entire house)',         scope: '', price: 0 },
+        { description: 'HVAC system install',                        scope: '', price: 0 },
+      ] },
+    { title: 'Insulation & Drywall',
+      items: [
+        { description: 'Insulation (walls, ceilings, floors)',     scope: '', price: 0 },
+        { description: 'Drywall, taping and finishing',             scope: '', price: 0 },
+      ] },
+    { title: 'Interior Finishes',
+      items: [
+        { description: 'Kitchen install',                           scope: '', price: 0 },
+        { description: 'Bathroom(s) install',                        scope: '', price: 0 },
+        { description: 'Interior doors, trim and millwork',          scope: '', price: 0 },
+        { description: 'Flooring throughout',                         scope: '', price: 0 },
+        { description: 'Paint',                                       scope: '', price: 0 },
+      ] },
+    { title: 'Permits & Closeout',
+      items: [
+        { description: 'Permit fees (passed through to client)',    scope: '', price: 0 },
+        { description: 'Inspections (framing, MEP rough, final)',    scope: '', price: 0 },
+        { description: 'Certificate of Occupancy',                   scope: '', price: 0 },
+        { description: 'Final punch list',                            scope: '', price: 0 },
+      ] },
+  ];
+}
+
 // ─── Public API ──────────────────────────────────────────────────────
 // Service id → mapper. Anything not in the table returns no auto-fill
 // (the Generate button hides itself in that case).
 const MAPPERS = {
-  bathroom: bathroomSections,
-  kitchen:  kitchenSections,
-  deck:     deckSections,
-  roofing:  roofingSections,
+  bathroom:         bathroomSections,
+  kitchen:          kitchenSections,
+  deck:             deckSections,
+  roofing:          roofingSections,
+  flooring:         flooringSections,
+  // Starter packs — services that don't go through a questionnaire.
+  // The mapper signature is the same so callers don't need to special-case.
+  addition:         additionStarter,
+  basement:         basementStarter,
+  driveway:         drivewayStarter,
+  survey:           surveyStarter,
+  building_plans:   buildingPlansStarter,
+  fullreno:         fullrenoStarter,
+  newconstruction:  newconstructionStarter,
 };
 
 export function canAutofill(serviceId) {
