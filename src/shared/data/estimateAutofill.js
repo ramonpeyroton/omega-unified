@@ -780,24 +780,217 @@ function newconstructionStarter(_a) {
   ];
 }
 
+// ─── STARTER PACKS for the 5 services that DO have a questionnaire ──
+// These are the fallback when the seller hits Autofill before answering
+// any of the questionnaire (or after answering only items that produced
+// nothing). Same shape as the no-questionnaire starters above.
+
+function bathroomStarter(_a) {
+  return [
+    { title: 'Demolition & Site Prep',
+      items: [
+        { description: 'Demolition of existing bathroom', scope: '', price: 0 },
+        { description: 'Floor and adjacent area protection', scope: '', price: 0 },
+        { description: 'Hauling and disposal',                scope: '', price: 0 },
+      ] },
+    { title: 'Plumbing',
+      items: [
+        { description: 'Plumbing rough-in (supply and drain)', scope: '', price: 0 },
+        { description: 'Fixture installation (toilet, faucets, valves)', scope: '', price: 0 },
+      ] },
+    { title: 'Tub / Shower',
+      items: [
+        { description: 'Tub or shower base install',     scope: '', price: 0 },
+        { description: 'Shower walls (tile or surround)', scope: '', price: 0 },
+        { description: 'Shower glass or curtain rod',     scope: '', price: 0 },
+      ] },
+    { title: 'Vanity & Cabinetry',
+      items: [
+        { description: 'Vanity install with countertop', scope: '', price: 0 },
+        { description: 'Mirror and accessories',          scope: '', price: 0 },
+      ] },
+    { title: 'Electrical & Ventilation',
+      items: [
+        { description: 'Lighting (vanity + ceiling)', scope: '', price: 0 },
+        { description: 'GFCI outlets',                 scope: '', price: 0 },
+        { description: 'Ventilation fan',              scope: '', price: 0 },
+      ] },
+    { title: 'Tile & Finishes',
+      items: [
+        { description: 'Floor tile install',           scope: '', price: 0 },
+        { description: 'Wall tile install (where applicable)', scope: '', price: 0 },
+        { description: 'Grout and seal',                scope: '', price: 0 },
+      ] },
+    { title: 'Paint & Trim',
+      items: [
+        { description: 'Paint walls and ceiling', scope: '', price: 0 },
+        { description: 'Baseboards and trim',      scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function kitchenStarter(_a) {
+  return [
+    { title: 'Demolition & Site Prep',
+      items: [
+        { description: 'Demolition of existing kitchen', scope: '', price: 0 },
+        { description: 'Floor and adjacent area protection', scope: '', price: 0 },
+        { description: 'Hauling and disposal',                scope: '', price: 0 },
+      ] },
+    { title: 'Plumbing & Electrical Rough-in',
+      items: [
+        { description: 'Plumbing rough-in (sink, dishwasher, ice maker)', scope: '', price: 0 },
+        { description: 'Electrical rough-in (outlets, lights, appliance circuits)', scope: '', price: 0 },
+      ] },
+    { title: 'Cabinets & Countertops',
+      items: [
+        { description: 'Cabinet install (base + uppers)', scope: '', price: 0 },
+        { description: 'Countertops install',              scope: '', price: 0 },
+        { description: 'Backsplash install',                scope: '', price: 0 },
+      ] },
+    { title: 'Appliances & Fixtures',
+      items: [
+        { description: 'Appliance install (range, dishwasher, fridge, microwave)', scope: '', price: 0 },
+        { description: 'Sink and faucet install',           scope: '', price: 0 },
+        { description: 'Disposal install',                   scope: '', price: 0 },
+      ] },
+    { title: 'Lighting & Finishes',
+      items: [
+        { description: 'Pendant lights and recessed lighting', scope: '', price: 0 },
+        { description: 'Under-cabinet lighting',                scope: '', price: 0 },
+        { description: 'Paint walls and ceiling',                scope: '', price: 0 },
+      ] },
+    { title: 'Flooring',
+      items: [
+        { description: 'Kitchen flooring install (if part of scope)', scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function deckStarter(_a) {
+  return [
+    { title: 'Demolition & Site Prep',
+      items: [
+        { description: 'Demo existing deck (if any)', scope: '', price: 0 },
+        { description: 'Hauling and disposal',         scope: '', price: 0 },
+      ] },
+    { title: 'Foundation',
+      items: [
+        { description: 'Concrete footings to frost line', scope: '', price: 0 },
+        { description: 'Post bases / brackets',            scope: '', price: 0 },
+      ] },
+    { title: 'Framing',
+      items: [
+        { description: 'Posts and beams',           scope: '', price: 0 },
+        { description: 'Joists and ledger board',    scope: '', price: 0 },
+        { description: 'Blocking and bracing',       scope: '', price: 0 },
+      ] },
+    { title: 'Decking Surface',
+      items: [
+        { description: 'Decking boards (composite or pressure-treated)', scope: '', price: 0 },
+        { description: 'Fascia boards',                                    scope: '', price: 0 },
+      ] },
+    { title: 'Railings & Stairs',
+      items: [
+        { description: 'Railing install',  scope: '', price: 0 },
+        { description: 'Stairs and landing', scope: '', price: 0 },
+      ] },
+    { title: 'Finishes & Permits',
+      items: [
+        { description: 'Stain or seal (PT only)',                     scope: '', price: 0 },
+        { description: 'Permit fees (passed through to client)',      scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function roofingStarter(_a) {
+  return [
+    { title: 'Tear-off & Disposal',
+      items: [
+        { description: 'Tear-off existing layers', scope: '', price: 0 },
+        { description: 'Hauling and disposal',     scope: '', price: 0 },
+      ] },
+    { title: 'Roof Deck & Underlayment',
+      items: [
+        { description: 'Plywood deck repairs (as needed)', scope: '', price: 0 },
+        { description: 'Ice & water shield',                scope: '', price: 0 },
+        { description: 'Synthetic underlayment',             scope: '', price: 0 },
+      ] },
+    { title: 'Shingles / Panels',
+      items: [
+        { description: 'Shingles or metal panels install', scope: '', price: 0 },
+        { description: 'Ridge cap',                         scope: '', price: 0 },
+      ] },
+    { title: 'Flashing & Vents',
+      items: [
+        { description: 'Step and chimney flashing', scope: '', price: 0 },
+        { description: 'Drip edge',                  scope: '', price: 0 },
+        { description: 'Pipe boots and vents',        scope: '', price: 0 },
+        { description: 'Ridge vent',                  scope: '', price: 0 },
+      ] },
+    { title: 'Cleanup',
+      items: [
+        { description: 'Magnetic sweep for nails',        scope: '', price: 0 },
+        { description: 'Final cleanup of property and gutters', scope: '', price: 0 },
+      ] },
+  ];
+}
+
+function flooringStarter(_a) {
+  return [
+    { title: 'Existing Floor Removal',
+      items: [
+        { description: 'Remove existing floor and haul away', scope: '', price: 0 },
+      ] },
+    { title: 'Subfloor Prep',
+      items: [
+        { description: 'Subfloor inspection and prep', scope: '', price: 0 },
+        { description: 'Patching or partial replacement (as needed)', scope: '', price: 0 },
+      ] },
+    { title: 'New Flooring Installation',
+      items: [
+        { description: 'New flooring install (material TBD with client)', scope: '', price: 0 },
+      ] },
+    { title: 'Baseboards & Transitions',
+      items: [
+        { description: 'Baseboards (replace or new)',                scope: '', price: 0 },
+        { description: 'Door / room transitions',                     scope: '', price: 0 },
+      ] },
+    { title: 'Stairs',
+      items: [
+        { description: 'Stair flooring (if included)', scope: '', price: 0 },
+      ] },
+    { title: 'Logistics',
+      items: [
+        { description: 'Furniture moving (if Omega handles it)', scope: '', price: 0 },
+      ] },
+  ];
+}
+
 // ─── Public API ──────────────────────────────────────────────────────
-// Service id → mapper. Anything not in the table returns no auto-fill
-// (the Generate button hides itself in that case).
+// Each service registers a `starter` (always-on fallback skeleton) and
+// optionally a `fromQuestionnaire` mapper that uses the seller's
+// answers when they exist. autofillSectionsFromAnswers tries the
+// questionnaire mapper first and falls back to the starter when the
+// answers didn't produce any sections — that way the Autofill button
+// always does something useful, whether the seller went through the
+// questionnaire or not.
 const MAPPERS = {
-  bathroom:         bathroomSections,
-  kitchen:          kitchenSections,
-  deck:             deckSections,
-  roofing:          roofingSections,
-  flooring:         flooringSections,
-  // Starter packs — services that don't go through a questionnaire.
-  // The mapper signature is the same so callers don't need to special-case.
-  addition:         additionStarter,
-  basement:         basementStarter,
-  driveway:         drivewayStarter,
-  survey:           surveyStarter,
-  building_plans:   buildingPlansStarter,
-  fullreno:         fullrenoStarter,
-  newconstruction:  newconstructionStarter,
+  // Services WITH a questionnaire — questionnaire-driven first, starter
+  // as fallback when there are no useful answers yet.
+  bathroom: { fromQuestionnaire: bathroomSections, starter: bathroomStarter },
+  kitchen:  { fromQuestionnaire: kitchenSections,  starter: kitchenStarter  },
+  deck:     { fromQuestionnaire: deckSections,     starter: deckStarter     },
+  roofing:  { fromQuestionnaire: roofingSections,  starter: roofingStarter  },
+  flooring: { fromQuestionnaire: flooringSections, starter: flooringStarter },
+  // Services WITHOUT a questionnaire — starter only.
+  addition:        { starter: additionStarter },
+  basement:        { starter: basementStarter },
+  driveway:        { starter: drivewayStarter },
+  survey:          { starter: surveyStarter },
+  building_plans:  { starter: buildingPlansStarter },
+  fullreno:        { starter: fullrenoStarter },
+  newconstruction: { starter: newconstructionStarter },
 };
 
 export function canAutofill(serviceId) {
@@ -806,9 +999,14 @@ export function canAutofill(serviceId) {
 
 // Build a draft section list out of a job's questionnaire answers.
 // Returns an array of `{ title, items: [...] }` ready to drop into
-// EstimateBuilder's `sections` state. Empty sections are filtered out
-// so the seller never sees a blank "Plumbing" header just because the
-// client didn't pick any plumbing options.
+// EstimateBuilder's `sections` state.
+//
+// Per service, the priority is:
+//   1. fromQuestionnaire(answers) — if registered AND it produces
+//      at least one non-empty section. The seller answered enough of
+//      the questionnaire that we can draft a tailored estimate.
+//   2. starter(answers) — generic skeleton for that service type.
+//      Always wins when (1) returns nothing or isn't registered.
 //
 // `services` is the comma-separated `jobs.service` string; we run the
 // mapper for each one and concatenate the result so a Bathroom +
@@ -821,9 +1019,21 @@ export function autofillSectionsFromAnswers(services, answers) {
   const a = answers || {};
   const out = [];
   for (const id of ids) {
-    const fn = MAPPERS[id];
-    if (!fn) continue;
-    const sections = fn(a);
+    const mapper = MAPPERS[id];
+    if (!mapper) continue;
+
+    // 1. Try the questionnaire-driven mapper when one is registered.
+    let sections = [];
+    if (typeof mapper.fromQuestionnaire === 'function') {
+      sections = mapper.fromQuestionnaire(a) || [];
+    }
+
+    // 2. Fall back to the always-on starter pack when the questionnaire
+    //    produced nothing (no answers yet, or all answers were "no").
+    if (sections.length === 0 && typeof mapper.starter === 'function') {
+      sections = mapper.starter(a) || [];
+    }
+
     out.push(...sections);
   }
   return out;
