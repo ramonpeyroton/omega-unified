@@ -3,6 +3,8 @@ import { LayoutDashboard, FileText, FilePen, Users, GitBranch, LogOut, Calendar 
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
+import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
+import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 
 const NAV = [
   { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
@@ -14,6 +16,7 @@ const NAV = [
 
 export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
   const [profileOpen, setProfileOpen] = useState(false);
+  const { photoUrl, refresh } = useUserProfile(user);
 
   return (
     <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col min-h-screen">
@@ -24,11 +27,19 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
       <div className="px-3 py-4 border-b border-white/10 flex items-center justify-between gap-2">
         <button
           onClick={() => setProfileOpen(true)}
-          className="min-w-0 text-left rounded-lg px-2 py-1 -mx-2 -my-1 hover:bg-white/5 transition cursor-pointer"
+          className="flex items-center gap-2.5 min-w-0 text-left rounded-lg px-2 py-1 -mx-2 -my-1 hover:bg-white/5 transition cursor-pointer"
           title="Open my profile"
         >
-          <p className="text-xs text-omega-stone uppercase tracking-widest font-semibold mb-1">Operations</p>
-          <p className="text-sm font-semibold text-white truncate">{userName}</p>
+          <Avatar
+            name={userName || ''}
+            photoUrl={photoUrl || undefined}
+            size="sm"
+            color={colorFromName(userName || '')}
+          />
+          <div className="min-w-0">
+            <p className="text-[10px] text-omega-stone uppercase tracking-widest font-semibold">Operations</p>
+            <p className="text-sm font-semibold text-white truncate">{userName}</p>
+          </div>
         </button>
         <NotificationsBell user={user} dark />
       </div>
@@ -37,6 +48,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
         user={user}
+        onUserUpdated={refresh}
       />
 
 

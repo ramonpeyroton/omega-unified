@@ -302,22 +302,10 @@ pull  =  PUXAR     (GitHub         →  minha máquina)
   os dois ou apagar o drawer.
 - **`react-router-dom` em `package.json`** sem nenhum import — pode
   ser removido numa limpeza.
-- **Migration `021_job_cover_photo.sql` + bucket `job-covers`** — a
-  feature de cover photo no Pipeline kanban depende de:
-  1. Rodar `migrations/021_job_cover_photo.sql` no Supabase (adiciona
-     `cover_photo_url TEXT` em `jobs`).
-  2. Criar o bucket **público** `job-covers` em Supabase Storage.
-  Frontend lida com `null` graciosamente (mostra placeholder) — então
-  a app não quebra antes do setup, mas a feature só funciona depois.
-- **Migration `024_user_profile_fields.sql` + bucket `user-profiles`** —
-  feature de Profile (click no nome na sidebar abre modal) depende de:
-  1. Rodar `migrations/024_user_profile_fields.sql` (adiciona `phone`,
-     `address`, `profile_photo_url` em `users` + cria policies do bucket).
-  2. Criar bucket **público** `user-profiles` no Supabase Storage.
-  Profile só edita pra users **cadastrados na tabela `users`**. Logins
+- **Profile só edita pra users cadastrados na tabela `users`.** Logins
   via fallback hardcoded (`PIN_TO_ROLE` em `Login.jsx`) abrem o modal
-  em modo read-only com aviso "Ask the admin to register you". Fase 3
-  (auth hardening, próxima rodada) remove o fallback.
+  de profile em modo read-only com aviso "Ask the admin to register
+  you". Fase 3 (auth hardening, próxima rodada) remove o fallback.
 
 - **Lição armazenada — "renderSlackMrkdwn" e ordem de operações.**
   Bug que custou ~7 commits hoje 29/04 antes do fix definitivo
@@ -520,6 +508,40 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 ---
 
 ## Última atualização
+
+**2026-04-30** — Ramon + Claude (Opus 4.7).
+Sessão focada em finalizar o profile dos usuários antes do cadastro
+real da equipe. Mudanças:
+
+- **Sidebars com avatar do user logado** (5 arquivos: owner, admin,
+  manager, operations, receptionist). Foto vem de
+  `users.profile_photo_url` via novo hook compartilhado
+  `src/shared/hooks/useUserProfile.js`. Quando não tem foto, fallback
+  pra inicial colorida via `colorFromName(name)`. UserProfileModal
+  passa `onUserUpdated={refresh}` pra atualizar a sidebar
+  imediatamente quando user troca a foto.
+- **Admin → Users & Access expandido** (`src/apps/admin/screens/UsersAccess.jsx`).
+  Form agora tem **Full Name, Role, Phone, Address, Profile Photo +
+  PIN**. Upload reutiliza pipeline do `UserProfileModal`
+  (`browser-image-compression` em Web Worker, target 2 MB, max 1024px,
+  hard-cap 4 MB). Pra "new user" o file fica pendente em state e sobe
+  depois do insert (precisa do user.id pra path). Tabela ganhou
+  coluna **Phone** + thumbnail circular do avatar do lado de cada
+  nome (igual aparece no chat).
+- **Migrations 021 + 024 + bucket `user-profiles`** confirmados em
+  produção (Ramon rodou). Removido das pendências.
+
+Commits anteriores que ficaram fora do CLAUDE.md (29/04 final → 30/04):
+- `5a19e68 feat(contract)` — full editable Omega contract template + PDF download
+- `85de39a fix(estimate)` — autofill button always works (starter pack fallback)
+- `f6c1bbb feat(estimate)` — full autofill coverage (flooring + 7 starter packs)
+
+**Pendências do Ramon agora:**
+- Cadastrar todos os usuários reais em **Admin → Users & Access** (form
+  novo já aceita foto + phone + address). Preparação pra Fase 3 do
+  auth track (auth hardening — remove fallback `PIN_TO_ROLE`).
+- `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET` na Vercel + scope
+  `users:read` no Slack App (continua pendente desde 29/04).
 
 **2026-04-29 (madrugada — fim de verdade)** — Ramon + Claude (Opus 4.7).
 Conserto definitivo do bug do HTML literal no chat (`78d709a`). Causa

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Calendar, UserPlus, List, LogOut } from 'lucide-react';
 import Logo from './Logo';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
+import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
+import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 
 const NAV = [
   { id: 'calendar',  label: 'Calendar',  icon: Calendar  },
@@ -17,6 +19,7 @@ const NAV = [
  */
 export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
   const [profileOpen, setProfileOpen] = useState(false);
+  const { photoUrl, refresh } = useUserProfile(user);
 
   return (
     <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col min-h-screen">
@@ -26,17 +29,26 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
 
       <button
         onClick={() => setProfileOpen(true)}
-        className="px-5 py-4 border-b border-white/10 text-left hover:bg-white/5 transition cursor-pointer"
+        className="px-5 py-4 border-b border-white/10 flex items-center gap-3 text-left hover:bg-white/5 transition cursor-pointer w-full"
         title="Open my profile"
       >
-        <p className="text-xs text-omega-stone uppercase tracking-widest font-semibold mb-1">Reception</p>
-        <p className="text-sm font-semibold text-white truncate">{userName || '—'}</p>
+        <Avatar
+          name={userName || ''}
+          photoUrl={photoUrl || undefined}
+          size="sm"
+          color={colorFromName(userName || '')}
+        />
+        <div className="min-w-0">
+          <p className="text-[10px] text-omega-stone uppercase tracking-widest font-semibold">Reception</p>
+          <p className="text-sm font-semibold text-white truncate">{userName || '—'}</p>
+        </div>
       </button>
 
       <UserProfileModal
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
         user={user}
+        onUserUpdated={refresh}
       />
 
 
