@@ -3,7 +3,7 @@ import {
   ArrowLeft, Edit3, Save, X, Eye, EyeOff, Trash2, Calendar, MapPin, Phone, Mail,
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
   AlertCircle, DollarSign, Clock, Receipt, ArrowRight, TrendingUp, Info, MessageSquare,
-  FolderClosed,
+  FolderClosed, RotateCcw, UserPlus,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
@@ -43,6 +43,12 @@ const CONTACT_ROLES = new Set(['manager', 'owner', 'operations', 'admin']);
 // client questions about who's doing what.
 const SUBS_ROLES = new Set(['owner', 'operations', 'sales', 'salesperson', 'admin', 'marketing']);
 
+// Reset is only allowed before the deal is sealed. Once a contract is
+// signed or work has started, the user must use Delete instead — too
+// many downstream artifacts (signed contract, sub agreements, milestones,
+// phase progress) would silently disappear.
+const RESET_BLOCKED_STATUSES = new Set(['contract_signed', 'in_progress', 'completed']);
+
 function pipelinePaletteFor(key) {
   const c = PIPELINE_COLORS[key];
   return { bg: c?.tailwindBg || 'bg-gray-400', text: 'text-white' };
@@ -70,6 +76,12 @@ export default function JobFullView({
   onJobDeleted,
   onOpenEstimateFlow,
   onOpenQuestionnaire,
+  // Optional callback: when present, the Details tab shows a
+  // "Start New Job for this Client" button. Receives a `clientData`
+  // object ({ client_name, client_phone, client_email, address }) so
+  // the host app can pre-fill its own NewJob form. Currently wired up
+  // by the Sales app — Owner/Operations don't surface the button.
+  onStartNewJobForClient,
 }) {
   const [job, setJob] = useState(initialJob);
   // Report is the primary landing tab — it's why most people open the job.
@@ -89,6 +101,15 @@ export default function JobFullView({
   const [deletePinShow, setDeletePinShow] = useState(false);
   const [deletePinError, setDeletePinError] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Reset-to-new-lead modal — same PIN gate as Delete, but instead of
+  // dropping the row it wipes the estimate/contract/questionnaire state
+  // so the seller can start fresh on the same client.
+  const [resetModal, setResetModal] = useState(false);
+  const [resetPin, setResetPin] = useState('');
+  const [resetPinShow, setResetPinShow] = useState(false);
+  const [resetPinError, setResetPinError] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const canSeeFinancials = FINANCIAL_ROLES.has(user?.role);
   const canSeeEstimate   = ESTIMATE_ROLES.has(user?.role);
@@ -144,6 +165,87 @@ export default function JobFullView({
     setDeletePinError('');
     setDeletePinShow(false);
     setDeleteModal(true);
+  }
+
+  function openResetModal() {
+    setResetPin('');
+    setResetPinError('');
+    setResetPinShow(false);
+    setResetModal(true);
+  }
+
+  // Wipe estimate/contract/questionnaire state so the same job row can
+  // be used for a different scope. Owner PIN required (same as Delete)
+  // — the action is destructive and loses revision history. We keep the
+  // job row itself (and the cover photo, materials, documents) so the
+  // client/address/contact info isn't typed in twice.
+  async function confirmReset() {
+    if (resetPin !== '3333') {
+      setResetPinError('Incorrect PIN. Try again.');
+      logAudit({
+        user, action: 'job.reset.pin_failed', entityType: 'job', entityId: job.id,
+        details: { client: job.client_name, attempted_pin_prefix: (resetPin || '').slice(0, 1) + '***' },
+      });
+      return;
+    }
+    if (RESET_BLOCKED_STATUSES.has(job.pipeline_status)) {
+      setResetPinError('Cannot reset — job has a signed contract or is in progress. Delete it instead.');
+      return;
+    }
+    setResetting(true);
+    try {
+      // Drop downstream artifacts. We don't bother checking whether
+      // these tables have rows — DELETE on an empty match is a no-op.
+      // Order matters only for FK cascades; estimates and contracts
+      // are independent rows keyed by job_id.
+      await supabase.from('estimates').delete().eq('job_id', job.id);
+      await supabase.from('contracts').delete().eq('job_id', job.id);
+      await supabase.from('job_reports').delete().eq('job_id', job.id);
+
+      // Reset every field that drives "where in the funnel is this job".
+      // We intentionally KEEP: client_name, client_phone, client_email,
+      // address, salesperson_name, pm_name, cover photo, documents,
+      // materials, time logs. Those represent client identity and
+      // collateral the seller wouldn't want to re-enter.
+      const patch = {
+        pipeline_status: 'new_lead',
+        status: 'draft',
+        answers: {},
+        questionnaire_modified: null,
+        questionnaire_modified_at: null,
+        report_raw: null,
+        latest_report: null,
+        cost_projection: null,
+        cost_projection_at: null,
+        phase_data: null,
+      };
+      const { data, error } = await supabase
+        .from('jobs').update(patch).eq('id', job.id)
+        .select().single();
+      if (error) throw error;
+
+      setJob(data);
+      setEstimate(null);
+      setContract(null);
+      onJobUpdated?.(data);
+
+      logAudit({
+        user, action: 'job.reset', entityType: 'job', entityId: job.id,
+        details: {
+          client: job.client_name,
+          previous_status: job.pipeline_status,
+          authorized_by: user?.name || null,
+          authorized_by_role: user?.role || null,
+        },
+      });
+
+      setResetModal(false);
+      setToast({ type: 'success', message: 'Job reset — start the questionnaire fresh.' });
+    } catch (err) {
+      setResetPinError(err.message || 'Failed to reset');
+    } finally {
+      setResetting(false);
+    }
   }
 
   async function confirmDelete() {
@@ -444,6 +546,17 @@ export default function JobFullView({
               onOpenEstimateFlow={() => { onOpenEstimateFlow?.(job); onClose?.(); }}
               onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
               onDelete={openDeleteModal}
+              onReset={openResetModal}
+              onStartNewJobForClient={onStartNewJobForClient ? () => {
+                onStartNewJobForClient({
+                  client_name: job.client_name || '',
+                  client_phone: job.client_phone || '',
+                  client_email: job.client_email || '',
+                  address: job.address || '',
+                });
+                onClose?.();
+              } : null}
+              canReset={!RESET_BLOCKED_STATUSES.has(job.pipeline_status)}
               onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
             />
           )}
@@ -494,6 +607,57 @@ export default function JobFullView({
         </div>
       )}
 
+      {/* ─── Reset-to-new-lead confirmation ────────────────── */}
+      {resetModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !resetting && setResetModal(false)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-200">
+              <p className="font-bold text-amber-700 text-lg inline-flex items-center gap-2">
+                <RotateCcw className="w-5 h-5" /> Reset Job
+              </p>
+              <p className="text-sm text-omega-stone mt-1">
+                Wipes the current estimate, contract draft, questionnaire answers and AI report. The client info, address and cover photo stay. Owner PIN required.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-omega-stone uppercase">Owner PIN</label>
+                <div className="relative mt-1">
+                  <input
+                    autoFocus
+                    type={resetPinShow ? 'text' : 'password'}
+                    value={resetPin}
+                    onChange={(e) => { setResetPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setResetPinError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') confirmReset(); }}
+                    className="w-full px-3 py-2.5 pr-10 rounded-lg border-2 border-gray-200 focus:border-amber-400 focus:outline-none text-base font-mono tracking-[0.3em]"
+                    placeholder="••••"
+                  />
+                  <button type="button" onClick={() => setResetPinShow(!resetPinShow)} className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone">
+                    {resetPinShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {resetPinError && <p className="text-xs text-red-600 font-semibold mt-1.5">{resetPinError}</p>}
+              </div>
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-xs text-amber-800 font-semibold">{job.client_name || job.name || 'Untitled'}</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">{job.address || ''}</p>
+                <p className="text-[11px] text-amber-700 mt-1">
+                  Will become a fresh <strong>New Lead</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
+              <button onClick={() => setResetModal(false)} disabled={resetting} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={confirmReset} disabled={resetting || !resetPin} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-60">
+                <RotateCcw className="w-4 h-4" /> {resetting ? 'Resetting…' : 'Reset Job'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(8px); }
@@ -508,7 +672,8 @@ export default function JobFullView({
 function DetailsTab({
   job, estimate, contract,
   editing, setEditing, form, setForm, saveEdits, saving,
-  onOpenEstimateFlow, onOpenQuestionnaire, onDelete, onJobUpdated,
+  onOpenEstimateFlow, onOpenQuestionnaire, onDelete, onReset, canReset,
+  onStartNewJobForClient, onJobUpdated,
 }) {
   return (
     <div className="space-y-5">
@@ -535,9 +700,6 @@ function DetailsTab({
                     <ClipboardEdit className="w-4 h-4" /> Questionnaire
                   </button>
                 )}
-                <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-300 text-red-700 hover:bg-red-50 text-sm font-semibold">
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
               </>
             ) : (
               <>
@@ -611,6 +773,58 @@ function DetailsTab({
       >
         View Estimate Flow <ArrowRight className="w-4 h-4" />
       </button>
+
+      {/* Start a new job for this same client. Visible only when the
+          host app passed `onStartNewJobForClient` (currently the Sales
+          app — Owner/Operations don't surface it). Use case: returning
+          customer wants a different/larger scope than what we already
+          quoted them. Their existing card stays untouched as history. */}
+      {onStartNewJobForClient && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+          <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-omega-orange" /> Returning Client?
+          </h3>
+          <p className="text-xs text-omega-stone mt-1">
+            Start a brand-new job for <strong>{job.client_name || 'this client'}</strong> — different scope, fresh questionnaire and estimate. Their existing card stays as history.
+          </p>
+          <button
+            onClick={onStartNewJobForClient}
+            className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
+          >
+            <UserPlus className="w-4 h-4" /> Start New Job for this Client
+          </button>
+        </div>
+      )}
+
+      {/* Danger Zone — destructive actions live here so they're visually
+          isolated. Reset is for "I tested with this card, wipe the
+          estimate so I can use it for the real lead". Delete is the
+          nuclear option (drops the row entirely). Both PIN-gated by
+          the Owner PIN inside their respective modals. */}
+      <div className="bg-white rounded-xl border-2 border-red-200 p-4 sm:p-6">
+        <h3 className="text-base font-bold text-red-800 inline-flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" /> Danger Zone
+        </h3>
+        <p className="text-xs text-omega-stone mt-1">
+          These actions require the Owner PIN.
+        </p>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={onReset}
+            disabled={!canReset}
+            title={canReset ? 'Wipe estimate, contract draft, questionnaire and AI report — keep the client info.' : 'Cannot reset: job has a signed contract or is in progress.'}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-amber-300 text-amber-800 hover:bg-amber-50 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RotateCcw className="w-4 h-4" /> Reset to New Lead
+          </button>
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-red-300 text-red-700 hover:bg-red-50 text-sm font-bold"
+          >
+            <Trash2 className="w-4 h-4" /> Delete Job
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

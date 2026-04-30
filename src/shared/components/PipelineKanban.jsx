@@ -250,7 +250,7 @@ function DroppableColumn({ columnId, children, isOver }) {
 // ─── Main component ────────────────────────────────────────────────
 export default function PipelineKanban({
   user, filterBySalesperson = false, readOnly = false,
-  onOpenEstimateFlow, onOpenQuestionnaire,
+  onOpenEstimateFlow, onOpenQuestionnaire, onStartNewJobForClient,
 }) {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
@@ -614,6 +614,7 @@ export default function PipelineKanban({
           }}
           onOpenEstimateFlow={onOpenEstimateFlow}
           onOpenQuestionnaire={onOpenQuestionnaire}
+          onStartNewJobForClient={onStartNewJobForClient}
         />
       )}
 

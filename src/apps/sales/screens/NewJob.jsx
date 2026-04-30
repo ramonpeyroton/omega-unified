@@ -12,15 +12,19 @@ function ServiceIcon({ name }) {
   return <Icon className="w-6 h-6" />;
 }
 
-export default function NewJob({ user, onNavigate, onJobCreated }) {
+export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient }) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
 
+  // `prefilledClient` lets the seller start a brand-new job for an
+  // existing client (e.g. they got a deck estimate, didn't bite, now
+  // they want a kitchen remodel). The fields are still editable in
+  // case the address or phone changed — we just save the typing.
   const [form, setForm] = useState({
-    client_name: '',
-    client_phone: '',
-    client_email: '',
-    address: '',
+    client_name: prefilledClient?.client_name || '',
+    client_phone: prefilledClient?.client_phone || '',
+    client_email: prefilledClient?.client_email || '',
+    address: prefilledClient?.address || '',
   });
   const [services, setServices] = useState([]);
   const [errors, setErrors] = useState({});
@@ -125,6 +129,18 @@ export default function NewJob({ user, onNavigate, onJobCreated }) {
       </div>
 
       <div className="px-5 py-6">
+        {/* Returning-client banner — visible only when the seller hit
+            "Start New Job for this Client" from another job's card.
+            Reminds them why the form is pre-filled. */}
+        {prefilledClient && step === 1 && (
+          <div className="mb-4 p-3 rounded-xl bg-omega-pale border border-omega-orange/30">
+            <p className="text-xs font-bold text-omega-orange uppercase tracking-wider">Returning Client</p>
+            <p className="text-sm text-omega-charcoal mt-0.5">
+              Starting a fresh job for <strong>{prefilledClient.client_name || 'this client'}</strong>. Edit any field if it has changed.
+            </p>
+          </div>
+        )}
+
         {step === 1 && (
           <div className="space-y-4">
             {/* Client Name */}

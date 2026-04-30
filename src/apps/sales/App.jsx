@@ -32,16 +32,26 @@ function SalesRouter({ user, onLogout }) {
   const [reportJob, setReportJob] = useState(null);
   const [reviewAnswers, setReviewAnswers] = useState(null);
   const [pdfContext, setPdfContext] = useState('');
+  // When the seller hits "Start New Job for this Client" from a job
+  // card, we land on `new-job` with the client info pre-filled. Cleared
+  // on logout, after creation, or whenever they hit Home.
+  const [newJobPrefill, setNewJobPrefill] = useState(null);
 
   const handleLogout = () => {
     setScreen('home');
     setCurrentJob(null);
     setReportJob(null);
     setPdfContext('');
+    setNewJobPrefill(null);
     onLogout();
   };
 
-  const navigate = (target) => setScreen(target);
+  const navigate = (target) => {
+    // Going home from anywhere clears the prefill so the next plain
+    // "+ New Job" tap doesn't accidentally inherit the previous client.
+    if (target === 'home') setNewJobPrefill(null);
+    setScreen(target);
+  };
 
   useBackNavHome(() => {
     if (screen !== 'home') setScreen('home');
@@ -55,10 +65,12 @@ function SalesRouter({ user, onLogout }) {
       <NewJob
         user={user}
         onNavigate={navigate}
+        prefilledClient={newJobPrefill}
         onJobCreated={(job) => {
           setCurrentJob(job);
           setReportJob(null);
           setPdfContext('');
+          setNewJobPrefill(null);
           setScreen('pdf-upload');
         }}
       />
@@ -137,6 +149,10 @@ function SalesRouter({ user, onLogout }) {
           filterBySalesperson={false}
           onOpenEstimateFlow={(job) => { setCurrentJob(job); setScreen('estimate-flow'); }}
           onOpenQuestionnaire={(job) => { setCurrentJob(job); setScreen('questionnaire'); }}
+          onStartNewJobForClient={(clientData) => {
+            setNewJobPrefill(clientData);
+            setScreen('new-job');
+          }}
         />
       </div>
     );
