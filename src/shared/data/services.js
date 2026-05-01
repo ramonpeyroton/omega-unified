@@ -18,6 +18,7 @@ export const SERVICES = [
   { id: 'flooring',        label: 'Flooring',            icon: 'Grid3x3' },
   { id: 'survey',          label: 'Survey',              icon: 'Ruler' },
   { id: 'building_plans',  label: 'Building Plans',      icon: 'DraftingCompass' },
+  { id: 'partialreno',     label: 'Partial Renovation',  icon: 'Wrench' },
   { id: 'fullreno',        label: 'Full Renovation',     icon: 'Building2' },
   { id: 'newconstruction', label: 'New Construction',    icon: 'Building' },
 ];

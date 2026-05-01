@@ -36,7 +36,7 @@ const CITIES_CT = [
   'Portland', 'Preston', 'Prospect', 'Putnam', 'Redding', 'Ridgefield',
   'Rocky Hill', 'Roxbury', 'Salem', 'Salisbury', 'Scotland', 'Seymour',
   'Sharon', 'Shelton', 'Sherman', 'Simsbury', 'Somers', 'South Windsor',
-  'Southbury', 'Southington', 'Sprague', 'Stafford', 'Stamford', 'Sterling',
+  'Southbury', 'Southington', 'Southport', 'Sprague', 'Stafford', 'Stamford', 'Sterling',
   'Stonington', 'Stratford', 'Suffield', 'Thomaston', 'Thompson', 'Tolland',
   'Torrington', 'Trumbull', 'Union', 'Vernon', 'Voluntown', 'Wallingford',
   'Warren', 'Washington', 'Waterbury', 'Waterford', 'Watertown',
@@ -125,6 +125,7 @@ export const SERVICES = [
   { value: 'flooring',       label: 'Flooring'            },
   { value: 'survey',         label: 'Survey'              },
   { value: 'building_plans', label: 'Building Plans'      },
+  { value: 'partialreno',    label: 'Partial Renovation'  },
   { value: 'fullreno',       label: 'Full Renovation'     },
   { value: 'newconstruction',label: 'New Construction'    },
 ];
