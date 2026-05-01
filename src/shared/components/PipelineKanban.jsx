@@ -17,6 +17,7 @@ import {
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
+  Eye, EyeOff,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from './LoadingSpinner';
@@ -25,6 +26,13 @@ import JobFullView from './JobFullView';
 import DeleteJobModal from './DeleteJobModal';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
 import { logAudit } from '../lib/audit';
+import { validateUserPin } from '../lib/userPin';
+
+// Phases that require a PIN confirmation before moving a card into
+// them. Anything terminal goes here so a stray drop doesn't quietly
+// archive a real lead. Currently only "Estimate Rejected" — the
+// kind of phase you want the user to *think* about before committing.
+const PIN_GATED_PHASES = new Set(['estimate_rejected']);
 
 // Only Owner, Operations and Admin can initiate a delete from the card.
 // The actual PIN (3333) is still required inside DeleteJobModal.
@@ -362,6 +370,12 @@ export default function PipelineKanban({
   // missing entirely) gets a red dot on its card.
   const [lastReadByJob, setLastReadByJob] = useState({});
 
+  // PIN-gate state — when the user drops a card on a PIN-gated phase
+  // (Estimate Rejected) we stash the move details and show a PIN
+  // modal instead of saving immediately. The actual save runs once
+  // the user confirms with their own PIN.
+  const [pendingMove, setPendingMove] = useState(null);
+
   const canDelete = !readOnly && CAN_DELETE_JOB.has(user?.role);
 
   // Filters
@@ -598,6 +612,23 @@ export default function PipelineKanban({
     // No-op detection: same column AND same position-neighbors.
     if (previous === targetCol && Number(job.pipeline_position) === newPosition) return;
 
+    // PIN gate — moves into a terminal phase (e.g. Estimate Rejected)
+    // pause here and pop a PIN modal so the user has to confirm with
+    // their own PIN. The actual save runs from `confirmPendingMove`
+    // once the PIN checks out.
+    if (PIN_GATED_PHASES.has(targetCol)) {
+      setPendingMove({ activeJobId, previous, targetCol, newPosition, job });
+      return;
+    }
+
+    await commitMove({ activeJobId, previous, targetCol, newPosition, job });
+  }
+
+  // Shared move-persistence used by both the normal drag path and the
+  // PIN-gated path. Optimistic state update first, then DB write,
+  // with a fallback to legacy patch shape if migration 028 is
+  // missing. Rolls back on failure and toasts the error.
+  async function commitMove({ activeJobId, previous, targetCol, newPosition, job }) {
     setSavingId(activeJobId);
     // Optimistic update + RE-SORT — without the sort, the array stays
     // in the same order even though the moved card has a new
@@ -638,10 +669,6 @@ export default function PipelineKanban({
       return;
     }
 
-    // Heads-up when reorder won't survive a refresh because the
-    // migration hasn't been applied. Suppressed for cross-column moves
-    // (those persist via pipeline_status). Only fired once per drop so
-    // it doesn't get spammy.
     if (previous === targetCol && positionMigrationMissing) {
       setToast({
         type: 'error',
@@ -651,17 +678,28 @@ export default function PipelineKanban({
     }
 
     if (previous !== targetCol) {
-      // Only audit cross-column moves — silent reorder within a column
-      // would just spam the audit log without adding signal.
       logAudit({
         user,
         action: 'job.move',
         entityType: 'job',
         entityId: activeJobId,
-        details: { from: previous, to: targetCol, client: job.client_name },
+        details: { from: previous, to: targetCol, client: job.client_name, source: 'kanban' },
       });
       setToast({ type: 'success', message: 'Job moved' });
     }
+  }
+
+  // Cancels a pending PIN-gated move — drops the optimistic state
+  // change and clears the modal. Called by the modal's Cancel and the
+  // outside-click handler.
+  function cancelPendingMove() {
+    setPendingMove(null);
+  }
+
+  async function confirmPendingMove() {
+    if (!pendingMove) return;
+    await commitMove(pendingMove);
+    setPendingMove(null);
   }
 
   function clearFilters() {
@@ -898,6 +936,79 @@ export default function PipelineKanban({
           }}
         />
       )}
+
+      {pendingMove && (
+        <PinConfirmModal
+          user={user}
+          targetLabel={PIPELINE_STEP_LABEL[pendingMove.targetCol] || pendingMove.targetCol}
+          jobName={pendingMove.job?.client_name || 'this job'}
+          onCancel={cancelPendingMove}
+          onConfirm={confirmPendingMove}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── PIN confirmation modal — opens whenever a card is dropped on a
+// PIN-gated phase (Estimate Rejected). Validates the pin against the
+// CURRENT user via users table + hardcoded fallback. Fails closed.
+function PinConfirmModal({ user, targetLabel, jobName, onCancel, onConfirm }) {
+  const [pin, setPin] = useState('');
+  const [show, setShow] = useState(false);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleConfirm() {
+    setErr('');
+    setBusy(true);
+    try {
+      const ok = await validateUserPin(user, pin);
+      if (!ok) { setErr('Wrong PIN. Try again.'); return; }
+      onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !busy && onCancel()}>
+      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 border-b border-gray-200">
+          <p className="font-bold text-omega-charcoal text-lg">Confirm move to {targetLabel}</p>
+          <p className="text-sm text-omega-stone mt-1">
+            Moving <strong>{jobName}</strong> to a terminal phase. Type your own PIN to confirm — this stops accidental drops.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-omega-stone uppercase">Your PIN</label>
+            <div className="relative mt-1">
+              <input
+                autoFocus
+                type={show ? 'text' : 'password'}
+                value={pin}
+                onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
+                className="w-full px-3 py-2.5 pr-10 rounded-lg border-2 border-gray-200 focus:border-omega-orange focus:outline-none text-base font-mono tracking-[0.3em]"
+                placeholder="••••"
+              />
+              <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone">
+                {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {err && <p className="text-xs text-red-600 font-semibold mt-1.5">{err}</p>}
+          </div>
+        </div>
+        <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={onCancel} disabled={busy} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onClick={handleConfirm} disabled={busy || !pin} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+            {busy ? 'Confirming…' : 'Confirm Move'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

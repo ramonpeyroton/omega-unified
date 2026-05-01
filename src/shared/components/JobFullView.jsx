@@ -25,6 +25,12 @@ import { logAudit } from '../lib/audit';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
 import { SERVICES, parseJobServices, joinJobServices } from '../data/services';
+import { validateUserPin } from '../lib/userPin';
+
+// Phases that require a PIN confirmation when moved into via the
+// status picker. Mirrors the kanban's PIN_GATED_PHASES set so both
+// surfaces have the same friction for terminal phases.
+const PICKER_PIN_GATED = new Set(['estimate_rejected']);
 
 // Roles allowed to see the Financials tab (Cost Projection + Job Costing + Actual Costs).
 // Internal money only — sellers don't see margin/cost data.
@@ -866,7 +872,7 @@ function DetailsTab({
                       or "Estimate Rejected". */}
                   <PipelineStatusPicker
                     currentKey={job.pipeline_status || 'new_lead'}
-                    user={null}
+                    user={user}
                     jobId={job.id}
                     onMoved={(updated) => onJobUpdated?.(updated)}
                     palette={{ bg: 'bg-omega-pale', text: 'text-omega-orange' }}
@@ -1054,8 +1060,11 @@ function DetailsTab({
 function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label, variant = 'badge' }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // PIN-gate state: when the user picks a terminal phase (Estimate
+  // Rejected) we open a PIN modal instead of saving immediately.
+  const [pendingKey, setPendingKey] = useState(null);
 
-  async function moveTo(nextKey) {
+  async function performMove(nextKey) {
     if (nextKey === currentKey) { setOpen(false); return; }
     setSaving(true);
     try {
@@ -1072,12 +1081,30 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
       });
       setOpen(false);
     } catch (err) {
-      // Surface the failure inline so the user sees something instead
-      // of a silent no-op. Reuses the badge tooltip.
       console.warn('Failed to move job phase', err);
     } finally {
       setSaving(false);
     }
+  }
+
+  function moveTo(nextKey) {
+    if (nextKey === currentKey) { setOpen(false); return; }
+    if (PICKER_PIN_GATED.has(nextKey)) {
+      // Hold the move open for PIN confirmation. The picker dropdown
+      // closes so the modal isn't visually competing with it.
+      setPendingKey(nextKey);
+      setOpen(false);
+      return;
+    }
+    void performMove(nextKey);
+  }
+
+  async function confirmPin(pin) {
+    const ok = await validateUserPin(user, pin);
+    if (!ok) return false;
+    await performMove(pendingKey);
+    setPendingKey(null);
+    return true;
   }
 
   // Two skins: 'badge' (compact, used on the header chip strip) and
@@ -1136,6 +1163,69 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
           </div>
         </>
       )}
+
+      {pendingKey && (
+        <PickerPinModal
+          targetLabel={PIPELINE_STEP_LABEL[pendingKey] || pendingKey}
+          onCancel={() => setPendingKey(null)}
+          onSubmit={confirmPin}
+        />
+      )}
+    </div>
+  );
+}
+
+// Inline PIN modal used by the picker when moving to a terminal phase
+// (Estimate Rejected). Same UX as the Kanban's PinConfirmModal but
+// doesn't depend on it (different file). Returns true from onSubmit
+// when the PIN was correct so the caller can proceed.
+function PickerPinModal({ targetLabel, onCancel, onSubmit }) {
+  const [pin, setPin] = useState('');
+  const [show, setShow] = useState(false);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function handle() {
+    setErr('');
+    setBusy(true);
+    try {
+      const ok = await onSubmit(pin);
+      if (!ok) setErr('Wrong PIN. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !busy && onCancel()}>
+      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 border-b border-gray-200">
+          <p className="font-bold text-omega-charcoal text-lg">Confirm move to {targetLabel}</p>
+          <p className="text-sm text-omega-stone mt-1">Type your own PIN to confirm. This is a terminal phase.</p>
+        </div>
+        <div className="p-5">
+          <label className="text-xs font-semibold text-omega-stone uppercase">Your PIN</label>
+          <div className="relative mt-1">
+            <input
+              autoFocus
+              type={show ? 'text' : 'password'}
+              value={pin}
+              onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handle(); }}
+              className="w-full px-3 py-2.5 pr-10 rounded-lg border-2 border-gray-200 focus:border-omega-orange focus:outline-none text-base font-mono tracking-[0.3em]"
+              placeholder="••••"
+            />
+            <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone">
+              {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {err && <p className="text-xs text-red-600 font-semibold mt-1.5">{err}</p>}
+        </div>
+        <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={onCancel} disabled={busy} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">Cancel</button>
+          <button onClick={handle} disabled={busy || !pin} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+            {busy ? 'Confirming…' : 'Confirm Move'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1156,10 +1246,10 @@ function Field({ icon: Icon, label, value, colSpan = 1 }) {
   const span = colSpan === 3 ? 'sm:col-span-2 md:col-span-3' : colSpan === 2 ? 'sm:col-span-2' : '';
   return (
     <div className={span}>
-      <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold inline-flex items-center gap-1">
-        {Icon && <Icon className="w-3 h-3" />} {label}
+      <p className="text-[11px] uppercase tracking-wider text-omega-stone font-semibold inline-flex items-center gap-1.5">
+        {Icon && <Icon className="w-3.5 h-3.5" />} {label}
       </p>
-      <p className={`text-sm mt-0.5 break-words ${value ? 'font-medium text-omega-charcoal' : 'text-omega-fog italic'}`}>
+      <p className={`text-base mt-1 break-words leading-snug ${value ? 'font-semibold text-omega-charcoal' : 'text-omega-fog italic'}`}>
         {value || '—'}
       </p>
     </div>
@@ -1325,13 +1415,13 @@ function JobNotesPanel({ jobId, user, canEdit }) {
           {notes.map((n) => {
             const initial = (n.user_name || '?').charAt(0).toUpperCase();
             return (
-              <li key={n.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg bg-omega-cloud">
-                <span className="w-7 h-7 rounded-md bg-omega-orange text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+              <li key={n.id} className="flex items-start gap-3 px-4 py-3 rounded-lg bg-omega-cloud">
+                <span className="w-9 h-9 rounded-md bg-omega-orange text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
                   {initial}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-omega-charcoal whitespace-pre-wrap break-words">{n.content}</p>
-                  <p className="text-[11px] text-omega-stone mt-1">
+                  <p className="text-sm text-omega-charcoal whitespace-pre-wrap break-words leading-relaxed">{n.content}</p>
+                  <p className="text-xs text-omega-stone mt-1.5">
                     <strong className="text-omega-charcoal">{n.user_name}</strong>
                     {n.user_role && <span className="text-omega-fog"> · {n.user_role}</span>}
                     <span className="text-omega-fog"> · {new Date(n.created_at).toLocaleString()}</span>
@@ -1392,15 +1482,15 @@ function JobActivityPanel({ jobId }) {
           {rows.map((row) => {
             const { who, action } = summarize(row);
             return (
-              <li key={row.id} className="flex items-start gap-2.5">
-                <span className="w-7 h-7 rounded-full bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-3.5 h-3.5" />
+              <li key={row.id} className="flex items-start gap-3">
+                <span className="w-9 h-9 rounded-full bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-4 h-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-omega-charcoal">
                     <span className="font-semibold capitalize">{action}</span>
                   </p>
-                  <p className="text-[11px] text-omega-stone mt-0.5">
+                  <p className="text-xs text-omega-stone mt-1">
                     {new Date(row.created_at).toLocaleString()}
                     {who && <span> · by {who}</span>}
                   </p>
