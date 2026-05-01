@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   DollarSign, Building2, Users, Wallet, X, Plus, Pencil, Save,
   Check, AlertTriangle, Clock, ArrowDownCircle, ArrowUpCircle, Loader2,
-  Trash2, ChevronRight, Banknote, FileText,
+  Trash2, ChevronRight, Banknote, FileText, Receipt,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
@@ -25,11 +25,17 @@ import {
   ensureSubPaymentsForAgreement, markMilestoneReceived, markSubPaymentPaid,
   loadFinanceTotals,
 } from '../../lib/finance';
+import GhostAccountTab from './GhostAccountTab';
 
-const TABS = [
-  { id: 'company', label: 'Company', icon: Building2 },
-  { id: 'clients', label: 'Clients', icon: Users },
-  { id: 'subs',    label: 'Subs',    icon: ArrowUpCircle },
+// "Ghost Account" is a private check ledger Brenda + Inácio + admin
+// keep separate from QuickBooks. Hidden from every other role.
+const GHOST_TAB_ROLES = new Set(['owner', 'operations', 'admin']);
+
+const ALL_TABS = [
+  { id: 'company', label: 'Company',       icon: Building2,      roles: null },
+  { id: 'clients', label: 'Clients',       icon: Users,          roles: null },
+  { id: 'subs',    label: 'Subs',          icon: ArrowUpCircle,  roles: null },
+  { id: 'ghost',   label: 'Ghost Account', icon: Receipt,        roles: GHOST_TAB_ROLES },
 ];
 
 function money(n) {
@@ -46,6 +52,14 @@ export default function FinanceScreen({ user }) {
   const [tab, setTab] = useState('clients');
   const [accounts, setAccounts] = useState([]);
   const [accountsOpen, setAccountsOpen] = useState(false);
+
+  // Tabs visible to the current role. Ghost Account is owner/ops/admin
+  // only — other roles never see it (defense in depth: the data is
+  // also gated by the UI gate inside the tab itself).
+  const TABS = useMemo(
+    () => ALL_TABS.filter((t) => !t.roles || t.roles.has(user?.role)),
+    [user?.role]
+  );
 
   useEffect(() => { loadAccounts(); }, []);
 
@@ -100,6 +114,7 @@ export default function FinanceScreen({ user }) {
         {tab === 'company' && <CompanyTab />}
         {tab === 'clients' && <ClientsTab user={user} accounts={accounts} />}
         {tab === 'subs'    && <SubsTab user={user} accounts={accounts} />}
+        {tab === 'ghost'   && GHOST_TAB_ROLES.has(user?.role) && <GhostAccountTab user={user} />}
       </div>
 
       {accountsOpen && (
