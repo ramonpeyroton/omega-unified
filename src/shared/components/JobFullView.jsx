@@ -341,26 +341,27 @@ export default function JobFullView({
   // Report → Estimate → Contact → Documents → Time → Financials → Phases → Daily Logs → Details
   // Estimate is visible to Sales (who builds it) + Owner/Ops/Admin.
   // Financials (internal cost/margin) stays restricted to Owner/Ops/Admin.
-  // Read-only-basic view (Rafaela + Gabriel) collapses to two tabs:
-  // Details (the basic info card) and Daily Logs (the per-job Slack
-  // chat). They both need Daily Logs because that's the team's
-  // day-to-day chat — not having it would leave them out of every
-  // message thread.
+  // Read-only-basic view (Rafaela + Gabriel): Daily Logs lands first
+  // because they spend most of their time in the per-job chat.
+  // Details stays available as the second (and last) tab.
+  // Full-access roles get the order Ramon specified:
+  //   Daily Logs → Report → Estimate → Phases → Subs → Contact →
+  //   Time → Financials → Documents → Details
   const TABS = readOnlyBasic
     ? [
-        { id: 'details', label: 'Details',    icon: Info },
         { id: 'daily',   label: 'Daily Logs', icon: FileText },
+        { id: 'details', label: 'Details',    icon: Info },
       ]
     : [
+        { id: 'daily',     label: 'Daily Logs', icon: FileText },
         { id: 'report',    label: 'Report',     icon: Sparkles },
         canSeeEstimate   && { id: 'estimate',   label: 'Estimate',   icon: Receipt },
+        { id: 'phases',    label: 'Phases',     icon: HardHat },
         canSeeSubs       && { id: 'subs',       label: 'Subs',       icon: HardHat },
         canContact       && { id: 'contact',    label: 'Contact',    icon: MessageSquare },
-        { id: 'documents', label: 'Documents',  icon: FolderClosed },
         { id: 'time',      label: 'Time',       icon: Clock },
         canSeeFinancials && { id: 'financials', label: 'Financials', icon: DollarSign },
-        { id: 'phases',    label: 'Phases',     icon: HardHat },
-        { id: 'daily',     label: 'Daily Logs', icon: FileText },
+        { id: 'documents', label: 'Documents',  icon: FolderClosed },
         { id: 'details',   label: 'Details',    icon: Info },
       ].filter(Boolean);
 
@@ -857,6 +858,21 @@ function DetailsTab({
             <div className="flex items-center gap-2">
               {!editing ? (
                 <>
+                  {/* Move Phase — same picker that's on the header
+                      (compact badge), surfaced here as an obvious pill
+                      so Inácio / Brenda can jump a card to any phase
+                      without dragging it across the kanban. Useful for
+                      backfilling old projects straight to "Completed"
+                      or "Estimate Rejected". */}
+                  <PipelineStatusPicker
+                    currentKey={job.pipeline_status || 'new_lead'}
+                    user={null}
+                    jobId={job.id}
+                    onMoved={(updated) => onJobUpdated?.(updated)}
+                    palette={{ bg: 'bg-omega-pale', text: 'text-omega-orange' }}
+                    label="Move Phase"
+                    variant="pill"
+                  />
                   <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
                     <Edit3 className="w-4 h-4" /> Edit
                   </button>
@@ -1035,7 +1051,7 @@ function DetailsTab({
 // works regardless of viewport width, and is the only path for
 // receptionists / readOnlyBasic roles (which we explicitly hide it
 // from at the call site).
-function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label }) {
+function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label, variant = 'badge' }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1064,17 +1080,25 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
     }
   }
 
+  // Two skins: 'badge' (compact, used on the header chip strip) and
+  // 'pill' (larger, used inside the Client & Job Info card so the
+  // "Move phase" affordance reads as a real button).
+  const triggerCls = variant === 'pill'
+    ? `inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold transition-colors disabled:opacity-60`
+    : `inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`;
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={saving}
-        className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`}
+        className={triggerCls}
         title="Click to move this job to another phase"
       >
+        {variant === 'pill' && <ArrowRight className="w-4 h-4" />}
         {saving ? 'Moving…' : label}
-        <svg viewBox="0 0 12 12" className="w-2.5 h-2.5" fill="currentColor"><path d="M6 8L2 4h8z"/></svg>
+        <svg viewBox="0 0 12 12" className={variant === 'pill' ? 'w-3 h-3' : 'w-2.5 h-2.5'} fill="currentColor"><path d="M6 8L2 4h8z"/></svg>
       </button>
 
       {open && (
