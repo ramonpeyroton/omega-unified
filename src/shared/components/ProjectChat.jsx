@@ -230,6 +230,15 @@ export default function ProjectChat({ job, user, onJobUpdated }) {
         </button>
       </div>
 
+      {/* Composer sits ABOVE the message list — the list now renders
+          newest-first, so the seller types where the newest stuff is
+          rather than scrolling past the entire history to reach it. */}
+      <MessageComposer
+        jobId={job.id}
+        user={user}
+        onSent={() => fetchMessages({ silent: false })}
+      />
+
       {messages.length === 0 ? (
         <div className="flex flex-col items-center text-center py-8 text-omega-stone">
           <MessageCircle className="w-6 h-6 text-omega-fog mb-2" />
@@ -241,12 +250,6 @@ export default function ProjectChat({ job, user, onJobUpdated }) {
       ) : (
         <MessageList messages={messages} />
       )}
-
-      <MessageComposer
-        jobId={job.id}
-        user={user}
-        onSent={() => fetchMessages({ silent: false })}
-      />
 
       <p className="pt-3 text-[10px] text-omega-fog text-center">
         Auto-refreshes every 30s · Images auto-compressed before upload
