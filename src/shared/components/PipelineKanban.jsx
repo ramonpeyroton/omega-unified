@@ -168,7 +168,13 @@ function ServiceBadge({ service, columnHex }) {
 // ─── Job Card ─────────────────────────────────────────────────────
 function JobCard({ job, coiWarning, onOpen, onDelete, canDelete, isDragging }) {
   const address = [job.address, job.city].filter(Boolean).join(', ');
-  const calledIn = job.created_by === 'receptionist';
+  // The receptionist tags every lead with how it came in — Houzz, Angi,
+  // Google, Referral, etc. Surface that in place of the old generic
+  // "Called In" badge so the team sees the actual marketing channel
+  // at a glance. We keep "Called In" only when the row genuinely has
+  // no source AND was created by the receptionist (legacy fallback).
+  const leadSource = (job.lead_source || '').trim();
+  const calledIn   = !leadSource && job.created_by === 'receptionist';
   const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
   const FooterIcon = footerIconFor(job.pipeline_status);
 
@@ -213,14 +219,22 @@ function JobCard({ job, coiWarning, onOpen, onDelete, canDelete, isDragging }) {
           <p className="text-[11px] text-omega-stone truncate mt-0.5">{address}</p>
         )}
 
-        {/* Service + called-in badges */}
-        {(job.service || calledIn) && (
+        {/* Service + lead-source badges */}
+        {(job.service || leadSource || calledIn) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <ServiceBadge service={job.service} columnHex={col.hex} />
+            {leadSource && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 font-semibold text-[10px] uppercase tracking-wider"
+                title={`Lead came in via ${leadSource}`}
+              >
+                <PhoneIncoming className="w-2.5 h-2.5" /> {leadSource}
+              </span>
+            )}
             {calledIn && (
               <span
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 font-semibold text-[10px] uppercase"
-                title="Called in to reception"
+                title="Called in to reception (no marketing source recorded)"
               >
                 <PhoneIncoming className="w-2.5 h-2.5" /> Called In
               </span>

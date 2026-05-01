@@ -17,9 +17,14 @@ import {
 
 // Canonical service list lives in shared/ so JobFullView and other
 // shared components can use it without reaching into apps/sales/.
-// Re-exported here so existing `import { SERVICES } from '../data/questionnaire'`
-// calls keep working.
-export { SERVICES } from '../../../shared/data/services';
+// We import it locally AND re-export so:
+//   1. existing `import { SERVICES } from '../data/questionnaire'`
+//      calls keep working (re-export side);
+//   2. `serviceLabel()` below — which lives in this same file — can
+//      reference SERVICES as a local binding (a bare `export … from`
+//      creates only the re-export, not a local symbol).
+import { SERVICES } from '../../../shared/data/services';
+export { SERVICES };
 
 // ─── Question type reference ────────────────────────────────────────
 // { id, type, label, helper?, options?, unit?, placeholder?, showIf?,
