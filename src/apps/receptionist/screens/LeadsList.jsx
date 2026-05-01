@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
-import { CITIES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES } from '../lib/leadCatalog';
+import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES } from '../lib/leadCatalog';
 
 const FILTERS = [
   { id: 'today', label: 'Today' },
@@ -460,6 +460,14 @@ function extractStreet(address) {
   return address.split(',')[0].trim();
 }
 
+// Best-effort: pull the state code (CT/NY/NJ) out of a stored address.
+// Returns 'CT' as default for old rows that never had the state picker.
+function extractState(address) {
+  if (!address) return 'CT';
+  const m = String(address).match(/\b(CT|NY|NJ)\b/i);
+  return m ? m[1].toUpperCase() : 'CT';
+}
+
 function EditLeadModal({ lead, onClose, onSave }) {
   const initialName = splitName(lead.client_name);
   const [form, setForm] = useState({
@@ -470,6 +478,7 @@ function EditLeadModal({ lead, onClose, onSave }) {
     email:           lead.client_email || '',
     street:          extractStreet(lead.address),
     unit_number:     lead.unit_number || '',
+    state:           extractState(lead.address),
     city:            lead.city || '',
     services:        [lead.service, ...(Array.isArray(lead.additional_services) ? lead.additional_services : [])].filter(Boolean),
     lead_source:     lead.lead_source || '',
@@ -493,7 +502,8 @@ function EditLeadModal({ lead, onClose, onSave }) {
     const streetLine = form.unit_number.trim()
       ? `${form.street.trim()} ${form.unit_number.trim()}`
       : form.street.trim();
-    const fullAddress = [streetLine, form.city, 'CT'].filter(Boolean).join(', ');
+    const stateCode = (form.state || 'CT').toUpperCase();
+    const fullAddress = [streetLine, form.city, stateCode].filter(Boolean).join(', ');
     const e164 = toE164(form.phone) || form.phone.trim() || null;
     const [primary, ...extra] = form.services;
 
@@ -581,13 +591,35 @@ function EditLeadModal({ lead, onClose, onSave }) {
             </div>
           </div>
 
-          {/* Row 5: City */}
-          <div>
-            <label className={labelCls}>City</label>
-            <select className={inputCls} value={form.city} onChange={(e) => set('city', e.target.value)}>
-              <option value="">Select…</option>
-              {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+          {/* Row 5: State + City. State drives the city list — switching
+              state clears the picked city so we don't end up with a
+              CT town stamped on a NY lead. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>State</label>
+              <select
+                className={inputCls}
+                value={form.state}
+                onChange={(e) => {
+                  set('state', e.target.value);
+                  set('city', '');
+                }}
+              >
+                {STATES.map((s) => (
+                  <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>City</label>
+              <select className={inputCls} value={form.city} onChange={(e) => set('city', e.target.value)}>
+                <option value="">Select…</option>
+                {(CITIES_BY_STATE[form.state] || []).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                <option value="Other">Other</option>
+              </select>
+            </div>
           </div>
 
           {/* Row 6: Source */}

@@ -8,7 +8,7 @@ import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
 import { logAudit } from '../../../shared/lib/audit';
-import { CITIES, SERVICES, LEAD_SOURCES } from '../lib/leadCatalog';
+import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES } from '../lib/leadCatalog';
 
 function todayIso() {
   const d = new Date();
@@ -25,6 +25,9 @@ const DEFAULT_FORM = {
   email: '',
   address: '',
   unit_number: '',
+  // CT default — most of Omega's leads still come from there. Switching
+  // the picker rebuilds the city list (CITIES_BY_STATE).
+  state: 'CT',
   city: '',
   zip: '',
   services: [],           // ← multi-select; services[0] persists in `service`
@@ -156,7 +159,11 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
       const streetLine = form.unit_number.trim()
         ? `${form.address.trim()} ${form.unit_number.trim()}`
         : form.address.trim();
-      const fullAddress = [streetLine, form.city, 'CT', form.zip.trim()]
+      // Use the picked state code in the full address line so out-of-CT
+      // leads aren't quietly mislabeled as Connecticut. Falls back to
+      // 'CT' for any pre-state-picker rows just in case.
+      const stateCode = (form.state || 'CT').toUpperCase();
+      const fullAddress = [streetLine, form.city, stateCode, form.zip.trim()]
         .filter(Boolean).join(', ');
       const assigned = form.assigned_to === 'Other' ? form.assigned_to_custom.trim() : form.assigned_to;
 
@@ -357,14 +364,30 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
             <input className={inputCls} value={form.unit_number} onChange={(e) => set('unit_number', e.target.value)} placeholder="Apt 4B" />
           </Field>
           <div className="grid grid-cols-2 gap-3">
+            <Field label="State" required>
+              <select
+                className={inputCls}
+                value={form.state}
+                onChange={(e) => {
+                  // Switching state clears the city — picking from the
+                  // wrong list is a worse error than typing it again.
+                  set('state', e.target.value);
+                  set('city', '');
+                }}
+              >
+                {STATES.map((s) => (
+                  <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
+                ))}
+              </select>
+            </Field>
             <Field label="City" required>
               <select className={inputCls} value={form.city} onChange={(e) => set('city', e.target.value)}>
                 <option value="">Select…</option>
-                {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {(CITIES_BY_STATE[form.state] || []).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                <option value="Other">Other</option>
               </select>
-            </Field>
-            <Field label="State">
-              <input className={`${inputCls} bg-gray-50`} value="CT" disabled />
             </Field>
           </div>
           <Field label="Zip Code">
