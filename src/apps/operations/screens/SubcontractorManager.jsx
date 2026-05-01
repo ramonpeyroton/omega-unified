@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Upload, Send, AlertTriangle, X, Edit3, Trash2, Save } from 'lucide-react';
+import { Plus, Upload, Send, AlertTriangle, X, Edit3, Trash2, Save, FileDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createEnvelope } from '../../../shared/lib/docusign';
+import { downloadSubAgreementPdf } from '../../../shared/lib/subAgreementPdf';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
@@ -10,6 +11,12 @@ import SubcontractorCardsView from '../components/SubcontractorCardsView';
 import { logAudit } from '../../../shared/lib/audit';
 import { subInlineLabel } from '../../../shared/lib/subcontractor';
 import { formatPhoneInput, toE164 } from '../../../shared/lib/phone';
+
+// Mirrors the same flag EstimateFlow uses. When the env var isn't '1',
+// DocuSign API endpoints aren't deployed (api/docusign/* don't exist
+// yet), so we route the agreement through the local PDF fallback
+// instead of 404-ing against /api/docusign/create-envelope.
+const DOCUSIGN_CLIENT_ENABLED = import.meta.env?.VITE_DOCUSIGN_ENABLED === '1';
 
 // Curated list of trades shown as autocomplete suggestions in the
 // Add/Edit Sub forms. <datalist> means Brenda can pick one with a
@@ -261,8 +268,13 @@ export default function SubcontractorManager({ user }) {
   async function submitAddAgr(e) {
     e.preventDefault();
     if (!agrForm.job_id || !agrForm.subcontractor_id) { setToast({ type: 'warning', message: 'Select a job and a subcontractor' }); return; }
+
+    const sub = subs.find((s) => s.id === agrForm.subcontractor_id);
+    const job = jobs.find((j) => j.id === agrForm.job_id);
+
     try {
-      // 1. Save row first
+      // 1. Save the agreement row first so it shows up in the list even
+      //    if PDF generation or DocuSign sending fails afterwards.
       const { data: created, error: insErr } = await supabase.from('subcontractor_agreements').insert([{
         job_id: agrForm.job_id,
         subcontractor_id: agrForm.subcontractor_id,
@@ -275,32 +287,58 @@ export default function SubcontractorManager({ user }) {
       }]).select().single();
       if (insErr) throw insErr;
 
-      // 2. Send via DocuSign
-      const sub = subs.find((s) => s.id === agrForm.subcontractor_id);
-      const job = jobs.find((j) => j.id === agrForm.job_id);
-      const { envelopeId } = await createEnvelope({
-        kind: 'subcontractor_agreement',
-        agreementId: created.id,
+      const agreementPayload = {
         job, subcontractor: sub,
         scope: agrForm.scope_of_work,
         amount: Number(agrForm.their_estimate) || 0,
         paymentPlan: agrForm.payment_plan,
-      });
+        startDate: agrForm.start_date || null,
+        endDate: agrForm.end_date || null,
+      };
 
-      // 3. Update with envelope info
-      const { data: updated, error: updErr } = await supabase.from('subcontractor_agreements').update({
-        docusign_envelope_id: envelopeId,
-        docusign_status: 'sent',
-        status: 'sent',
-      }).eq('id', created.id).select().single();
-      if (updErr) throw updErr;
+      let updated = created;
+      let successMessage = '';
+
+      if (DOCUSIGN_CLIENT_ENABLED) {
+        // 2a. DocuSign path — call /api/docusign/create-envelope, then
+        //     stamp the row with the returned envelope id and "sent".
+        const { envelopeId } = await createEnvelope({
+          kind: 'subcontractor_agreement',
+          agreementId: created.id,
+          ...agreementPayload,
+        });
+        const { data, error: updErr } = await supabase.from('subcontractor_agreements').update({
+          docusign_envelope_id: envelopeId,
+          docusign_status: 'sent',
+          status: 'sent',
+        }).eq('id', created.id).select().single();
+        if (updErr) throw updErr;
+        updated = data;
+        successMessage = 'Agreement sent via DocuSign';
+      } else {
+        // 2b. PDF fallback — DocuSign isn't wired up in this environment.
+        //     Generate a printable PDF the crew can hand to the sub for
+        //     a wet-ink signature. The row stays "pending" until the
+        //     signed copy comes back; Brenda can mark it "signed"
+        //     manually from the agreement actions.
+        await downloadSubAgreementPdf(agreementPayload);
+        successMessage = 'Agreement PDF downloaded — print, sign and upload the scan when it comes back.';
+      }
+
+      logAudit({
+        user: null, // Operations screen — keeping the existing pattern
+        action: DOCUSIGN_CLIENT_ENABLED ? 'sub_agreement.send_docusign' : 'sub_agreement.generate_pdf',
+        entityType: 'subcontractor_agreement',
+        entityId: created.id,
+        details: { job_id: agrForm.job_id, sub_id: agrForm.subcontractor_id, amount: Number(agrForm.their_estimate) || 0 },
+      });
 
       setAgreements((prev) => [updated, ...prev]);
       setShowAddAgr(false);
       setAgrForm({ job_id: '', subcontractor_id: '', scope_of_work: '', their_estimate: 0, payment_plan: [], start_date: '', end_date: '' });
-      setToast({ type: 'success', message: 'Agreement sent via DocuSign' });
+      setToast({ type: 'success', message: successMessage });
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to send agreement' });
+      setToast({ type: 'error', message: err.message || 'Failed to create agreement' });
     }
   }
 
@@ -608,7 +646,9 @@ export default function SubcontractorManager({ user }) {
             <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
               <button type="button" onClick={() => setShowAddAgr(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
               <button type="submit" className="px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold inline-flex items-center gap-2">
-                <Send className="w-4 h-4" /> Generate & Send via DocuSign
+                {DOCUSIGN_CLIENT_ENABLED
+                  ? (<><Send className="w-4 h-4" /> Generate & Send via DocuSign</>)
+                  : (<><FileDown className="w-4 h-4" /> Generate Agreement PDF</>)}
               </button>
             </div>
           </form>
