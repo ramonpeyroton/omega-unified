@@ -2,11 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
   AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
+  GripVertical, MoreVertical, Eye,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
+import { StepBadge } from './JobFullView';
+
+// Hard cap on the seller-facing description that prefaces the
+// estimate. 500 chars is plenty for "Construction of a 320 sq ft
+// deck using …" lines and keeps the customer-facing PDF tight.
+const HEADER_DESCRIPTION_MAX = 500;
 
 // Defaults reused whenever a brand-new estimate is opened. Mirrors the
 // structure of the ServiceFusion template the owner provided.
@@ -426,12 +433,15 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
         </div>
       )}
 
-      {/* Header block */}
+      {/* Step (2): Estimate Details. Two-column layout — description
+          textarea on the left, a small "Estimate status" card on the
+          right that shows draft/sent/signed plus the estimate number. */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-3 mb-4 flex-wrap">
+          <StepBadge n={2} />
           <div>
             <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
-              <FileText className="w-4 h-4 text-omega-orange" /> Estimate
+              Estimate Details
               {estimate?.estimate_number && (
                 <span className="text-omega-stone text-sm font-bold tabular-nums">#{estimate.estimate_number}</span>
               )}
@@ -442,105 +452,160 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
               )}
             </h2>
             <p className="text-xs text-omega-stone mt-0.5">
-              {estimate?.created_at
-                ? `Last saved ${new Date(estimate.updated_at || estimate.created_at).toLocaleString()}`
-                : 'Draft — not saved yet.'}
+              Add a description and overall notes for this estimate.
             </p>
           </div>
-          {estimate?.pdf_url && (
-            <a
-              href={estimate.pdf_url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-omega-charcoal hover:border-omega-orange"
-            >
-              <Download className="w-3.5 h-3.5" /> Last PDF
-            </a>
-          )}
         </div>
 
-        {/* Option name — shown once the group has 2+ alternatives, so the
-            client sees "Basic / Standard / Premium" instead of generic
-            "Option 1 / 2 / 3". Also show when user is about to add the
-            first alternative (encourage naming Option 1). */}
-        {(isMultiOption || optionLabel) && (
-          <label className="block mt-4">
-            <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">
-              Option name (what the client sees)
-            </span>
-            <input
-              value={optionLabel}
-              onChange={(e) => setOptionLabel(e.target.value)}
-              placeholder='e.g. "Basic", "Standard", "With Hardwood Floor"…'
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
-            />
-          </label>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-5">
+          <div className="space-y-4">
+            {/* Option name — only when there are 2+ alternatives, OR if
+                the seller already started typing one for option 1. */}
+            {(isMultiOption || optionLabel) && (
+              <label className="block">
+                <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">
+                  Option name (what the client sees)
+                </span>
+                <input
+                  value={optionLabel}
+                  onChange={(e) => setOptionLabel(e.target.value)}
+                  placeholder='e.g. "Basic", "Standard", "With Hardwood Floor"…'
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
+                />
+              </label>
+            )}
 
-        <label className="block mt-4">
-          <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Description (top of estimate)</span>
-          <textarea
-            rows={3}
-            value={headerDescription}
-            onChange={(e) => setHeaderDescription(e.target.value)}
-            placeholder='e.g. "Construction of a ___ sq. ft. deck using pressure-treated wood…"'
-            className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
-          />
-        </label>
-      </div>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Description (top of estimate)</span>
+              <div className="relative">
+                <textarea
+                  rows={4}
+                  value={headerDescription}
+                  onChange={(e) => setHeaderDescription(e.target.value.slice(0, HEADER_DESCRIPTION_MAX))}
+                  placeholder='e.g. "Construction of a ___ sq. ft. deck using pressure-treated wood…"'
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
+                />
+                {/* Char counter — sits inside the bottom-right of the
+                    textarea so it stays close to what the seller is
+                    typing without taking a full row. */}
+                <span className="absolute bottom-2 right-3 text-[10px] tabular-nums text-omega-stone pointer-events-none">
+                  {headerDescription.length} / {HEADER_DESCRIPTION_MAX}
+                </span>
+              </div>
+            </label>
+          </div>
 
-      {/* Sections */}
-      <div className="space-y-4">
-        {sections.map((sec, sIdx) => (
-          <SectionCard
-            key={sIdx}
-            section={sec}
-            onTitle={(v) => updateSection(sIdx, { title: v })}
-            onMoveUp={() => moveSection(sIdx, -1)}
-            onMoveDown={() => moveSection(sIdx, +1)}
-            onRemove={() => removeSection(sIdx)}
-            onUpdateItem={(iIdx, patch) => updateItem(sIdx, iIdx, patch)}
-            onAddItem={() => addItem(sIdx)}
-            onRemoveItem={(iIdx) => removeItem(sIdx, iIdx)}
-            disableUp={sIdx === 0}
-            disableDown={sIdx === sections.length - 1}
-          />
-        ))}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            onClick={addSection}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
-          >
-            <Plus className="w-4 h-4" /> Add Section
-          </button>
-          {canShowAutofill && (
-            <button
-              onClick={autofillFromQuestionnaire}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
-              title={`Seed ${autofillPreview.length} section${autofillPreview.length === 1 ? '' : 's'} from the questionnaire`}
-            >
-              <Wand2 className="w-4 h-4" /> Generate from questionnaire
-              <span className="text-[10px] font-bold bg-omega-orange/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                {autofillPreview.length} sec · {autofillPreview.reduce((n, s) => n + s.items.length, 0)} items
-              </span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Disclaimers — shown on the customer's signing page right above
-          the signature canvas. Markdown-ish formatting (**bold**, ---).
-          Pre-populated from the global default; the seller can edit
-          anything for a one-off estimate (e.g. extra restriction for a
-          specific project) without affecting other estimates. */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-2 flex-wrap mb-1">
-          <div>
-            <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
-              <Shield className="w-4 h-4 text-omega-orange" /> Project Disclaimers
-            </h2>
-            <p className="text-xs text-omega-stone mt-0.5">
-              Shown to the client right before the signature canvas. They must check "I have read and acknowledge" before they can sign.
+          {/* Estimate status — small sidebar card mirroring the redesign.
+              Shows the current state in one line + a quick link to the
+              previously rendered PDF when one exists. */}
+          <aside className="bg-omega-cloud border border-gray-100 rounded-lg p-3 self-start">
+            <p className="text-[10px] font-bold text-omega-charcoal uppercase tracking-wider inline-flex items-center gap-1.5">
+              <FileText className="w-3 h-3 text-omega-orange" /> Estimate status
             </p>
+            <p className="mt-2">
+              <span className="inline-block px-2 py-0.5 rounded-md bg-omega-pale text-omega-orange text-[11px] font-bold uppercase tracking-wider">
+                {estimate?.status ? estimate.status : 'Draft'}
+              </span>
+            </p>
+            <p className="text-[11px] text-omega-stone mt-2">
+              {estimate?.created_at
+                ? `Last saved ${new Date(estimate.updated_at || estimate.created_at).toLocaleString()}`
+                : 'Not saved yet.'}
+            </p>
+            {estimate?.pdf_url && (
+              <a
+                href={estimate.pdf_url} target="_blank" rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-gray-200 text-[10px] font-bold text-omega-charcoal hover:border-omega-orange"
+              >
+                <Download className="w-3 h-3" /> Last PDF
+              </a>
+            )}
+          </aside>
+        </div>
+      </div>
+
+      {/* Step (3): Sections + line items. Wrapper card matches the
+          redesign — header on top with the running Estimated Total
+          to the right, then the section cards stacked, then the
+          two-button row (Add Section / Generate). */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+          <div className="inline-flex items-start gap-3">
+            <StepBadge n={3} />
+            <div>
+              <h2 className="text-lg font-bold text-omega-charcoal">Estimate Sections &amp; Line Items</h2>
+              <p className="text-xs text-omega-stone mt-0.5">Organize the work into sections. Add items, scope and pricing.</p>
+            </div>
+          </div>
+          <div className="text-right self-start">
+            <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">Estimated Total</p>
+            <p className="text-2xl font-black text-omega-charcoal tabular-nums leading-none mt-0.5">
+              ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {sections.map((sec, sIdx) => (
+            <SectionCard
+              key={sIdx}
+              section={sec}
+              sectionIndex={sIdx + 1}
+              onTitle={(v) => updateSection(sIdx, { title: v })}
+              onMoveUp={() => moveSection(sIdx, -1)}
+              onMoveDown={() => moveSection(sIdx, +1)}
+              onRemove={() => removeSection(sIdx)}
+              onUpdateItem={(iIdx, patch) => updateItem(sIdx, iIdx, patch)}
+              onAddItem={() => addItem(sIdx)}
+              onRemoveItem={(iIdx) => removeItem(sIdx, iIdx)}
+              disableUp={sIdx === 0}
+              disableDown={sIdx === sections.length - 1}
+            />
+          ))}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={addSection}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
+            >
+              <Plus className="w-4 h-4" /> Add Section
+            </button>
+            {canShowAutofill ? (
+              <button
+                onClick={autofillFromQuestionnaire}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
+                title={`Seed ${autofillPreview.length} section${autofillPreview.length === 1 ? '' : 's'} from the questionnaire`}
+              >
+                <Wand2 className="w-4 h-4" /> Generate from questionnaire
+                <span className="text-[10px] font-bold bg-omega-orange/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                  {autofillPreview.length} sec · {autofillPreview.reduce((n, s) => n + s.items.length, 0)} items
+                </span>
+              </button>
+            ) : (
+              // Placeholder slot keeps Add Section centered when there's
+              // no questionnaire seed available, instead of letting it
+              // stretch to full width.
+              <div />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Step (4): Project Disclaimers. Same content as before, now
+          fronted with the (4) badge so it reads as the last item on
+          the redesign's checklist. */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-2 flex-wrap mb-3">
+          <div className="inline-flex items-start gap-3">
+            <StepBadge n={4} />
+            <div>
+              <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
+                <Shield className="w-4 h-4 text-omega-orange" /> Project Disclaimers
+              </h2>
+              <p className="text-xs text-omega-stone mt-0.5">
+                Shown to the client right before the signature canvas. They must check "I have read and acknowledge" before they can sign.
+              </p>
+            </div>
           </div>
           {disclaimers !== DEFAULT_ESTIMATE_DISCLAIMERS && (
             <button
@@ -565,8 +630,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
         </p>
       </div>
 
-      {/* Footer */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 space-y-4">
+      {/* Customer message / payment schedule — kept in its own card so
+          it doesn't fight the action footer for visual weight. */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <label className="block">
           <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Customer Message / Payment Schedule</span>
           <textarea
@@ -576,57 +642,109 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
             className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none font-mono"
           />
         </label>
+      </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-          <span className="text-sm font-semibold text-omega-charcoal uppercase tracking-wider">Estimate Total</span>
-          <span className="text-3xl font-black text-omega-orange tabular-nums">
-            ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+      {toast && (
+        <div className={`flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm ${
+          toast.type === 'success'
+            ? 'bg-green-50 border border-green-200 text-green-800'
+            : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          {toast.type === 'success'
+            ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          }
+          <p className="font-semibold">{toast.message}</p>
         </div>
+      )}
 
-        {toast && (
-          <div className={`flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm ${
-            toast.type === 'success'
-              ? 'bg-green-50 border border-green-200 text-green-800'
-              : 'bg-red-50 border border-red-200 text-red-800'
-          }`}>
-            {toast.type === 'success'
-              ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            }
-            <p className="font-semibold">{toast.message}</p>
+      {/* Action footer — left side shows the save state, right side
+          holds Preview / Save Draft / Save & Send. Mirrors the redesign
+          mockup's bottom bar. The "auto-saved" wording is honest about
+          the current behavior: every save is manual via Save Draft, but
+          once a save lands we show "All changes saved" until the user
+          edits again. */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <SaveStatus saving={saving} estimate={estimate} />
+          <div className="flex items-center gap-2 flex-wrap">
+            {estimate?.id && (
+              <button
+                onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
+                disabled={saving || sending}
+                className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-bold text-omega-charcoal disabled:opacity-60"
+                title="Open the customer-facing version of this estimate in a new tab"
+              >
+                <Eye className="w-4 h-4" /> Preview Estimate
+              </button>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={saving || sending}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale disabled:opacity-60 text-sm font-bold"
+            >
+              {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Draft</>}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={saving || sending || total <= 0}
+              title={total <= 0 ? 'Add at least one priced item before sending' : isMultiOption ? `All ${options.length} options will be sent in one email` : ''}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-sm font-bold"
+            >
+              {sending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                : <><Mail className="w-4 h-4" /> {isMultiOption ? `Save & Send ${options.length} Options` : 'Save & Send to Client'}</>
+              }
+            </button>
           </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 flex-wrap">
-          <button
-            onClick={handleSave}
-            disabled={saving || sending}
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale disabled:opacity-60 text-sm font-bold"
-          >
-            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Draft</>}
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={saving || sending || total <= 0}
-            title={total <= 0 ? 'Add at least one priced item before sending' : isMultiOption ? `All ${options.length} options will be sent in one email` : ''}
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-sm font-bold"
-          >
-            {sending
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
-              : <><Mail className="w-4 h-4" /> {isMultiOption ? `Save & Send ${options.length} Options` : 'Save & Send to Client'}</>
-            }
-          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function SectionCard({ section, onTitle, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
+// Small read-out for the action footer's left side. Reflects whether
+// we're mid-save, when the last save landed, or that we're still on a
+// fresh draft. The string updates whenever `saving` flips or the
+// passed-in `estimate.updated_at` advances.
+function SaveStatus({ saving, estimate }) {
+  const stamp = estimate?.updated_at || estimate?.created_at;
+  if (saving) {
+    return (
+      <p className="text-xs text-omega-stone inline-flex items-center gap-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…
+      </p>
+    );
+  }
+  if (!stamp) {
+    return (
+      <p className="text-xs text-omega-stone">
+        <span className="font-semibold text-omega-charcoal">Draft</span> — not saved yet.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-omega-stone inline-flex items-center gap-2">
+      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+      <span>
+        <span className="font-semibold text-omega-charcoal">All changes saved</span>
+        <span className="block text-[10px] text-omega-stone">Last save · {new Date(stamp).toLocaleTimeString()}</span>
+      </span>
+    </p>
+  );
+}
+
+function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 bg-omega-pale/40 border-b border-omega-orange/20 flex items-center gap-2">
+      <div className="px-3 py-2.5 bg-omega-pale/40 border-b border-omega-orange/20 flex items-center gap-2">
+        {/* Drag-handle affordance — purely visual today (drag isn't
+            wired yet on the EstimateBuilder; the up/down chevrons do
+            the real work). Keeping the icon so the redesign reads
+            consistently with the mockup. */}
+        <span className="text-omega-fog hover:text-omega-stone cursor-grab" title="Drag to reorder (use arrows for now)">
+          <GripVertical className="w-4 h-4" />
+        </span>
         <input
           value={section.title}
           onChange={(e) => onTitle(e.target.value)}
@@ -643,7 +761,9 @@ function SectionCard({ section, onTitle, onMoveUp, onMoveDown, onRemove, onUpdat
           <ItemRow
             key={iIdx}
             item={it}
-            index={iIdx + 1}
+            // "1.1", "1.2", "2.1" — matches the redesign mockup so the
+            // seller can refer to a specific line by section + position.
+            label={`${sectionIndex}.${iIdx + 1}`}
             onChange={(patch) => onUpdateItem(iIdx, patch)}
             onRemove={() => onRemoveItem(iIdx)}
           />
@@ -662,11 +782,18 @@ function SectionCard({ section, onTitle, onMoveUp, onMoveDown, onRemove, onUpdat
   );
 }
 
-function ItemRow({ item, index, onChange, onRemove }) {
+function ItemRow({ item, label, onChange, onRemove }) {
   return (
-    <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-[1fr_1.5fr_140px_auto] gap-3">
+    <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-[44px_1fr_1.5fr_140px_auto] gap-3 items-start">
+      {/* Section.position label — sits on the left so the columns line
+          up with the redesign mockup ("1.1", "1.2", "2.1"). */}
+      <div className="md:pt-7">
+        <span className="inline-flex items-center justify-center px-2 py-1 rounded-md bg-omega-cloud border border-gray-200 text-[11px] font-bold text-omega-charcoal tabular-nums">
+          {label}
+        </span>
+      </div>
       <div>
-        <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">#{index} — Description</label>
+        <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Description</label>
         <input
           value={item.description}
           onChange={(e) => onChange({ description: e.target.value })}
