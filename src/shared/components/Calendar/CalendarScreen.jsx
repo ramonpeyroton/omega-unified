@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DndContext, PointerSensor, TouchSensor, useSensor, useSensors, closestCenter,
 } from '@dnd-kit/core';
-import { Filter, Plus } from 'lucide-react';
+import { Filter, Plus, CalendarDays } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
   loadEventsForMonth,
@@ -38,6 +38,7 @@ import TodayPanel from './TodayPanel';
 import UpcomingEvents from './UpcomingEvents';
 import MiniCalendar from './MiniCalendar';
 import FiltersMenu from './FiltersMenu';
+import EventTypesDonut from './EventTypesDonut';
 import CategoryBadge from '../ui/CategoryBadge';
 import { CATEGORY_ORDER } from '../../lib/eventCategories';
 
@@ -194,14 +195,23 @@ export default function CalendarScreen({
 
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
-      {/* Top header — sticky so it stays visible while scrolling the grid. */}
+      {/* Top header — sticky so it stays visible while scrolling the grid.
+          Per Ramon's redesign: orange-tinted icon tile to the left of
+          the title, Filters as a soft-grey pill with a contador
+          (badge) of how many kinds are HIDDEN, New Event in solid
+          orange. */}
       <header className="px-4 sm:px-6 lg:px-8 py-5 bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-omega-charcoal">Calendar</h1>
-            <p className="text-xs sm:text-sm text-omega-stone mt-0.5">
-              All company events — visits, job starts, inspections, meetings.
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center flex-shrink-0">
+              <CalendarDays className="w-5 h-5 text-omega-orange" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-omega-charcoal">Calendar</h1>
+              <p className="text-xs sm:text-sm text-omega-stone mt-0.5">
+                All company events — visits, job starts, inspections, meetings.
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -212,17 +222,16 @@ export default function CalendarScreen({
                 // milliseconds before our toggle re-opens it.
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setFiltersOpen((v) => !v)}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition ${
-                  allKindsOn
-                    ? 'bg-omega-charcoal text-white hover:bg-black'
-                    : 'bg-omega-orange text-white hover:bg-omega-dark'
-                }`}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold bg-white border border-gray-200 hover:border-omega-orange text-omega-charcoal transition"
               >
                 <Filter className="w-4 h-4" />
                 Filters
                 {!allKindsOn && (
-                  <span className="ml-0.5 px-1.5 py-px text-[10px] font-bold rounded-full bg-white/20">
-                    {visibleKinds.size}
+                  // Badge shows how many kinds the user currently has
+                  // HIDDEN — small orange pill. When everything is on
+                  // (no filtering active) the badge is omitted entirely.
+                  <span className="ml-0.5 w-5 h-5 inline-flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                    {ALL_KINDS.length - visibleKinds.size}
                   </span>
                 )}
               </button>
@@ -301,6 +310,10 @@ export default function CalendarScreen({
               onPrevMonth={prevMonth}
               onNextMonth={nextMonth}
             />
+            {/* Event Types breakdown — donut chart per kind for the
+                selected range. Reads the same already-loaded events
+                array, so changing the dropdown is instant. */}
+            <EventTypesDonut events={filteredEvents} referenceDate={new Date(year, monthIndex, 1)} />
           </aside>
         </div>
       </div>
