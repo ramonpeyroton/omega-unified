@@ -12,14 +12,14 @@
 // horizontally without making cards taller.
 
 import { useState } from 'react';
-import { Upload, Image as ImageIcon, Loader2, X } from 'lucide-react';
+import { Upload, Image as ImageIcon, Loader2, X, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const BUCKET = 'job-covers';
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB ceiling — cover photos shouldn't be huge.
 const ACCEPT = 'image/jpeg,image/png,image/webp';
 
-export default function JobCoverPhotoUpload({ job, onUpdated, disabled = false }) {
+export default function JobCoverPhotoUpload({ job, onUpdated, disabled = false, variant = 'default' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -91,6 +91,60 @@ export default function JobCoverPhotoUpload({ job, onUpdated, disabled = false }
     } finally {
       setBusy(false);
     }
+  }
+
+  // ─── variant="banner" ────────────────────────────────────────────
+  // Edge-to-edge banner used on the redesigned JobFullView Details
+  // tab (Ramon's mockup). 16:6 aspect, no surrounding label, with a
+  // small "Change Photo" pill anchored to the bottom-left of the
+  // image (or the empty state). Same upload + persistence logic as
+  // the default variant — it only re-skins the markup.
+  if (variant === 'banner') {
+    return (
+      <div className="relative overflow-hidden">
+        {url ? (
+          <div className="aspect-[16/6] bg-omega-cloud">
+            <img
+              src={url}
+              alt="Job cover"
+              className="w-full h-full object-cover"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
+        ) : (
+          <div className="aspect-[16/6] bg-omega-pale flex items-center justify-center">
+            <ImageIcon className="w-10 h-10 text-omega-orange/60" />
+          </div>
+        )}
+        {!disabled && (
+          <label
+            className={`absolute bottom-3 left-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black/70 hover:bg-black/85 text-white text-xs font-bold cursor-pointer transition ${
+              busy ? 'opacity-60 pointer-events-none' : ''
+            }`}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…
+              </>
+            ) : (
+              <>
+                <Camera className="w-3.5 h-3.5" /> Change Photo
+              </>
+            )}
+            <input
+              type="file"
+              accept={ACCEPT}
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </label>
+        )}
+        {error && (
+          <p className="absolute bottom-3 right-3 px-2 py-1 rounded bg-red-600/90 text-white text-[11px] font-semibold">{error}</p>
+        )}
+      </div>
+    );
   }
 
   return (

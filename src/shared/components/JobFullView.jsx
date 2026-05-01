@@ -3,7 +3,7 @@ import {
   ArrowLeft, Edit3, Save, X, Eye, EyeOff, Trash2, Calendar, MapPin, Phone, Mail,
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
   AlertCircle, DollarSign, Clock, Receipt, ArrowRight, TrendingUp, Info, MessageSquare,
-  FolderClosed, RotateCcw, UserPlus,
+  FolderClosed, RotateCcw, UserPlus, Globe, Loader2, Plus, MoreHorizontal,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
@@ -386,8 +386,28 @@ export default function JobFullView({
           {/* Quick actions (desktop). The Estimate Flow shortcut now
               lives in the header again — it's the seller's most-used
               gateway and the field crew asked to keep it one click
-              away from anywhere in the job, not buried in a tab. */}
+              away from anywhere in the job, not buried in a tab.
+              Call / Email open the OS handler so the seller can dial
+              or send straight from any tab. */}
           <div className="hidden sm:flex items-center gap-2">
+            {job.client_phone && (
+              <a
+                href={`tel:${job.client_phone}`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                title={`Call ${job.client_phone}`}
+              >
+                <Phone className="w-3.5 h-3.5" /> Call
+              </a>
+            )}
+            {job.client_email && (
+              <a
+                href={`mailto:${job.client_email}`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                title={`Email ${job.client_email}`}
+              >
+                <Mail className="w-3.5 h-3.5" /> Email
+              </a>
+            )}
             {onOpenQuestionnaire && (
               <button
                 onClick={() => { onOpenQuestionnaire(job); onClose?.(); }}
@@ -672,6 +692,7 @@ export default function JobFullView({
           {tab === 'details' && (
             <DetailsTab
               job={job}
+              user={user}
               editing={editing}
               setEditing={setEditing}
               form={form}
@@ -809,7 +830,7 @@ export default function JobFullView({
 
 // ─── Details tab (last tab) ──────────────────────────────
 function DetailsTab({
-  job, estimate, contract,
+  job, user, estimate, contract,
   editing, setEditing, form, setForm, saveEdits, saving,
   readOnlyBasic = false, editBlocked = false,
   onOpenEstimateFlow, onOpenQuestionnaire, onDelete, onReset, canReset,
@@ -817,24 +838,21 @@ function DetailsTab({
 }) {
   return (
     <div className="space-y-5">
-      {/* Client info card */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        {/* Cover photo — hidden for editBlocked roles (Gabriel) so the
-            field crew can't change the cover. Receptionist still gets
-            the upload at intake time so the seller has visual context
-            when picking up the card. */}
-        {!editBlocked && (
-          <div className="mb-5 pb-5 border-b border-gray-100">
-            <JobCoverPhotoUpload job={job} onUpdated={onJobUpdated} />
-          </div>
-        )}
+      {/* ─── Cover banner — full-width edge-to-edge image with the
+            "Change Photo" button overlayed bottom-left. Mirrors
+            Ramon's redesign mockup. */}
+      {!editBlocked && (
+        <div className="rounded-xl overflow-hidden border border-gray-200">
+          <JobCoverPhotoUpload job={job} onUpdated={onJobUpdated} variant="banner" />
+        </div>
+      )}
 
+      {/* ─── Client & Job Info card ─────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <h2 className="text-lg font-bold text-omega-charcoal">Client & Job Info</h2>
-          {/* Edit / Save are open to most roles (receptionist included
-              — intake fixes are her job). Hidden entirely for editBlocked
-              roles (Gabriel) so the field crew can't accidentally
-              overwrite the office's record. */}
+          <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
+            <UserIcon className="w-4 h-4 text-omega-orange" /> Client &amp; Job Info
+          </h2>
           {!editBlocked && (
             <div className="flex items-center gap-2">
               {!editing ? (
@@ -861,14 +879,16 @@ function DetailsTab({
         </div>
 
         {!editing ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
-            <Field icon={UserIcon}  label="Client"      value={job.client_name} />
-            <Field icon={Phone}     label="Phone"       value={job.client_phone} />
-            <Field icon={Mail}      label="Email"       value={job.client_email} />
-            <Field icon={MapPin}    label="Address"     value={job.address} colSpan={3} />
-            <Field icon={Briefcase} label="Salesperson" value={job.salesperson_name} />
-            <Field icon={HardHat}   label="PM"          value={job.pm_name} />
-            <Field icon={Calendar}  label="Created"     value={job.created_at ? new Date(job.created_at).toLocaleDateString() : '—'} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
+            <Field icon={UserIcon}  label="Client"          value={job.client_name} />
+            <Field icon={Phone}     label="Phone"           value={job.client_phone} />
+            <Field icon={Mail}      label="Email"           value={job.client_email} />
+            <Field icon={MapPin}    label="Address"         value={job.address} />
+            <Field icon={Briefcase} label="Salesperson"     value={job.salesperson_name} />
+            <Field icon={HardHat}   label="Project Manager" value={job.pm_name} />
+            <Field icon={Globe}     label="Source"          value={job.lead_source} />
+            <Field icon={Calendar}  label="Created"         value={job.created_at ? new Date(job.created_at).toLocaleDateString() : null} />
+            <Field icon={Clock}     label="Last Contact"    value={job.last_touch ? new Date(job.last_touch).toLocaleDateString() : null} />
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -903,23 +923,41 @@ function DetailsTab({
         )}
       </div>
 
-      {/* Quick status cards */}
+      {/* ─── Estimate + Contract summary (2 cols) ───────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <StatusCard
+        <SummaryCard
           icon={FileText}
           label="Estimate"
-          value={estimate ? (estimate.total_amount != null ? `$${Number(estimate.total_amount).toLocaleString()}` : 'Created') : 'None'}
-          subtitle={estimate ? (estimate.status || '—') : 'Not created yet'}
+          headline={estimate
+            ? (estimate.total_amount != null ? `$${Number(estimate.total_amount).toLocaleString()}` : 'Created')
+            : 'None'}
+          status={estimate?.status}
+          subtitle={estimate
+            ? `Last updated on ${new Date(estimate.updated_at || estimate.created_at).toLocaleDateString()}`
+            : 'Not created yet'}
+          empty={!estimate}
         />
-        <StatusCard
+        <SummaryCard
           icon={Hammer}
           label="Contract"
-          value={contract ? (contract.signed_at ? 'Signed' : 'Sent') : 'None'}
+          headline={contract ? (contract.signed_at ? 'Signed' : 'Sent') : 'None'}
+          status={contract ? (contract.signed_at ? 'signed' : 'sent') : null}
           subtitle={contract
-            ? (contract.signed_at ? new Date(contract.signed_at).toLocaleDateString()
-               : contract.sent_at ? new Date(contract.sent_at).toLocaleDateString() : '—')
-            : 'Not created yet'}
+            ? (contract.signed_at
+                ? `Signed on ${new Date(contract.signed_at).toLocaleDateString()}`
+                : contract.sent_at
+                  ? `Sent on ${new Date(contract.sent_at).toLocaleDateString()}`
+                  : '—')
+            : 'No contract has been created for this job.'}
+          empty={!contract}
+          emptyTag="Not Created Yet"
         />
+      </div>
+
+      {/* ─── Notes + Activity (2 cols) ──────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <JobNotesPanel jobId={job.id} user={user} canEdit={!editBlocked} />
+        <JobActivityPanel jobId={job.id} />
       </div>
 
       {/* Note: the "View Estimate Flow" CTA used to live here. It's been
@@ -1097,7 +1135,257 @@ function Field({ icon: Icon, label, value, colSpan = 1 }) {
       <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold inline-flex items-center gap-1">
         {Icon && <Icon className="w-3 h-3" />} {label}
       </p>
-      <p className="text-sm font-medium text-omega-charcoal mt-0.5 break-words">{value || '—'}</p>
+      <p className={`text-sm mt-0.5 break-words ${value ? 'font-medium text-omega-charcoal' : 'text-omega-fog italic'}`}>
+        {value || '—'}
+      </p>
+    </div>
+  );
+}
+
+// ─── SummaryCard — Estimate / Contract quick summary ────────────────
+// Two of these sit side-by-side on the Details tab (Estimate +
+// Contract). Headline shows the total / state, status pill shows the
+// current status, subtitle line shows when it changed last. When
+// `empty` is true, headline reads "None" and we render a small grey
+// "Not Created Yet" pill alongside.
+function SummaryCard({ icon: Icon, label, headline, status, subtitle, empty = false, emptyTag = 'Not Created Yet' }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
+      <div className="inline-flex items-center gap-2 mb-2">
+        {Icon && (
+          <div className="w-7 h-7 rounded-lg bg-omega-pale text-omega-orange flex items-center justify-center">
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+        )}
+        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">{label}</p>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-xl font-black text-omega-charcoal tabular-nums leading-none">{headline}</p>
+        {empty ? (
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-omega-stone">{emptyTag}</span>
+        ) : status ? (
+          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+            /sign|approve|completed|paid/i.test(status)
+              ? 'bg-emerald-100 text-emerald-700'
+              : /reject|cancel/i.test(status)
+                ? 'bg-red-100 text-red-700'
+                : /sent|negotiat|pending/i.test(status)
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-omega-pale text-omega-orange'
+          }`}>
+            {status}
+          </span>
+        ) : null}
+      </div>
+      <p className="text-xs text-omega-stone mt-1.5">{subtitle}</p>
+    </div>
+  );
+}
+
+// ─── JobNotesPanel — per-job notes the team writes on the Details tab.
+// Powered by the job_notes table (migration 031). Anyone with edit
+// permissions can add a note; everyone sees the timeline. Notes are
+// timestamped and labeled with the author's name.
+function JobNotesPanel({ jobId, user, canEdit }) {
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [composing, setComposing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [missingMigration, setMissingMigration] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('job_notes')
+          .select('*')
+          .eq('job_id', jobId)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (!cancelled) {
+          if (error && /job_notes/.test(error.message || '')) {
+            // Migration 031 hasn't been applied yet — show an empty
+            // panel without crashing the tab.
+            setMissingMigration(true);
+            setNotes([]);
+          } else if (!error) {
+            setNotes(data || []);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  async function addNote() {
+    if (!draft.trim()) return;
+    setPosting(true);
+    try {
+      const { data, error } = await supabase.from('job_notes').insert([{
+        job_id: jobId,
+        user_name: user?.name || 'unknown',
+        user_role: user?.role || null,
+        content: draft.trim(),
+      }]).select().single();
+      if (error) throw error;
+      setNotes((prev) => [data, ...prev]);
+      setDraft('');
+      setComposing(false);
+    } catch (err) {
+      // Most likely cause: missing migration 031. Switch the panel to
+      // its "table doesn't exist yet" empty state instead of failing
+      // silently.
+      if (/job_notes/.test(err?.message || '')) setMissingMigration(true);
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
+          <FileText className="w-4 h-4 text-omega-orange" /> Notes
+        </h3>
+        {canEdit && !composing && !missingMigration && (
+          <button
+            onClick={() => setComposing(true)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-charcoal"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Note
+          </button>
+        )}
+      </div>
+
+      {composing && canEdit && (
+        <div className="mb-3 rounded-xl border border-omega-orange/30 bg-omega-pale/40 p-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            placeholder="What's on the call? Project notes, budget hints, client mood…"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none bg-white resize-none"
+            autoFocus
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <button onClick={() => { setComposing(false); setDraft(''); }} className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold">
+              Cancel
+            </button>
+            <button
+              onClick={addNote}
+              disabled={posting || !draft.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-xs font-bold"
+            >
+              {posting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <>Save Note</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-xs text-omega-stone py-6 text-center">Loading notes…</p>
+      ) : missingMigration ? (
+        <p className="text-xs text-omega-stone py-6 text-center italic">
+          Notes feature waiting on migration 031.
+        </p>
+      ) : notes.length === 0 ? (
+        <p className="text-xs text-omega-stone py-6 text-center italic">
+          No notes yet. {canEdit ? 'Add the first one to capture call details.' : ''}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {notes.map((n) => {
+            const initial = (n.user_name || '?').charAt(0).toUpperCase();
+            return (
+              <li key={n.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg bg-omega-cloud">
+                <span className="w-7 h-7 rounded-md bg-omega-orange text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                  {initial}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-omega-charcoal whitespace-pre-wrap break-words">{n.content}</p>
+                  <p className="text-[11px] text-omega-stone mt-1">
+                    <strong className="text-omega-charcoal">{n.user_name}</strong>
+                    {n.user_role && <span className="text-omega-fog"> · {n.user_role}</span>}
+                    <span className="text-omega-fog"> · {new Date(n.created_at).toLocaleString()}</span>
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── JobActivityPanel — read-only timeline of audit_log entries for
+// this job. Surfaces every action that touches this job (creates,
+// edits, moves, sends, signs, etc.) so the team has a single chronology
+// without having to dig through Slack history.
+function JobActivityPanel({ jobId }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('audit_log')
+          .select('*')
+          .eq('entity_id', jobId)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (!cancelled) setRows(data || []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  function summarize(row) {
+    const action = String(row.action || '').replace(/_/g, ' ');
+    const who = row.user_name || 'Someone';
+    return { who, action };
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
+      <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2 mb-3">
+        <TrendingUp className="w-4 h-4 text-omega-orange" /> Activity
+      </h3>
+      {loading ? (
+        <p className="text-xs text-omega-stone py-6 text-center">Loading activity…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-omega-stone py-6 text-center italic">No activity recorded yet.</p>
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((row) => {
+            const { who, action } = summarize(row);
+            return (
+              <li key={row.id} className="flex items-start gap-2.5">
+                <span className="w-7 h-7 rounded-full bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-omega-charcoal">
+                    <span className="font-semibold capitalize">{action}</span>
+                  </p>
+                  <p className="text-[11px] text-omega-stone mt-0.5">
+                    {new Date(row.created_at).toLocaleString()}
+                    {who && <span> · by {who}</span>}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
