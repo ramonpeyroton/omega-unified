@@ -50,11 +50,20 @@ const SUBS_ROLES = new Set(['owner', 'operations', 'sales', 'salesperson', 'admi
 // phase progress) would silently disappear.
 const RESET_BLOCKED_STATUSES = new Set(['contract_signed', 'in_progress', 'completed']);
 
-// Roles that see a stripped-down JobFullView: only the Details tab,
-// no Edit/Delete/Reset/Estimate-Flow buttons. Used by the receptionist
-// who needs to see basic info on a card from the read-only Pipeline
-// view but isn't responsible for editing or moving any of it.
-const READ_ONLY_BASIC_ROLES = new Set(['receptionist']);
+// Roles that see a stripped-down JobFullView: Details + Daily Logs
+// only, no Edit/Delete/Reset/Estimate-Flow buttons. Used by the
+// receptionist (Rafaela) and the field manager (Gabriel) — they need
+// to see basic info + the project chat, but they're not responsible
+// for editing the funnel or running the estimate flow. Gabriel
+// specifically cannot edit client info on the card; that gate is
+// applied below via the `canEditClient` check.
+const READ_ONLY_BASIC_ROLES = new Set(['receptionist', 'manager']);
+
+// Subset of the above that still cannot edit the client/contact info
+// on the Details tab. Per Ramon's rules: Rafaela can edit (intake is
+// her job); Gabriel can read but not change — he's the field guy,
+// not the office.
+const READ_ONLY_EDIT_BLOCKED = new Set(['manager']);
 
 function pipelinePaletteFor(key) {
   const c = PIPELINE_COLORS[key];
@@ -134,11 +143,15 @@ export default function JobFullView({
   const [resetPinError, setResetPinError] = useState('');
   const [resetting, setResetting] = useState(false);
 
-  // Receptionist gets a read-only minimal view: only the Details tab,
-  // no edit/delete/reset/estimate-flow controls. Every other role
-  // checks below get an explicit `&& !readOnlyBasic` so they evaluate
-  // to false for receptionist, hiding their tabs.
+  // Read-only-basic view (Rafaela + Gabriel): Details + Daily Logs
+  // tabs only, no Edit/Delete/Reset/Estimate-Flow buttons. Every
+  // other role check below carries an explicit `&& !readOnlyBasic` so
+  // it evaluates to false for these roles, hiding their tabs.
   const readOnlyBasic    = READ_ONLY_BASIC_ROLES.has(user?.role);
+  // Gabriel (manager) is read-only-basic AND specifically blocked from
+  // editing the client info on the Details tab — he's the field guy,
+  // not the office. Rafaela stays editable because intake is her job.
+  const editBlocked      = READ_ONLY_EDIT_BLOCKED.has(user?.role);
   const canSeeFinancials = !readOnlyBasic && FINANCIAL_ROLES.has(user?.role);
   const canSeeEstimate   = !readOnlyBasic && ESTIMATE_ROLES.has(user?.role);
   const canContact       = !readOnlyBasic && CONTACT_ROLES.has(user?.role);
@@ -328,11 +341,16 @@ export default function JobFullView({
   // Report → Estimate → Contact → Documents → Time → Financials → Phases → Daily Logs → Details
   // Estimate is visible to Sales (who builds it) + Owner/Ops/Admin.
   // Financials (internal cost/margin) stays restricted to Owner/Ops/Admin.
-  // Receptionist-only view collapses to a single Details tab — Rafaela
-  // doesn't need Report/Documents/Time/Phases/etc. when she's just
-  // checking who the lead is and what they need.
+  // Read-only-basic view (Rafaela + Gabriel) collapses to two tabs:
+  // Details (the basic info card) and Daily Logs (the per-job Slack
+  // chat). They both need Daily Logs because that's the team's
+  // day-to-day chat — not having it would leave them out of every
+  // message thread.
   const TABS = readOnlyBasic
-    ? [{ id: 'details', label: 'Details', icon: Info }]
+    ? [
+        { id: 'details', label: 'Details',    icon: Info },
+        { id: 'daily',   label: 'Daily Logs', icon: FileText },
+      ]
     : [
         { id: 'report',    label: 'Report',     icon: Sparkles },
         canSeeEstimate   && { id: 'estimate',   label: 'Estimate',   icon: Receipt },
@@ -663,6 +681,7 @@ export default function JobFullView({
               estimate={estimate}
               contract={contract}
               readOnlyBasic={readOnlyBasic}
+              editBlocked={editBlocked}
               onOpenEstimateFlow={readOnlyBasic ? null : () => { onOpenEstimateFlow?.(job); onClose?.(); }}
               onOpenQuestionnaire={!readOnlyBasic && onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
               onDelete={readOnlyBasic ? null : openDeleteModal}
@@ -792,7 +811,7 @@ export default function JobFullView({
 function DetailsTab({
   job, estimate, contract,
   editing, setEditing, form, setForm, saveEdits, saving,
-  readOnlyBasic = false,
+  readOnlyBasic = false, editBlocked = false,
   onOpenEstimateFlow, onOpenQuestionnaire, onDelete, onReset, canReset,
   onStartNewJobForClient, onJobUpdated,
 }) {
@@ -800,41 +819,45 @@ function DetailsTab({
     <div className="space-y-5">
       {/* Client info card */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        {/* Cover photo — visible to everyone, including receptionist.
-            Rafaela needs to be able to attach a photo to the lead at
-            intake time so the seller already has visual context when
-            picking up the card. */}
-        <div className="mb-5 pb-5 border-b border-gray-100">
-          <JobCoverPhotoUpload job={job} onUpdated={onJobUpdated} />
-        </div>
+        {/* Cover photo — hidden for editBlocked roles (Gabriel) so the
+            field crew can't change the cover. Receptionist still gets
+            the upload at intake time so the seller has visual context
+            when picking up the card. */}
+        {!editBlocked && (
+          <div className="mb-5 pb-5 border-b border-gray-100">
+            <JobCoverPhotoUpload job={job} onUpdated={onJobUpdated} />
+          </div>
+        )}
 
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="text-lg font-bold text-omega-charcoal">Client & Job Info</h2>
-          {/* Edit / Save are open to receptionist now too — she can fix
-              a typo or update an address from the card. The Questionnaire
-              button remains role-gated (null callback for receptionist)
-              so it stays hidden. */}
-          <div className="flex items-center gap-2">
-            {!editing ? (
-              <>
-                <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
-                  <Edit3 className="w-4 h-4" /> Edit
-                </button>
-                {onOpenQuestionnaire && (
-                  <button onClick={onOpenQuestionnaire} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
-                    <ClipboardEdit className="w-4 h-4" /> Questionnaire
+          {/* Edit / Save are open to most roles (receptionist included
+              — intake fixes are her job). Hidden entirely for editBlocked
+              roles (Gabriel) so the field crew can't accidentally
+              overwrite the office's record. */}
+          {!editBlocked && (
+            <div className="flex items-center gap-2">
+              {!editing ? (
+                <>
+                  <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
+                    <Edit3 className="w-4 h-4" /> Edit
                   </button>
-                )}
-              </>
-            ) : (
-              <>
-                <button onClick={() => setEditing(false)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
-                <button onClick={saveEdits} disabled={saving} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-                  <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </>
-            )}
-          </div>
+                  {onOpenQuestionnaire && (
+                    <button onClick={onOpenQuestionnaire} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
+                      <ClipboardEdit className="w-4 h-4" /> Questionnaire
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setEditing(false)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
+                  <button onClick={saveEdits} disabled={saving} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+                    <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {!editing ? (

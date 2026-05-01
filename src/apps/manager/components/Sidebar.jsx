@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut } from 'lucide-react';
+import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -11,6 +11,7 @@ import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 const NAV = [
   { id: 'today',         label: 'Today',         icon: Sun },
   { id: 'dashboard',     label: 'Jobs',          icon: HardHat },
+  { id: 'pipeline',      label: 'Pipeline',      icon: GitBranch },
   { id: 'materials-run', label: 'Materials Run', icon: ShoppingCart },
   { id: 'calendar',      label: 'Calendar',      icon: Calendar },
   { id: 'warehouse',     label: 'Warehouse',     icon: Package },

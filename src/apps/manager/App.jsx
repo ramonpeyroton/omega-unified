@@ -10,6 +10,7 @@ import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import MaterialsRun from '../../shared/components/MaterialsRun';
 import JobFullView from '../../shared/components/JobFullView';
+import PipelineKanban from '../../shared/components/PipelineKanban';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -98,6 +99,18 @@ export default function App({ user, onLogout }) {
 
     if (screen === 'calendar')
       return <CalendarScreen user={user} />;
+
+    if (screen === 'pipeline') {
+      // Read-only kanban — Gabriel can scan the board and click into a
+      // card to read the basics (Details + Daily Logs) but he cannot
+      // drag cards between phases nor open the full estimate/contract
+      // tooling. JobFullView itself gates that via READ_ONLY_BASIC_ROLES.
+      return (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <PipelineKanban user={user} filterBySalesperson={false} readOnly />
+        </div>
+      );
+    }
 
     return (
       <Dashboard
