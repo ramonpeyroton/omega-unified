@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { X, Save, Loader2, AlertTriangle, CheckCircle2, Clock, User as UserIcon, CalendarDays } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X, Save, Loader2, AlertTriangle, CheckCircle2, Clock, User as UserIcon, CalendarDays, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
   EVENT_KIND_OPTIONS, EVENT_KIND_META,
   VISIT_STATUS_META, VISIT_STATUS_ORDER, getVisitStatusMeta,
   composeCTDateTime, findConflict, createEvent, updateEvent,
   formatDateLongCT, formatTimeCT, eventDisplayMeta,
+  buildMonthGrid, formatMonthCT, isoDateCT,
 } from '../../lib/calendar';
 import { logAudit } from '../../lib/audit';
 
@@ -451,11 +452,10 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Date">
-              <input
-                type="date"
+              <DatePickerWithDots
                 value={dateIso}
-                onChange={(e) => setDateIso(e.target.value)}
-                className={inputCls}
+                onChange={setDateIso}
+                inputCls={inputCls}
               />
             </Field>
             <Field label="Time (CT)">
@@ -593,8 +593,6 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
           events={visibleDayEvents}
           loading={dayLoading}
           assignedTo={assignedToList}
-          newStartHHMM={timeHHMM}
-          newDurationMin={durationMin}
         />
         </div>
 
@@ -646,11 +644,10 @@ function hhmmCT(d) {
 }
 
 // ─── Day schedule sidebar ────────────────────────────────────────
-// Shows the existing events for the selected date + a soft preview
-// of where the new event would land (so Rafa sees overlap visually
-// before she even hits Save). Lives inside the EventForm modal so
-// she doesn't need to pop another window.
-function DaySchedule({ dateIso, events, loading, assignedTo, newStartHHMM, newDurationMin }) {
+// Shows the existing events for the selected date with time +
+// assignee + location, so Rafa can size up the day at a glance
+// while she fills out the form.
+function DaySchedule({ dateIso, events, loading, assignedTo }) {
   // Pretty-format the date title using the ISO without bouncing
   // through Date — avoids the same midnight-UTC pitfall that bit us
   // in MonthView. Builds a noon-UTC date so the CT formatter agrees.
@@ -659,18 +656,6 @@ function DaySchedule({ dateIso, events, loading, assignedTo, newStartHHMM, newDu
     const [y, m, d] = dateIso.split('-').map(Number);
     return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 12));
   }, [dateIso]);
-
-  // The preview pill — "your new event". Computed from the form's
-  // current time + duration; doesn't persist anywhere.
-  const previewLabel = useMemo(() => {
-    if (!newStartHHMM || !newDurationMin) return null;
-    const [hh, mm] = newStartHHMM.split(':').map(Number);
-    const start = new Date(Date.UTC(2000, 0, 1, hh || 0, mm || 0));
-    const end = new Date(start.getTime() + (newDurationMin || 60) * 60000);
-    const fmt = (d) =>
-      new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(d).toLowerCase();
-    return `${fmt(start)} – ${fmt(end)}`;
-  }, [newStartHHMM, newDurationMin]);
 
   return (
     <aside className="border-t lg:border-t-0 lg:border-l border-gray-200 bg-omega-cloud/40 p-4 flex flex-col min-h-[200px] lg:min-h-0">
@@ -687,16 +672,6 @@ function DaySchedule({ dateIso, events, loading, assignedTo, newStartHHMM, newDu
         <p className="text-[10px] text-omega-stone mb-2">
           Showing for: {assignedTo.join(', ')}
         </p>
-      )}
-
-      {/* Preview slot — lets Rafa eyeball where her new event lands */}
-      {previewLabel && (
-        <div className="mb-2 px-2.5 py-1.5 rounded-lg border-2 border-dashed border-omega-orange bg-omega-pale/60">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-omega-orange">
-            New event
-          </p>
-          <p className="text-[11px] font-semibold text-omega-charcoal">{previewLabel}</p>
-        </div>
       )}
 
       {loading && (
@@ -738,11 +713,227 @@ function DaySchedule({ dateIso, events, loading, assignedTo, newStartHHMM, newDu
                     {names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`}
                   </p>
                 )}
+                {e.location && (
+                  <p className="inline-flex items-start gap-1 text-[10px] text-omega-stone mt-0.5">
+                    <MapPin className="w-2.5 h-2.5 mt-0.5 flex-shrink-0" />
+                    <span className="break-words">{e.location}</span>
+                  </p>
+                )}
               </li>
             );
           })}
         </ul>
       )}
     </aside>
+  );
+}
+
+// ─── Custom date picker with per-day event-count dots ───────────
+// Replaces the native <input type="date">. The native browser
+// picker can't be customized, but Rafa wanted to see at a glance
+// which days are busy. This popover renders a Sun-first month grid
+// where each cell shows up to 3 dots (the kinds of events booked
+// that day, color-coded by EVENT_KIND_META). Days with 4+ events
+// show "+N" so she knows it's piling up. Clicking a day fires
+// onChange with the canonical YYYY-MM-DD ISO string.
+function DatePickerWithDots({ value, onChange, inputCls }) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  // Picker month / year — initialised from `value` so the popover
+  // opens on the same month the input shows. Tracked in component
+  // state so the user can navigate to other months without changing
+  // the selected date.
+  const initial = useMemo(() => {
+    if (value) {
+      const [y, m] = value.split('-').map(Number);
+      if (y && m) return { year: y, monthIndex: m - 1 };
+    }
+    const now = new Date();
+    return { year: now.getFullYear(), monthIndex: now.getMonth() };
+  }, [value]);
+  const [pickerYear, setPickerYear] = useState(initial.year);
+  const [pickerMonth, setPickerMonth] = useState(initial.monthIndex);
+
+  // Re-sync the picker view if `value` changes externally (e.g.
+  // user picks via prefillJob — though uncommon).
+  useEffect(() => {
+    if (value) {
+      const [y, m] = value.split('-').map(Number);
+      if (y && m) { setPickerYear(y); setPickerMonth(m - 1); }
+    }
+  }, [value]);
+
+  // Click-outside-to-close.
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(ev) {
+      if (wrapperRef.current && !wrapperRef.current.contains(ev.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  // Fetch every event in the visible month (CT) so we can render
+  // dots. Only when the picker is open — no need to load otherwise.
+  const [monthEvents, setMonthEvents] = useState([]);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    (async () => {
+      const firstIso  = `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-01`;
+      // First day of NEXT month — gives us the exclusive upper bound.
+      const ny = pickerMonth === 11 ? pickerYear + 1 : pickerYear;
+      const nm = pickerMonth === 11 ? 0 : pickerMonth + 1;
+      const nextIso = `${ny}-${String(nm + 1).padStart(2, '0')}-01`;
+      try {
+        const startUtc = composeCTDateTime(firstIso, '00:00');
+        const endUtc   = composeCTDateTime(nextIso, '00:00');
+        const { data } = await supabase
+          .from('calendar_events')
+          .select('id, starts_at, kind')
+          .gte('starts_at', startUtc)
+          .lt('starts_at', endUtc);
+        if (active) setMonthEvents(data || []);
+      } catch {
+        if (active) setMonthEvents([]);
+      }
+    })();
+    return () => { active = false; };
+  }, [open, pickerYear, pickerMonth]);
+
+  // Map { iso → array of kind strings, max 3 kept for dot rendering }.
+  const eventsByIso = useMemo(() => {
+    const map = {};
+    for (const e of monthEvents) {
+      const iso = isoDateCT(new Date(e.starts_at));
+      (map[iso] = map[iso] || []).push(e.kind);
+    }
+    return map;
+  }, [monthEvents]);
+
+  const cells = useMemo(() => buildMonthGrid(pickerYear, pickerMonth), [pickerYear, pickerMonth]);
+  const title = formatMonthCT(new Date(Date.UTC(pickerYear, pickerMonth, 15)));
+  const todayIso = isoDateCT(new Date());
+
+  function prevMonth() {
+    if (pickerMonth === 0) { setPickerYear(pickerYear - 1); setPickerMonth(11); }
+    else setPickerMonth(pickerMonth - 1);
+  }
+  function nextMonth() {
+    if (pickerMonth === 11) { setPickerYear(pickerYear + 1); setPickerMonth(0); }
+    else setPickerMonth(pickerMonth + 1);
+  }
+
+  // Pretty display in the trigger button — same format the native
+  // picker would show, so the visual change is minimal.
+  const displayLabel = useMemo(() => {
+    if (!value) return 'Pick a date';
+    const [y, m, d] = value.split('-').map(Number);
+    if (!y || !m || !d) return value;
+    const date = new Date(Date.UTC(y, m - 1, d, 12));
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  }, [value]);
+
+  const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`${inputCls} text-left inline-flex items-center justify-between`}
+      >
+        <span className="truncate">{displayLabel}</span>
+        <CalendarDays className="w-4 h-4 text-omega-stone flex-shrink-0 ml-2" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-xl border border-gray-200 p-3"
+          // Stop propagation so clicks inside don't hit the modal-
+          // close (the outer modal listens to backdrop clicks).
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              onClick={prevMonth}
+              className="p-1 rounded-md hover:bg-omega-cloud text-omega-stone"
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <p className="text-sm font-bold text-omega-charcoal">{title}</p>
+            <button
+              type="button"
+              onClick={nextMonth}
+              className="p-1 rounded-md hover:bg-omega-cloud text-omega-stone"
+              aria-label="Next month"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
+            {DOW.map((d, i) => (
+              <div key={i} className="text-[9px] font-bold uppercase text-center text-omega-stone py-0.5">
+                {d}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((c) => {
+              const kinds = eventsByIso[c.iso] || [];
+              const isToday = c.iso === todayIso;
+              const isSelected = c.iso === value;
+              const dotKinds = kinds.slice(0, 3);
+              const extra = Math.max(0, kinds.length - 3);
+              return (
+                <button
+                  type="button"
+                  key={c.iso}
+                  onClick={() => { onChange(c.iso); setOpen(false); }}
+                  className={`aspect-square flex flex-col items-center justify-start pt-1 rounded-md text-[11px] font-semibold tabular-nums transition relative ${
+                    isSelected
+                      ? 'bg-omega-orange text-white'
+                      : isToday
+                        ? 'bg-omega-pale text-omega-orange ring-1 ring-omega-orange'
+                        : c.isCurrentMonth
+                          ? 'text-omega-charcoal hover:bg-omega-cloud'
+                          : 'text-omega-fog hover:bg-omega-cloud'
+                  }`}
+                >
+                  <span>{c.day}</span>
+                  {/* Dot row — colors come from EVENT_KIND_META so a
+                      sales visit (orange), job start (green), inspection
+                      (amber), etc. read at a glance. Inverted to white
+                      on selected day to stay visible against orange. */}
+                  {kinds.length > 0 && (
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      {dotKinds.map((k, i) => (
+                        <span
+                          key={i}
+                          className="w-1 h-1 rounded-full"
+                          style={{ background: isSelected ? '#fff' : (EVENT_KIND_META[k]?.color || '#9CA3AF') }}
+                        />
+                      ))}
+                      {extra > 0 && (
+                        <span className={`text-[8px] font-bold ${isSelected ? 'text-white' : 'text-omega-stone'}`}>
+                          +{extra}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
