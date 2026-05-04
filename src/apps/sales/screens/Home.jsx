@@ -100,6 +100,7 @@ function Sparkline({ color = '#E8732A' }) {
 const NAV_ITEMS = [
   { id: 'home',          label: 'Home',          icon: HomeIcon },
   { id: 'pipeline',      label: 'Pipeline',      icon: GitBranch },
+  { id: 'leads',         label: 'My Leads',      icon: ClipboardList },
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'calendar',      label: 'Calendar',      icon: CalendarIcon },
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },

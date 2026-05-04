@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign, ClipboardList } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -9,6 +9,7 @@ import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 const NAV = [
   { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
   { id: 'pipeline',         label: 'Pipeline',          icon: GitBranch },
+  { id: 'leads',            label: 'My Leads',          icon: ClipboardList },
   { id: 'calendar',         label: 'Calendar',          icon: Calendar },
   { id: 'finance',          label: 'Finance',           icon: DollarSign },
   { id: 'project-analyzer', label: 'Project Analyzer', icon: FileSearch },

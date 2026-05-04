@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, DollarSign, Settings, FileText, MessageSquare, LogOut, Calendar, Monitor, Wallet } from 'lucide-react';
+import { Users, DollarSign, Settings, FileText, MessageSquare, LogOut, Calendar, Monitor, Wallet, ClipboardList } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -8,6 +8,7 @@ import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 
 const NAV = [
   { id: 'users',     label: 'Users & Access',    icon: Users },
+  { id: 'leads',     label: 'My Leads',          icon: ClipboardList },
   { id: 'finance',   label: 'Finance',           icon: Wallet },
   { id: 'pricing',   label: 'Pricing Book',      icon: DollarSign },
   { id: 'company',   label: 'Company Settings',  icon: Settings },
