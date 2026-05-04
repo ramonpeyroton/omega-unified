@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DollarSign, Search, CheckCircle2, Loader2 } from 'lucide-react';
+import {
+  DollarSign, Search, CheckCircle2, Loader2,
+  ArrowUp, ArrowDown, ArrowUpDown,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 
@@ -9,17 +12,44 @@ import { logAudit } from '../lib/audit';
 // Auto-generated rows come from the trigger in migration 040.
 // Roles that hit this screen:
 //   • sales        → sees ONLY own sales_signed rows, read-only.
-//   • receptionist → sees ONLY own reception_visit + reception_signed
-//                    rows, read-only.
-//   • owner / operations / admin → sees EVERYTHING, can edit `amount`,
-//                    `percent`, and the `paid` checkbox.
+//   • receptionist → sees the consolidated per-client view (visit
+//                    + signed merged into one row, amount summed).
+//                    Can edit appt_status (her tracking dropdown).
+//   • owner / operations / admin → full ledger. Receptionist data
+//                    is rendered consolidated; sales stays per-row.
+//                    Can edit amount, percent, paid, and appt_status.
 //
 // Privacy: salesperson never sees receptionist rows and vice versa.
 // Even on the same job — the 6% sales commission and the $300
-// reception bonus are independent rows with their own recipient.
+// reception bonus live in independent rows.
 // ─────────────────────────────────────────────────────────────────
 
-const SALES_PIPE_FOR_DISPLAY = ['contract_signed', 'in_progress', 'completed'];
+const ADMIN_ROLES = new Set(['owner', 'operations', 'admin']);
+
+// Rafa's appointment status — five values mirroring the column from
+// her old spreadsheet. NULL means "not tagged yet" (cold backfilled
+// rows or freshly auto-created ones).
+const APPT_STATUS_META = {
+  booked:   { label: 'Booked',   cls: 'bg-blue-100 text-blue-800 border-blue-200' },
+  held:     { label: 'Held',     cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  paid:     { label: 'PAID',     cls: 'bg-violet-100 text-violet-800 border-violet-200' },
+  no_show:  { label: 'No show',  cls: 'bg-red-100 text-red-800 border-red-200' },
+  canceled: { label: 'Canceled', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+};
+const APPT_STATUS_OPTIONS = ['booked', 'held', 'paid', 'no_show', 'canceled'];
+
+const PIPELINE_LABEL = {
+  new_lead:             'New Lead',
+  estimate_draft:       'Estimate Draft',
+  estimate_sent:        'Estimate Sent',
+  estimate_negotiating: 'Negotiating',
+  estimate_approved:    'Approved',
+  estimate_rejected:    'Rejected',
+  contract_sent:        'Contract Sent',
+  contract_signed:      'Contract Signed',
+  in_progress:          'In Progress',
+  completed:            'Completed',
+};
 
 function money(n) {
   const v = Number(n) || 0;
@@ -33,16 +63,24 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const ADMIN_ROLES = new Set(['owner', 'operations', 'admin']);
+// Generic comparator used by all sortable columns. Treats null /
+// '' as "go last" so unset rows sink to the bottom of an asc sort.
+function cmp(a, b) {
+  if (a === b) return 0;
+  if (a == null || a === '') return 1;
+  if (b == null || b === '') return -1;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
 
 export default function CommissionsScreen({ user }) {
-  const role = user?.role || '';
-  const isAdmin   = ADMIN_ROLES.has(role);
-  const isSales   = role === 'sales';
+  const role        = user?.role || '';
+  const isAdmin     = ADMIN_ROLES.has(role);
+  const isSales     = role === 'sales';
   const isReception = role === 'receptionist';
 
-  const [rows, setRows]     = useState([]);
-  const [jobs, setJobs]     = useState({}); // job_id → { client_name, pipeline_status, signed_at }
+  const [rows, setRows]       = useState([]);
+  const [jobs, setJobs]       = useState({}); // job_id → { client_name, ..., pipeline_status, signed_at, preferred_visit_date }
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
   const [error, setError]     = useState('');
@@ -63,13 +101,12 @@ export default function CommissionsScreen({ user }) {
       if (cErr) throw cErr;
       setRows(cs || []);
 
-      // Jobs lookup so we can render client name + sign date in the
-      // table without a per-row roundtrip.
+      // Jobs lookup so we can render client name + pipeline + dates.
       const ids = Array.from(new Set((cs || []).map((r) => r.job_id)));
       if (ids.length) {
         const { data: js } = await supabase
           .from('jobs')
-          .select('id, client_name, address, city, pipeline_status, updated_at, created_at')
+          .select('id, client_name, address, city, pipeline_status, preferred_visit_date, lead_date, updated_at, created_at')
           .in('id', ids);
         // Map signed_at from the most recent contract for each job.
         const { data: contracts } = await supabase
@@ -85,11 +122,13 @@ export default function CommissionsScreen({ user }) {
         const map = {};
         for (const j of (js || [])) {
           map[j.id] = {
-            client_name: j.client_name || '',
-            address:     j.address || '',
-            city:        j.city || '',
-            pipeline_status: j.pipeline_status || '',
-            signed_at:   signMap[j.id] || null,
+            client_name:          j.client_name || '',
+            address:              j.address || '',
+            city:                 j.city || '',
+            pipeline_status:      j.pipeline_status || '',
+            preferred_visit_date: j.preferred_visit_date || null,
+            lead_date:            j.lead_date || null,
+            signed_at:            signMap[j.id] || null,
           };
         }
         setJobs(map);
@@ -103,7 +142,9 @@ export default function CommissionsScreen({ user }) {
     }
   }
 
-  // Optimistic patch helper for admin edits.
+  // Optimistic patch helper — used by both admin edits AND Rafa's
+  // appt_status edits (the latter is allowed for any role since
+  // it's *her* tracking column).
   async function patchRow(id, patch) {
     const prev = rows;
     setRows((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -136,17 +177,20 @@ export default function CommissionsScreen({ user }) {
     const value = raw === '' || raw == null ? null : Number(raw);
     if (raw !== '' && raw != null && !Number.isFinite(value)) return;
     const patch = { [field]: value };
-    // Auto-recalc amount when percent or base changes (admin
-    // override of amount itself takes precedence — they edited the
-    // dollar number directly, so we leave it alone).
     if (field === 'percent' && value != null && row.base_amount != null) {
       patch.amount = Math.round(Number(row.base_amount) * (value / 100) * 100) / 100;
     }
     await patchRow(row.id, patch);
   }
 
-  // ─── Filter rows for the visible table ────────────────────────
-  const filtered = useMemo(() => {
+  // Receptionist rows are aggregated PER JOB so the table reads
+  // "one client per row" with the amount summed across visit + signed.
+  // The aggregate keeps a reference to every underlying commission
+  // row id so:
+  //   • the appt_status dropdown propagates to ALL of them at once
+  //     (consistent UX — the merged row IS the unit of bookkeeping);
+  //   • the paid pill (admin) toggles every row together.
+  const filteredRaw = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (!needle) return true;
@@ -158,16 +202,95 @@ export default function CommissionsScreen({ user }) {
     });
   }, [rows, jobs, search]);
 
-  // Group by kind — receptionist gets a cleaner two-section view
-  // (Visit at the top, Signed below); admins also benefit visually.
-  const byKind = useMemo(() => {
-    const groups = { sales_signed: [], reception_visit: [], reception_signed: [] };
-    for (const r of filtered) (groups[r.kind] = groups[r.kind] || []).push(r);
-    return groups;
-  }, [filtered]);
+  const salesRows = useMemo(
+    () => filteredRaw.filter((r) => r.kind === 'sales_signed'),
+    [filteredRaw],
+  );
 
-  const totalUnpaid = filtered.filter((r) => !r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const totalPaid   = filtered.filter((r) =>  r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  // Aggregate reception_visit + reception_signed into one synthetic
+  // row per (job_id, recipient_name). Field semantics on the aggregate:
+  //   • amount: sum.
+  //   • appt_status: from any underlying row (they should converge —
+  //     when split, prefer the most recent edit). Editing the dropdown
+  //     writes back to ALL underlying rows.
+  //   • paid: AND across rows (only checked if every component paid).
+  //   • _ids: array of underlying commission ids — used by patchers.
+  const receptionAgg = useMemo(() => {
+    const groups = new Map();
+    for (const r of filteredRaw) {
+      if (r.kind !== 'reception_visit' && r.kind !== 'reception_signed') continue;
+      const key = `${r.job_id}::${r.recipient_name}`;
+      const acc = groups.get(key) || {
+        job_id: r.job_id,
+        recipient_name: r.recipient_name,
+        recipient_role: r.recipient_role,
+        amount: 0,
+        paid: true,
+        appt_status: null,
+        _ids: [],
+        _trigger_at_max: null,
+        has_visit: false,
+        has_signed: false,
+      };
+      acc.amount += Number(r.amount) || 0;
+      acc.paid = acc.paid && !!r.paid;
+      // Latest non-null appt_status wins.
+      if (r.appt_status && (!acc._appt_at || new Date(r.updated_at) > new Date(acc._appt_at))) {
+        acc.appt_status = r.appt_status;
+        acc._appt_at = r.updated_at;
+      } else if (r.appt_status && !acc.appt_status) {
+        acc.appt_status = r.appt_status;
+      }
+      acc._ids.push(r.id);
+      acc._trigger_at_max = !acc._trigger_at_max || new Date(r.trigger_at) > new Date(acc._trigger_at_max)
+        ? r.trigger_at
+        : acc._trigger_at_max;
+      if (r.kind === 'reception_visit')  acc.has_visit  = true;
+      if (r.kind === 'reception_signed') acc.has_signed = true;
+      groups.set(key, acc);
+    }
+    return Array.from(groups.values());
+  }, [filteredRaw]);
+
+  // Update every underlying commission row tied to an aggregate.
+  // Uses Promise.all so the optimistic UI is fast; failures roll
+  // back to the pre-patch state.
+  async function patchAggregate(agg, patch) {
+    const prev = rows;
+    setRows((p) => p.map((r) => agg._ids.includes(r.id) ? { ...r, ...patch } : r));
+    try {
+      const { error: e } = await supabase
+        .from('commissions')
+        .update(patch)
+        .in('id', agg._ids);
+      if (e) throw e;
+      logAudit({
+        user, action: 'commission.update_aggregate',
+        entityType: 'commission',
+        details: { ids: agg._ids, ...patch },
+      });
+    } catch (err) {
+      setRows(prev);
+      setError(err?.message || 'Failed to save.');
+    }
+  }
+
+  async function setApptStatus(agg, value) {
+    await patchAggregate(agg, { appt_status: value || null });
+  }
+  async function toggleAggregatePaid(agg) {
+    if (!isAdmin) return;
+    const next = !agg.paid;
+    await patchAggregate(agg, {
+      paid: next,
+      paid_at: next ? new Date().toISOString() : null,
+      paid_by: next ? (user?.name || null) : null,
+    });
+  }
+
+  // Totals strip on the header.
+  const totalUnpaid = filteredRaw.filter((r) => !r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const totalPaid   = filteredRaw.filter((r) =>  r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
   return (
     <div className="flex-1 flex flex-col bg-omega-cloud overflow-hidden">
@@ -179,8 +302,10 @@ export default function CommissionsScreen({ user }) {
             </h1>
             <p className="text-xs text-omega-stone mt-0.5">
               {isAdmin
-                ? 'Full ledger. Click amount or % to edit, click Paid to toggle.'
-                : 'Auto-generated when contracts are signed (and visits start, for receptionist).'}
+                ? 'Full ledger. Click any column header to sort. Click Amount, %, or Paid to edit.'
+                : isReception
+                  ? 'One row per client. Use Payment Status to track each appointment.'
+                  : 'Auto-generated when contracts are signed.'}
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -206,7 +331,7 @@ export default function CommissionsScreen({ user }) {
           />
         </div>
         <span className="ml-auto text-xs text-omega-stone">
-          {filtered.length} row{filtered.length === 1 ? '' : 's'}
+          {salesRows.length + receptionAgg.length} row{(salesRows.length + receptionAgg.length) === 1 ? '' : 's'}
         </span>
       </div>
 
@@ -218,31 +343,17 @@ export default function CommissionsScreen({ user }) {
           </div>
         )}
 
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !error && salesRows.length === 0 && receptionAgg.length === 0 && (
           <p className="text-sm text-omega-stone py-10 text-center italic">
             No commissions yet.
           </p>
         )}
 
         {/* Sales table — visible to admins + sales themselves */}
-        {(isAdmin || isSales) && byKind.sales_signed.length > 0 && (
+        {(isAdmin || isSales) && salesRows.length > 0 && (
           <Section title="Sales — Contract Signed" subtitle="6% of contract value">
-            <CommissionTable
-              rows={byKind.sales_signed}
-              jobs={jobs}
-              isAdmin={isAdmin}
-              showPercent
-              onTogglePaid={togglePaid}
-              onCommit={commitNumber}
-            />
-          </Section>
-        )}
-
-        {/* Receptionist — visit started ($40) */}
-        {(isAdmin || isReception) && byKind.reception_visit.length > 0 && (
-          <Section title="Receptionist — Visit Started" subtitle="$40 each — fires when the salesperson actually goes on the visit">
-            <CommissionTable
-              rows={byKind.reception_visit}
+            <SalesTable
+              rows={salesRows}
               jobs={jobs}
               isAdmin={isAdmin}
               onTogglePaid={togglePaid}
@@ -251,15 +362,18 @@ export default function CommissionsScreen({ user }) {
           </Section>
         )}
 
-        {/* Receptionist — contract signed ($300) */}
-        {(isAdmin || isReception) && byKind.reception_signed.length > 0 && (
-          <Section title="Receptionist — Contract Signed" subtitle="$300 each — fires when the lead converts">
-            <CommissionTable
-              rows={byKind.reception_signed}
+        {/* Receptionist — consolidated per client */}
+        {(isAdmin || isReception) && receptionAgg.length > 0 && (
+          <Section
+            title="Receptionist — Per Client"
+            subtitle="$40 per visit + $300 when the contract is signed. Amount sums everything earned for this client."
+          >
+            <ReceptionTable
+              rows={receptionAgg}
               jobs={jobs}
               isAdmin={isAdmin}
-              onTogglePaid={togglePaid}
-              onCommit={commitNumber}
+              onApptStatus={setApptStatus}
+              onTogglePaid={toggleAggregatePaid}
             />
           </Section>
         )}
@@ -280,25 +394,71 @@ function Section({ title, subtitle, children }) {
   );
 }
 
-// Single table for any commission kind. Renders extra columns
-// conditionally (base_amount + percent for sales, simpler for reception).
-function CommissionTable({ rows, jobs, isAdmin, showPercent = false, onTogglePaid, onCommit }) {
+// ─── Sortable header cell ──────────────────────────────────────────
+function SortHeader({ label, columnId, sortBy, sortDir, onClick, align = 'left' }) {
+  const cls = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left';
+  const active = sortBy === columnId;
+  const Icon = !active ? ArrowUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <th className={`px-3 py-2 ${cls} border-b border-gray-200 select-none`}>
+      <button
+        type="button"
+        onClick={() => onClick(columnId)}
+        className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+          active ? 'text-omega-orange' : 'text-omega-stone hover:text-omega-charcoal'
+        }`}
+      >
+        {label}
+        <Icon className={`w-3 h-3 ${active ? '' : 'opacity-40'}`} />
+      </button>
+    </th>
+  );
+}
+
+// ─── Sales table — one row per signed contract ────────────────────
+function SalesTable({ rows, jobs, isAdmin, onTogglePaid, onCommit }) {
+  const [sortBy, setSortBy] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
+
+  function toggleSort(col) {
+    if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(col); setSortDir(col === 'date' ? 'desc' : 'asc'); }
+  }
+
+  const sorted = useMemo(() => {
+    const sign = sortDir === 'asc' ? 1 : -1;
+    const get = (r) => {
+      const j = jobs[r.job_id] || {};
+      switch (sortBy) {
+        case 'date':      return j.signed_at || r.trigger_at;
+        case 'client':    return j.client_name || '';
+        case 'recipient': return r.recipient_name || '';
+        case 'base':      return Number(r.base_amount) || 0;
+        case 'percent':   return Number(r.percent) || 0;
+        case 'amount':    return Number(r.amount) || 0;
+        case 'paid':      return r.paid ? 1 : 0;
+        default:          return '';
+      }
+    };
+    return [...rows].sort((a, b) => sign * cmp(get(a), get(b)));
+  }, [rows, jobs, sortBy, sortDir]);
+
   return (
     <div className="overflow-x-auto bg-white rounded-2xl border border-gray-100 shadow-card">
       <table className="w-full text-sm min-w-[820px]">
         <thead className="bg-omega-cloud">
           <tr>
-            <Th>Date</Th>
-            <Th>Client</Th>
-            <Th>Recipient</Th>
-            {showPercent && <Th align="right">Service Value</Th>}
-            {showPercent && <Th align="right">%</Th>}
-            <Th align="right">Amount</Th>
-            <Th align="center">Paid</Th>
+            <SortHeader label="Date"          columnId="date"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Client"        columnId="client"    sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Recipient"     columnId="recipient" sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Service Value" columnId="base"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
+            <SortHeader label="%"             columnId="percent"   sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
+            <SortHeader label="Amount"        columnId="amount"    sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
+            <SortHeader label="Paid"          columnId="paid"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="center" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {sorted.map((r) => {
             const j = jobs[r.job_id] || {};
             const date = j.signed_at || r.trigger_at;
             return (
@@ -320,41 +480,115 @@ function CommissionTable({ rows, jobs, isAdmin, showPercent = false, onTogglePai
                     <span className="ml-1 text-[10px] text-omega-stone">· {r.recipient_role}</span>
                   )}
                 </td>
-                {showPercent && (
-                  <td className="px-3 py-2 text-xs text-right tabular-nums">
-                    {isAdmin ? (
-                      <NumberCell
-                        value={r.base_amount}
-                        prefix="$"
-                        onCommit={(v) => onCommit(r, 'base_amount', v)}
-                      />
-                    ) : (
-                      money(r.base_amount)
-                    )}
-                  </td>
-                )}
-                {showPercent && (
-                  <td className="px-3 py-2 text-xs text-right tabular-nums">
-                    {isAdmin ? (
-                      <NumberCell
-                        value={r.percent}
-                        suffix="%"
-                        onCommit={(v) => onCommit(r, 'percent', v)}
-                      />
-                    ) : (
-                      `${Number(r.percent ?? 0)}%`
-                    )}
-                  </td>
-                )}
+                <td className="px-3 py-2 text-xs text-right tabular-nums">
+                  {isAdmin ? (
+                    <NumberCell value={r.base_amount} prefix="$" onCommit={(v) => onCommit(r, 'base_amount', v)} />
+                  ) : money(r.base_amount)}
+                </td>
+                <td className="px-3 py-2 text-xs text-right tabular-nums">
+                  {isAdmin ? (
+                    <NumberCell value={r.percent} suffix="%" onCommit={(v) => onCommit(r, 'percent', v)} />
+                  ) : `${Number(r.percent ?? 0)}%`}
+                </td>
                 <td className="px-3 py-2 text-xs text-right tabular-nums font-bold text-omega-charcoal">
                   {isAdmin ? (
-                    <NumberCell
-                      value={r.amount}
-                      prefix="$"
-                      onCommit={(v) => onCommit(r, 'amount', v)}
-                    />
-                  ) : (
-                    money(r.amount)
+                    <NumberCell value={r.amount} prefix="$" onCommit={(v) => onCommit(r, 'amount', v)} />
+                  ) : money(r.amount)}
+                </td>
+                <td className="px-3 py-2 text-xs text-center">
+                  <PaidPill paid={r.paid} editable={isAdmin} onClick={() => onTogglePaid(r)} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Receptionist consolidated table ──────────────────────────────
+// One row per (job_id, recipient_name). Amount = sum across the
+// underlying visit + signed commissions.
+function ReceptionTable({ rows, jobs, isAdmin, onApptStatus, onTogglePaid }) {
+  const [sortBy, setSortBy] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
+
+  function toggleSort(col) {
+    if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(col); setSortDir(col === 'date' ? 'desc' : 'asc'); }
+  }
+
+  const sorted = useMemo(() => {
+    const sign = sortDir === 'asc' ? 1 : -1;
+    const get = (r) => {
+      const j = jobs[r.job_id] || {};
+      switch (sortBy) {
+        case 'date':           return j.preferred_visit_date || j.signed_at || j.lead_date || r._trigger_at_max;
+        case 'client':         return j.client_name || '';
+        case 'pipeline':       return PIPELINE_LABEL[j.pipeline_status] || '';
+        case 'paymentStatus':  return r.appt_status ? APPT_STATUS_META[r.appt_status]?.label || '' : '';
+        case 'recipient':      return r.recipient_name || '';
+        case 'amount':         return Number(r.amount) || 0;
+        case 'paid':           return r.paid ? 1 : 0;
+        default:               return '';
+      }
+    };
+    return [...rows].sort((a, b) => sign * cmp(get(a), get(b)));
+  }, [rows, jobs, sortBy, sortDir]);
+
+  return (
+    <div className="overflow-x-auto bg-white rounded-2xl border border-gray-100 shadow-card">
+      <table className="w-full text-sm min-w-[1000px]">
+        <thead className="bg-omega-cloud">
+          <tr>
+            <SortHeader label="Date"           columnId="date"          sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Client"         columnId="client"        sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Pipeline"       columnId="pipeline"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Payment Status" columnId="paymentStatus" sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Recipient"      columnId="recipient"     sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Amount"         columnId="amount"        sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
+            <SortHeader label="Paid"           columnId="paid"          sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="center" />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => {
+            const j = jobs[r.job_id] || {};
+            const date = j.preferred_visit_date || j.signed_at || j.lead_date || r._trigger_at_max;
+            const apptMeta = r.appt_status ? APPT_STATUS_META[r.appt_status] : null;
+            return (
+              <tr key={`${r.job_id}::${r.recipient_name}`} className="border-b border-gray-100 hover:bg-omega-cloud/40">
+                <td className="px-3 py-2 text-xs text-omega-charcoal whitespace-nowrap">{fmtDate(date)}</td>
+                <td className="px-3 py-2 text-xs">
+                  <p className="font-semibold text-omega-charcoal truncate max-w-[260px]">
+                    {j.client_name || '—'}
+                  </p>
+                  {(j.address || j.city) && (
+                    <p className="text-[10px] text-omega-stone truncate max-w-[260px]">
+                      {[j.address, j.city].filter(Boolean).join(', ')}
+                    </p>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  <PipelinePill status={j.pipeline_status} />
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  <ApptStatusSelect
+                    value={r.appt_status || ''}
+                    meta={apptMeta}
+                    onChange={(v) => onApptStatus(r, v)}
+                  />
+                </td>
+                <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
+                  {r.recipient_name}
+                  {r.recipient_role && (
+                    <span className="ml-1 text-[10px] text-omega-stone">· {r.recipient_role}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs text-right tabular-nums font-bold text-omega-charcoal">
+                  {money(r.amount)}
+                  {r.has_signed && (
+                    <span className="ml-1 text-[9px] font-bold text-emerald-700 uppercase tracking-wider">+ signed</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-xs text-center">
@@ -369,12 +603,39 @@ function CommissionTable({ rows, jobs, isAdmin, showPercent = false, onTogglePai
   );
 }
 
-function Th({ children, align = 'left' }) {
-  const cls = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left';
+function PipelinePill({ status }) {
+  if (!status) return <span className="text-omega-stone italic">—</span>;
+  const label = PIPELINE_LABEL[status] || status;
+  // Tone hints — mirror the kanban accents.
+  const tone = ['contract_signed', 'in_progress', 'completed'].includes(status)
+    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    : status === 'estimate_rejected'
+      ? 'bg-red-100 text-red-800 border-red-200'
+      : 'bg-gray-100 text-omega-slate border-gray-200';
   return (
-    <th className={`px-3 py-2 ${cls} border-b border-gray-200 text-[10px] font-bold uppercase tracking-wider text-omega-stone`}>
-      {children}
-    </th>
+    <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+// ─── Inline Payment Status select (Rafa's appt_status) ───────────
+// Editable by all roles. Pill-shaped <select> with the option's tint
+// applied as background so it reads as a chip, not a form control.
+function ApptStatusSelect({ value, meta, onChange }) {
+  const cls = meta?.cls || 'bg-gray-100 text-omega-stone border-gray-200';
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border focus:outline-none focus:ring-2 focus:ring-omega-orange/40 cursor-pointer ${cls}`}
+    >
+      <option value="">— Set status —</option>
+      {APPT_STATUS_OPTIONS.map((s) => (
+        <option key={s} value={s}>{APPT_STATUS_META[s].label}</option>
+      ))}
+    </select>
   );
 }
 
