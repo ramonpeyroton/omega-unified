@@ -114,11 +114,23 @@ export default function DayDrawer({ iso, user, onClose, onCreate, onEdit, onChan
                           <Clock className="w-3 h-3" />
                           {formatTimeCT(starts)} – {formatTimeCT(ends)}
                         </span>
-                        {ev.assigned_to_name && (
-                          <span className="inline-flex items-center gap-1">
-                            <User className="w-3 h-3" /> {ev.assigned_to_name}
-                          </span>
-                        )}
+                        {(() => {
+                          // Prefer the multi-assign array (migration
+                          // 036). Fall back to the scalar column for
+                          // events written before that migration.
+                          const names = Array.isArray(ev.assigned_to_names) && ev.assigned_to_names.length
+                            ? ev.assigned_to_names
+                            : (ev.assigned_to_name ? [ev.assigned_to_name] : []);
+                          if (!names.length) return null;
+                          return (
+                            <span className="inline-flex items-center gap-1">
+                              <User className="w-3 h-3" />
+                              {names.length === 1
+                                ? names[0]
+                                : `${names[0]} +${names.length - 1}`}
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       {ev.location && (

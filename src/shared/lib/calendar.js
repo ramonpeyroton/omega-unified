@@ -172,19 +172,33 @@ export async function loadEventsForMonth(year, monthIndex) {
 }
 
 /**
- * Conflict detection for sales_visit. Returns the blocking event if
- * the proposed window collides with an existing event for the same
- * assignee, or null when free.
+ * Conflict detection for sales_visit. Returns the first blocking
+ * event if the proposed window collides with an existing event for
+ * ANY of the proposed assignees, or null when everyone is free.
+ *
+ * Accepts either `assignedToName` (single name, legacy) or
+ * `assignedToNames` (array of names, multi-assign).
  */
-export async function findConflict({ startsAt, endsAt, assignedToName, ignoreId }) {
-  if (!assignedToName) return null;
+export async function findConflict({ startsAt, endsAt, assignedToName, assignedToNames, ignoreId }) {
+  const names = Array.isArray(assignedToNames) && assignedToNames.length
+    ? assignedToNames.filter(Boolean)
+    : (assignedToName ? [assignedToName] : []);
+  if (!names.length) return null;
   try {
+    // Window-overlap predicate: existing event starts BEFORE our end
+    // AND ends AFTER our start. We then OR the assignee match across
+    // both the legacy scalar column and the new array column so we
+    // catch conflicts on rows written before migration 036 too.
+    const orParts = names.flatMap((n) => [
+      `assigned_to_name.eq.${n}`,
+      `assigned_to_names.cs.{${n.replace(/"/g, '\\"')}}`,
+    ]);
     const { data } = await supabase
       .from('calendar_events')
       .select('*')
-      .eq('assigned_to_name', assignedToName)
       .lt('starts_at', endsAt)
-      .gt('ends_at', startsAt);
+      .gt('ends_at', startsAt)
+      .or(orParts.join(','));
     const rows = (data || []).filter((r) => r.id !== ignoreId);
     return rows[0] || null;
   } catch { return null; }

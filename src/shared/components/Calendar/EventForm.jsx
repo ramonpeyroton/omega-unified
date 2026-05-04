@@ -50,9 +50,23 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
       ? minutesBetween(initialEvent.starts_at, initialEvent.ends_at)
       : DEFAULT_DURATION
   );
-  const [assignedTo,   setAssignedTo]   = useState(
-    initialEvent?.assigned_to_name || prefillJob?.assigned_to || 'Attila'
-  );
+  // Multi-assign: an array of names. Backward compat — when editing
+  // an old event we hydrate from `assigned_to_names` (new array column,
+  // migration 036) if present, otherwise from the scalar
+  // `assigned_to_name`. New events with a prefilled job inherit that
+  // job's salesperson; otherwise the form starts empty so the user
+  // explicitly picks who's going.
+  const [assignedToList, setAssignedToList] = useState(() => {
+    if (Array.isArray(initialEvent?.assigned_to_names) && initialEvent.assigned_to_names.length) {
+      return initialEvent.assigned_to_names.filter(Boolean);
+    }
+    if (initialEvent?.assigned_to_name) return [initialEvent.assigned_to_name];
+    if (prefillJob?.assigned_to)        return [prefillJob.assigned_to];
+    return [];
+  });
+  // Convenience derived value used in conflict messages and the role
+  // lookup. Empty string when nobody is selected.
+  const assignedTo = assignedToList[0] || '';
   const [location,     setLocation]     = useState(
     initialEvent?.location || prefillJob?.address || ''
   );
@@ -161,11 +175,13 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
       const startsAt = composeCTDateTime(dateIso, timeHHMM);
       const endsAt   = new Date(new Date(startsAt).getTime() + durationMin * 60000).toISOString();
 
-      // Conflict check — only for people-scheduled events (sales_visit)
-      if (kind === 'sales_visit' && assignedTo) {
+      // Conflict check — only for people-scheduled events (sales_visit).
+      // Multi-assign: returns the first conflict across ANY of the
+      // checked names so we don't silently double-book one person.
+      if (kind === 'sales_visit' && assignedToList.length) {
         const hit = await findConflict({
           startsAt, endsAt,
-          assignedToName: assignedTo,
+          assignedToNames: assignedToList,
           ignoreId: initialEvent?.id,
         });
         if (hit) {
@@ -189,12 +205,17 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         ends_at:   endsAt,
         all_day:   durationMin >= 480,
         job_id:    jobId || null,
-        assigned_to_name: assignedTo || null,
-        // Resolve the role from the loaded staff list instead of the
-        // old hardcoded "Attila → sales" mapping, so events booked for
-        // any team member carry the right role into downstream tools
-        // (notifications targeting, jarvisTools filters, etc.).
-        assigned_to_role: (staff.find((u) => u.name === assignedTo)?.role) || null,
+        // Primary assignee (first checked) keeps the legacy column
+        // populated so old filters / lookups still work. Full roster
+        // goes into the new array column. Empty array → null so the
+        // DB default behaves the same as "no one assigned".
+        assigned_to_name:  assignedToList[0] || null,
+        assigned_to_names: assignedToList.length ? assignedToList : null,
+        // Role of the PRIMARY assignee, resolved from the loaded
+        // staff list. Downstream targeting (notifications, jarvis
+        // filters) still scopes off this single role; the additional
+        // people get notified by name via assigned_to_names.
+        assigned_to_role: (staff.find((u) => u.name === assignedToList[0])?.role) || null,
         location:  location || null,
         notes:     notes    || null,
         color:     persistedColor,
@@ -217,20 +238,30 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         action: editing ? 'calendar.event.update' : 'calendar.event.create',
         entityType: 'calendar_event',
         entityId: saved.id,
-        details: { kind, starts_at: startsAt, assigned_to: assignedTo, job_id: jobId },
+        details: { kind, starts_at: startsAt, assigned_to: assignedToList, job_id: jobId },
       });
 
-      // In-app notification for the assignee
-      if (!skipNotify && assignedTo) {
+      // In-app notifications — one row per assigned role so each
+      // person's notification bell picks it up. Roles are de-duped
+      // (e.g. two sales people on the same visit only triggers one
+      // role-scoped notification).
+      if (!skipNotify && assignedToList.length) {
+        const roles = Array.from(new Set(
+          assignedToList
+            .map((n) => staff.find((u) => u.name === n)?.role)
+            .filter(Boolean)
+        ));
         try {
-          await supabase.from('notifications').insert([{
-            job_id: jobId || null,
-            recipient_role: 'sales',
-            type: 'calendar',
-            title: `New ${EVENT_KIND_META[kind]?.label || 'event'}`,
-            message: `${saved.title} — ${formatDateLongCT(new Date(startsAt))} at ${formatTimeCT(new Date(startsAt))}`,
-            seen: false,
-          }]);
+          await Promise.all(roles.map((r) =>
+            supabase.from('notifications').insert([{
+              job_id: jobId || null,
+              recipient_role: r,
+              type: 'calendar',
+              title: `New ${EVENT_KIND_META[kind]?.label || 'event'}`,
+              message: `${saved.title} — ${formatDateLongCT(new Date(startsAt))} at ${formatTimeCT(new Date(startsAt))}`,
+              seen: false,
+            }])
+          ));
         } catch { /* non-fatal */ }
       }
 
@@ -397,26 +428,51 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
           </Field>
 
           <Field label="Assigned to">
-            {/* Active staff are loaded from the users table on mount.
-                If the event was already bound to someone who's no
-                longer active (or someone typed in a custom name pre-
-                migration), we surface that as a selectable option so
-                the form doesn't silently re-assign the event. */}
-            <select
-              value={assignedTo || ''}
-              onChange={(e) => setAssignedTo(e.target.value)}
-              className={inputCls}
-            >
-              <option value="">— Unassigned —</option>
-              {staff.map((u) => (
-                <option key={u.name} value={u.name}>
-                  {u.name}{u.role ? ` · ${u.role}` : ''}
-                </option>
-              ))}
-              {assignedTo && !staff.some((u) => u.name === assignedTo) && (
-                <option value={assignedTo}>{assignedTo} (legacy)</option>
-              )}
-            </select>
+            {/* Multi-select. Active staff are loaded from the users
+                table on mount, so cadastrar um user novo em Admin →
+                Users já o coloca aqui automaticamente. Tap a chip to
+                add/remove — the same event can be assigned to two or
+                more people (e.g. Inácio + Ramon, or Attila + Gabriel).
+                The first checked name persists into the legacy
+                `assigned_to_name` column so old read paths keep
+                working; the full list goes into `assigned_to_names`. */}
+            <div className="flex flex-wrap gap-1.5 p-1">
+              {staff.map((u) => {
+                const checked = assignedToList.includes(u.name);
+                return (
+                  <button
+                    key={u.name}
+                    type="button"
+                    onClick={() => {
+                      setAssignedToList((prev) =>
+                        prev.includes(u.name)
+                          ? prev.filter((n) => n !== u.name)
+                          : [...prev, u.name]
+                      );
+                    }}
+                    className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border transition-colors ${
+                      checked
+                        ? 'bg-omega-orange text-white border-omega-orange'
+                        : 'bg-white text-omega-charcoal border-gray-200 hover:border-omega-orange'
+                    }`}
+                  >
+                    {u.name}
+                    {u.role && (
+                      <span className={`ml-1 text-[10px] font-semibold ${checked ? 'text-white/80' : 'text-omega-stone'}`}>
+                        · {u.role}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {assignedToList.length > 0 && (
+              <p className="text-[11px] text-omega-stone mt-1.5">
+                {assignedToList.length === 1
+                  ? `Assigned to ${assignedToList[0]}.`
+                  : `${assignedToList.length} people assigned: ${assignedToList.join(', ')}.`}
+              </p>
+            )}
           </Field>
 
           <Field label="Location">
