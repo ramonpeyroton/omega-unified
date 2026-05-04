@@ -53,6 +53,7 @@ export default function App({ user, onLogout }) {
           user={user}
           onNavigate={navigate}
           onSelectJob={openJobPhases}
+          onOpenFullJob={(job) => setFullViewJob(job)}
         />
       );
     }

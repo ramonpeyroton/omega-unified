@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ShoppingCart, Calendar, ChevronRight, Store, Check, HardHat, Briefcase,
   AlertTriangle, CalendarDays, Plus, Camera, Clock, Package, FolderOpen,
-  Edit3, AlertCircle, Box, Bell,
+  Edit3, AlertCircle, Box, Bell, Receipt,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import QuickTasksList from '../../../shared/components/QuickTasksList';
+import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
 import { logAudit } from '../../../shared/lib/audit';
 
 /**
@@ -22,12 +23,14 @@ import { logAudit } from '../../../shared/lib/audit';
  */
 const EXCLUDED_PIPELINE = ['completed', 'estimate_rejected'];
 
-export default function JobOfTheDay({ user, onNavigate, onSelectJob }) {
+export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJob }) {
   const [todayEvents, setTodayEvents] = useState([]);
   const [activeJobs, setActiveJobs]   = useState([]);  // still fetched — shown in schedule
   const [materials, setMaterials]     = useState([]);  // [{ ...mat, jobs: {...} }]
   const [loading, setLoading]         = useState(true);
   const [notifCount, setNotifCount]   = useState(0);
+  // Job currently feeding the Receipt capture modal. Null when closed.
+  const [receiptJob, setReceiptJob]   = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -384,26 +387,46 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob }) {
                       {onTrack ? 'On Track' : 'At Risk'}
                     </span>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {/* Open → JobFullView (the tabbed project view: Daily
+                          Logs, Estimate, Phases, Documents, etc). */}
                       <button
-                        onClick={() => onSelectJob?.(j)}
+                        onClick={() => onOpenFullJob?.(j)}
                         className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
                         title="Open job"
                       >
                         <FolderOpen className="w-3.5 h-3.5" /> Open
                       </button>
+                      {/* Update + Issue both jump straight into the Phase
+                          Breakdown — Gabriel's working surface. The Issue
+                          button is just a visual variant; both land on the
+                          same screen since flagging an issue happens
+                          inside the phase board today. */}
                       <button
                         onClick={() => onSelectJob?.(j)}
                         className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
-                        title="Update progress"
+                        title="Update progress (Phase Breakdown)"
                       >
                         <Edit3 className="w-3.5 h-3.5" /> Update
                       </button>
                       <button
                         onClick={() => onSelectJob?.(j)}
                         className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-[11px] font-bold text-red-700"
-                        title="Flag an issue"
+                        title="Flag an issue (Phase Breakdown)"
                       >
                         <AlertTriangle className="w-3.5 h-3.5" /> Issue
+                      </button>
+                      {/* Receipts → quick-capture flow. Slightly bigger +
+                          orange so Gabriel's eye lands on it after a
+                          purchase run. Triggers ReceiptCaptureModal,
+                          which opens the phone camera, asks for the
+                          amount, and writes to job_documents +
+                          job_expenses in one shot. */}
+                      <button
+                        onClick={() => setReceiptJob(j)}
+                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-[12px] font-bold shadow-sm"
+                        title="Snap a material receipt"
+                      >
+                        <Receipt className="w-4 h-4" /> Receipt
                       </button>
                     </div>
                   </li>
@@ -425,6 +448,20 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob }) {
           />
         </section>
       </div>
+
+      {receiptJob && (
+        <ReceiptCaptureModal
+          job={receiptJob}
+          user={user}
+          onClose={() => setReceiptJob(null)}
+          onSaved={() => {
+            // Materials list is independent of expenses, but the
+            // Issues panel uses `updated_at` heuristics — a fresh
+            // reload keeps everything in sync after a save.
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

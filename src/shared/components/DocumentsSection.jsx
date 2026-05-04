@@ -35,6 +35,7 @@ const BUCKET = 'job-documents';
 // Icons chosen to hint at the document type at a glance.
 const FOLDERS = [
   { id: 'invoices',       label: 'Invoices',       icon: Receipt         },
+  { id: 'receipts',       label: 'Receipts',       icon: Receipt         },
   { id: 'permits',        label: 'Permits',        icon: FileBadge       },
   { id: 'building_plans', label: 'Building Plans', icon: Home            },
   { id: 'checks',         label: 'Checks',         icon: CheckSquare     },
