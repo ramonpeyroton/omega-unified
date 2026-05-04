@@ -354,15 +354,18 @@ export default function JobFullView({
   // Financials (internal cost/margin) stays restricted to Owner/Ops/Admin.
   // Read-only-basic view (Rafaela + Gabriel): Daily Logs lands first
   // because they spend most of their time in the per-job chat.
-  // Details stays available as the second (and last) tab.
+  // Documents is exposed for the receptionist (paperwork that arrives
+  // by mail — permits, signed checks — typically lands on her desk
+  // first), but the field manager keeps the leaner two-tab view.
   // Full-access roles get the order Ramon specified:
   //   Daily Logs → Report → Estimate → Phases → Subs → Contact →
   //   Time → Financials → Documents → Details
   const TABS = readOnlyBasic
     ? [
         { id: 'daily',   label: 'Daily Logs', icon: FileText },
+        user?.role === 'receptionist' && { id: 'documents', label: 'Documents', icon: FolderClosed },
         { id: 'details', label: 'Details',    icon: Info },
-      ]
+      ].filter(Boolean)
     : [
         { id: 'daily',     label: 'Daily Logs', icon: FileText },
         { id: 'report',    label: 'Report',     icon: Sparkles },
