@@ -11,6 +11,7 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
+import ImportLeads from './screens/ImportLeads';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -38,6 +39,7 @@ export default function App({ user, onLogout }) {
       case 'finance':   return <FinanceScreen user={user} />;
       case 'leads':     return <LeadsList user={user} onBack={() => setScreen('users')} />;
       case 'commissions': return <CommissionsScreen user={user} />;
+      case 'import-leads': return <ImportLeads user={user} />;
       case 'screen':    return <ScreenOverride user={user} />;
       default:          return <UsersAccess user={user} />;
     }
