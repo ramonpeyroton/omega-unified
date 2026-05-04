@@ -10,6 +10,7 @@ import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
+import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -36,6 +37,7 @@ export default function App({ user, onLogout }) {
       case 'calendar':  return <CalendarScreen user={user} />;
       case 'finance':   return <FinanceScreen user={user} />;
       case 'leads':     return <LeadsList user={user} onBack={() => setScreen('users')} />;
+      case 'commissions': return <CommissionsScreen user={user} />;
       case 'screen':    return <ScreenOverride user={user} />;
       default:          return <UsersAccess user={user} />;
     }

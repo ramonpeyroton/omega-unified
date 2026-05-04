@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   PlusCircle, Bell, LogOut, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, ArrowRight, TrendingUp, TrendingDown, MapPin, Phone,
-  CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles,
+  CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
@@ -101,6 +101,7 @@ const NAV_ITEMS = [
   { id: 'home',          label: 'Home',          icon: HomeIcon },
   { id: 'pipeline',      label: 'Pipeline',      icon: GitBranch },
   { id: 'leads',         label: 'My Leads',      icon: ClipboardList },
+  { id: 'commissions',   label: 'Commissions',   icon: DollarSign },
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'calendar',      label: 'Calendar',      icon: CalendarIcon },
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },

@@ -13,6 +13,7 @@ import EstimateFlow from '../../shared/components/EstimateFlow';
 import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
+import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 import { ArrowLeft } from 'lucide-react';
 
@@ -198,6 +199,18 @@ function SalesRouter({ user, onLogout }) {
           </button>
         </div>
         <LeadsList user={user} onBack={() => setScreen('home')} />
+      </div>
+    );
+
+  if (screen === 'commissions')
+    return (
+      <div className="min-h-screen bg-omega-cloud flex flex-col">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button onClick={() => setScreen('home')} className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal">
+            <ArrowLeft className="w-4 h-4" /> Home
+          </button>
+        </div>
+        <CommissionsScreen user={user} />
       </div>
     );
 

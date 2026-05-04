@@ -12,6 +12,7 @@ const NAV = [
   { id: 'leads',            label: 'My Leads',          icon: ClipboardList },
   { id: 'calendar',         label: 'Calendar',          icon: Calendar },
   { id: 'finance',          label: 'Finance',           icon: DollarSign },
+  { id: 'commissions',      label: 'Commissions',       icon: DollarSign },
   { id: 'project-analyzer', label: 'Project Analyzer', icon: FileSearch },
   { id: 'warehouse',        label: 'Warehouse',         icon: Package },
   { id: 'omega-brain',      label: 'Omega Brain',       icon: Brain },

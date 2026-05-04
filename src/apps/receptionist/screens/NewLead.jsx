@@ -44,6 +44,10 @@ const DEFAULT_FORM = {
   notes: '',
   assigned_to: 'Attila',
   assigned_to_custom: '',
+  // lead_owner is filled in once the user list loads (defaults to
+  // current logged-in user). Persisted so we know who earns the
+  // receptionist commission downstream.
+  lead_owner: '',
 };
 
 // ─── Reusable pieces ────────────────────────────────────────────────
@@ -104,6 +108,36 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
   const [created, setCreated] = useState(null); // created job row on success
   const [phoneDup, setPhoneDup] = useState(null); // { client_name, lead_date, created_at } | null
   const [checkingPhone, setCheckingPhone] = useState(false);
+  // Active staff list — drives the Lead Owner dropdown. Loaded from
+  // the users table so admin-managed additions appear automatically
+  // without redeploying. Defaults the form's lead_owner to the
+  // logged-in user once we know who they are.
+  const [staff, setStaff] = useState([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('name, role, active')
+          .eq('active', true)
+          .neq('role', 'admin')
+          .order('name', { ascending: true });
+        if (active && Array.isArray(data)) setStaff(data);
+      } catch { /* table may be empty / unreachable — fall through */ }
+    })();
+    return () => { active = false; };
+  }, []);
+  // Pre-fill lead_owner with the current user the first time we know
+  // both pieces of state (user name + non-empty staff list).
+  useEffect(() => {
+    if (!form.lead_owner && user?.name) {
+      setForm((f) => ({ ...f, lead_owner: user.name }));
+    }
+    // Only the FIRST time — once they've picked someone explicitly,
+    // we don't overwrite it. eslint-disable-next-line is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name]);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -226,6 +260,10 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
         lead_source:          form.lead_source || null,
         notes:                form.notes.trim() || null,
         assigned_to:          assigned || null,
+        // lead_owner drives the commission engine (migration 040).
+        // Defaults to the current user but the receptionist can hand
+        // the lead to someone else if she's only logging the call.
+        lead_owner:           form.lead_owner || user?.name || null,
         referral_name:        form.lead_source === 'Referral' ? (form.referral_name.trim() || null) : null,
         created_by:           'receptionist',
       };
@@ -585,6 +623,20 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
                   <input className={inputCls} value={form.assigned_to_custom} onChange={(e) => set('assigned_to_custom', e.target.value)} placeholder="Name" />
                 </Field>
               )}
+              {/* Lead Owner — who earns this lead's downstream
+                  commission. Defaults to the user creating the lead
+                  but can be re-assigned if she's logging on someone
+                  else's behalf. */}
+              <Field label="Lead Owner" hint="Defaults to you. Used for commission tracking.">
+                <select className={inputCls} value={form.lead_owner} onChange={(e) => set('lead_owner', e.target.value)}>
+                  <option value="">— Select owner —</option>
+                  {staff.map((u) => (
+                    <option key={u.name} value={u.name}>
+                      {u.name}{u.role ? ` · ${u.role}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
 
             {/* Submit CTA */}

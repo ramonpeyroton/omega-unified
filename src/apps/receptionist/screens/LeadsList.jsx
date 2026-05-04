@@ -59,6 +59,9 @@ const COLUMNS = [
   { id: 'address',  label: 'Address',      get: (r) => r.address || r.city || '' },
   { id: 'phone',    label: 'Phone #',      get: (r) => r.client_phone || '' },
   { id: 'name',     label: 'Name',         get: (r) => r.client_name || '' },
+  // Lead Owner — who earns the receptionist commission for this lead.
+  // Sortable so you can group everything yours-vs-mine in one click.
+  { id: 'owner',    label: 'Owner',        get: (r) => r.lead_owner || '' },
   { id: 'project',  label: 'Project',      get: (r) => joinedServices(r) },
   { id: 'appt',     label: 'Appt Date',    get: (r) => r.preferred_visit_date || '' },
   // Status column reflects LEAD_STATUS (Rafaela's tag), NOT
@@ -100,7 +103,7 @@ export default function LeadsList({ user, onBack }) {
     try {
       let q = supabase
         .from('jobs')
-        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, in_pipeline, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
+        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
         .eq('created_by', 'receptionist')
         .order('created_at', { ascending: false })
         .limit(500);
@@ -359,6 +362,9 @@ export default function LeadsList({ user, onBack }) {
                       </td>
                       <td className="px-3 py-2 text-xs font-semibold text-omega-charcoal whitespace-nowrap">
                         {r.client_name || <span className="text-omega-stone">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
+                        {r.lead_owner || <span className="text-omega-stone italic">—</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-omega-slate capitalize max-w-[200px]">
                         {joinedServices(r) || <span className="text-omega-stone">—</span>}
@@ -698,9 +704,27 @@ function EditLeadModal({ lead, onClose, onSave }) {
     lead_source:     lead.lead_source || '',
     pipeline_status: lead.pipeline_status || 'new_lead',
     lead_status:     lead.lead_status || '',
+    lead_owner:      lead.lead_owner || '',
     notes:           lead.last_touch_note || '',
   });
   const [saving, setSaving] = useState(false);
+  // Same user-list pattern as NewLead — drives the Lead Owner select.
+  const [staff, setStaff] = useState([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('name, role, active')
+          .eq('active', true)
+          .neq('role', 'admin')
+          .order('name', { ascending: true });
+        if (active && Array.isArray(data)) setStaff(data);
+      } catch { /* fall through */ }
+    })();
+    return () => { active = false; };
+  }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -735,6 +759,7 @@ function EditLeadModal({ lead, onClose, onSave }) {
       lead_source:         form.lead_source || null,
       pipeline_status:     form.pipeline_status || null,
       lead_status:         form.lead_status || null,
+      lead_owner:          form.lead_owner || null,
     };
     await onSave(patch);
     setSaving(false);
@@ -779,6 +804,19 @@ function EditLeadModal({ lead, onClose, onSave }) {
             <select className={inputCls} value={form.lead_status} onChange={(e) => set('lead_status', e.target.value)}>
               <option value="">— None —</option>
               {LEAD_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+
+          {/* Row 1c: Lead Owner — drives commission attribution. */}
+          <div>
+            <label className={labelCls}>Lead Owner</label>
+            <select className={inputCls} value={form.lead_owner} onChange={(e) => set('lead_owner', e.target.value)}>
+              <option value="">— Unassigned —</option>
+              {staff.map((u) => (
+                <option key={u.name} value={u.name}>
+                  {u.name}{u.role ? ` · ${u.role}` : ''}
+                </option>
+              ))}
             </select>
           </div>
 

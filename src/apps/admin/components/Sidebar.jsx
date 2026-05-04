@@ -10,6 +10,7 @@ const NAV = [
   { id: 'users',     label: 'Users & Access',    icon: Users },
   { id: 'leads',     label: 'My Leads',          icon: ClipboardList },
   { id: 'finance',   label: 'Finance',           icon: Wallet },
+  { id: 'commissions', label: 'Commissions',     icon: DollarSign },
   { id: 'pricing',   label: 'Pricing Book',      icon: DollarSign },
   { id: 'company',   label: 'Company Settings',  icon: Settings },
   { id: 'audit',     label: 'Audit Log',         icon: FileText },

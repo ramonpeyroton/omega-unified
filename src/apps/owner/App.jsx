@@ -15,6 +15,7 @@ import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
+import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -107,6 +108,8 @@ export default function App({ user, onLogout }) {
         return <FinanceScreen user={user} />;
       case 'leads':
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
+      case 'commissions':
+        return <CommissionsScreen user={user} />;
       case 'estimate-flow':
         return selectedJob
           ? <EstimateFlow job={selectedJob} user={user} onBack={() => setScreen('pipeline')} />
