@@ -399,11 +399,19 @@ export default function PipelineKanban({
       // Order: pipeline_position ASC NULLS LAST, then created_at DESC.
       // Cards the seller has positioned manually win; the rest fall back
       // to "newest first" so a brand-new lead still pops to the top.
+      // ⚠️ Cold-leads filter: only show rows flagged in_pipeline=true.
+      // Migration 038 defaults the column to true, so existing data is
+      // unaffected. Cold imports / manually-ejected rows have it false
+      // and stay out of the kanban until Rafaela promotes them from
+      // My Leads. We tolerate the column being missing in a fresh
+      // env by falling back to the unfiltered query — same defensive
+      // pattern used for pipeline_position.
       const [jobsResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
         positionMigrationMissing
-          ? supabase.from('jobs').select('*').order('created_at', { ascending: false })
+          ? supabase.from('jobs').select('*').eq('in_pipeline', true).order('created_at', { ascending: false })
           : supabase
               .from('jobs').select('*')
+              .eq('in_pipeline', true)
               .order('pipeline_position', { ascending: true, nullsFirst: false })
               .order('created_at', { ascending: false }),
         supabase.from('estimates').select('*'),
@@ -416,6 +424,13 @@ export default function PipelineKanban({
         // Migration 028 hasn't been applied. Retry with legacy ordering
         // and remember so future refreshes skip the bad column straight away.
         setPositionMigrationMissing(true);
+        const fallback = await supabase
+          .from('jobs').select('*').eq('in_pipeline', true)
+          .order('created_at', { ascending: false });
+        jobsData = fallback.data;
+      } else if (jobsResp.error && /in_pipeline/.test(jobsResp.error.message || '')) {
+        // Migration 038 not yet applied. Drop the filter and load
+        // everything so the kanban keeps working until the SQL is run.
         const fallback = await supabase
           .from('jobs').select('*')
           .order('created_at', { ascending: false });

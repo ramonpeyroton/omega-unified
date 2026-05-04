@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save } from 'lucide-react';
+import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
+import { validateUserPin } from '../../../shared/lib/userPin';
+import { logAudit } from '../../../shared/lib/audit';
 import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES, LEAD_STATUSES, leadStatusMeta } from '../lib/leadCatalog';
 
 const FILTERS = [
@@ -62,6 +64,9 @@ const COLUMNS = [
   // Status column reflects LEAD_STATUS (Rafaela's tag), NOT
   // pipeline_status. Sort key is the label so A→Z grouping makes sense.
   { id: 'status',   label: 'Status',       get: (r) => (leadStatusMeta(r.lead_status)?.label || '') },
+  // Pipeline visibility — drives whether the lead shows on Attila's
+  // kanban. Toggle ON is free, OFF requires PIN (see saveInPipeline).
+  { id: 'pipeline', label: 'Pipeline',     get: (r) => (r.in_pipeline ? 'Yes' : 'No') },
   { id: 'touch',    label: 'Last Touch',   get: (r) => r.last_touch_at || '' },
   { id: 'notes',    label: 'Info / Notes', get: (r) => r.last_touch_note || '' },
   { id: 'edit',     label: '',             get: () => '', sortable: false },
@@ -74,7 +79,7 @@ function compare(a, b) {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 }
 
-export default function LeadsList({ onBack }) {
+export default function LeadsList({ user, onBack }) {
   const [filter, setFilter] = useState('all');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +89,9 @@ export default function LeadsList({ onBack }) {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('date'); // column id
   const [sortDir, setSortDir] = useState('desc'); // asc | desc
+  // PIN gate when toggling OFF a lead that's currently in the pipeline.
+  // Free in the other direction (promoting cold → pipeline).
+  const [pinGate, setPinGate] = useState(null); // { lead } | null
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
 
@@ -92,7 +100,7 @@ export default function LeadsList({ onBack }) {
     try {
       let q = supabase
         .from('jobs')
-        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
+        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, in_pipeline, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
         .eq('created_by', 'receptionist')
         .order('created_at', { ascending: false })
         .limit(500);
@@ -134,6 +142,53 @@ export default function LeadsList({ onBack }) {
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to save' });
     }
+  }
+
+  // Toggles whether this lead is visible in Attila's kanban.
+  // PROMOTE (false → true): no PIN required. Also resets
+  // pipeline_status to 'new_lead' so the lead lands in Attila's New
+  // Lead column ready for him to start the questionnaire — same
+  // entry point a brand-new lead from the receptionist takes.
+  // EJECT (true → false): PIN required (own user). Pipeline_status
+  // is left alone so the lead's history is preserved if it's
+  // promoted again later.
+  async function setInPipeline(lead, nextValue) {
+    const id = lead.id;
+    const prevRows = rows;
+    const patch = nextValue
+      ? { in_pipeline: true, pipeline_status: 'new_lead' }
+      : { in_pipeline: false };
+    setRows((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    try {
+      const { error } = await supabase.from('jobs').update(patch).eq('id', id);
+      if (error) throw error;
+      logAudit({
+        user,
+        action: nextValue ? 'lead.promote_to_pipeline' : 'lead.eject_from_pipeline',
+        entityType: 'job',
+        entityId: id,
+        details: { client: lead.client_name },
+      });
+      setToast({
+        type: 'success',
+        message: nextValue
+          ? `${lead.client_name || 'Lead'} promoted to pipeline.`
+          : `${lead.client_name || 'Lead'} removed from pipeline.`,
+      });
+    } catch (err) {
+      setRows(prevRows);
+      setToast({ type: 'error', message: err.message || 'Failed to update pipeline.' });
+    }
+  }
+
+  // PIN gate — opens the modal only when the user is trying to
+  // EJECT a lead. Promotion goes straight through.
+  function requestPipelineToggle(lead) {
+    if (!lead.in_pipeline) {
+      setInPipeline(lead, true);
+      return;
+    }
+    setPinGate({ lead });
   }
 
   // Inline lead_status update from the table dropdown. Optimistic —
@@ -324,6 +379,12 @@ export default function LeadsList({ onBack }) {
                           onChange={(v) => saveLeadStatus(r.id, v)}
                         />
                       </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <PipelineToggle
+                          on={!!r.in_pipeline}
+                          onToggle={() => requestPipelineToggle(r)}
+                        />
+                      </td>
                       <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
                         {r.last_touch_at ? fmtShortDate(r.last_touch_at) : <span className="text-omega-stone">—</span>}
                       </td>
@@ -371,6 +432,124 @@ export default function LeadsList({ onBack }) {
           onSave={(patch) => saveLead(editingLead.id, patch)}
         />
       )}
+
+      {pinGate && (
+        <PipelinePinModal
+          lead={pinGate.lead}
+          user={user}
+          onClose={() => setPinGate(null)}
+          onConfirm={async () => {
+            await setInPipeline(pinGate.lead, false);
+            setPinGate(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Pipeline visibility toggle ──────────────────────────────────
+// Compact iOS-style switch. Orange when on, grey when off. Same
+// visual idiom Rafaela's already familiar with from the other
+// switches in the app.
+function PipelineToggle({ on, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`relative inline-flex items-center gap-2 px-2.5 py-1 rounded-full border transition-colors ${
+        on
+          ? 'bg-omega-orange border-omega-orange text-white'
+          : 'bg-gray-100 border-gray-200 text-omega-stone hover:border-omega-orange'
+      }`}
+      title={on ? 'Click to remove from pipeline (PIN required)' : 'Click to send to pipeline'}
+    >
+      <span
+        className={`w-7 h-3.5 rounded-full relative ${on ? 'bg-white/30' : 'bg-gray-300'}`}
+      >
+        <span
+          className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all ${
+            on ? 'left-[18px]' : 'left-0.5'
+          }`}
+        />
+      </span>
+      <span className="text-[10px] font-bold uppercase tracking-wider">
+        {on ? 'In Pipeline' : 'Off'}
+      </span>
+    </button>
+  );
+}
+
+// ─── PIN gate for ejecting a lead from the pipeline ──────────────
+// Asks for the LOGGED-IN user's own PIN. Promoting cold → pipeline
+// is intentionally NOT gated — it's a positive action and the bar
+// to entry should stay low. The reverse (yanking a lead Attila has
+// been working) costs a few seconds of friction so it's deliberate.
+function PipelinePinModal({ lead, user, onClose, onConfirm }) {
+  const [pin, setPin] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  async function verify() {
+    setError('');
+    setVerifying(true);
+    try {
+      const ok = await validateUserPin(user, pin);
+      if (!ok) {
+        setError('Wrong PIN — try again.');
+        return;
+      }
+      await onConfirm();
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl">
+        <div className="inline-flex items-center gap-2 mb-3">
+          <span className="w-9 h-9 rounded-lg bg-red-50 inline-flex items-center justify-center">
+            <Lock className="w-4 h-4 text-red-600" />
+          </span>
+          <div>
+            <h3 className="text-base font-bold text-omega-charcoal">Remove from pipeline?</h3>
+            <p className="text-xs text-omega-stone">{lead?.client_name || 'Lead'}</p>
+          </div>
+        </div>
+        <p className="text-xs text-omega-slate mb-4">
+          The lead will leave Attila's kanban but stay here in My Leads.
+          You can promote it back any time. Type your PIN to confirm.
+        </p>
+        <input
+          type="password"
+          inputMode="numeric"
+          autoFocus
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          onKeyDown={(e) => { if (e.key === 'Enter') verify(); }}
+          placeholder="Your PIN"
+          className="w-full px-3 py-3 rounded-xl border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none text-center text-lg tracking-[0.4em] font-bold"
+        />
+        {error && (
+          <p className="mt-2 text-xs text-red-600 font-semibold">{error}</p>
+        )}
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-omega-slate text-sm font-semibold hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={verify}
+            disabled={verifying || !pin}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-60"
+          >
+            {verifying ? 'Checking…' : 'Confirm'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

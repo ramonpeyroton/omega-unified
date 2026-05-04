@@ -95,6 +95,7 @@ export default function ReceptionistApp({ user, onLogout }) {
     if (screen === 'leads') {
       return (
         <LeadsList
+          user={user}
           onBack={() => navigate('new-lead')}
           onLogout={onLogout}
         />
