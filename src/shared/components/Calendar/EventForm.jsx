@@ -76,6 +76,30 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
   // their name + address.
   const [jobs, setJobs] = useState([]);
   const [clientPick, setClientPick] = useState('');
+
+  // Active staff list — drives the "Assigned to" picker. Replaces the
+  // old hardcoded "Attila" placeholder so a sales visit (or any other
+  // event) can be booked for whoever is the right person on the day.
+  // We pull from `users` instead of hardcoding so admin-managed
+  // additions show up here automatically.
+  const [staff, setStaff] = useState([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('name, role, active')
+          .eq('active', true)
+          .neq('role', 'admin')      // admin is hidden from public surfaces
+          .order('name', { ascending: true });
+        if (active) setStaff(data || []);
+      } catch {
+        if (active) setStaff([]);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (prefillJob || editing) return;
     let active = true;
@@ -166,7 +190,11 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         all_day:   durationMin >= 480,
         job_id:    jobId || null,
         assigned_to_name: assignedTo || null,
-        assigned_to_role: assignedTo === 'Attila' ? 'sales' : null,
+        // Resolve the role from the loaded staff list instead of the
+        // old hardcoded "Attila → sales" mapping, so events booked for
+        // any team member carry the right role into downstream tools
+        // (notifications targeting, jarvisTools filters, etc.).
+        assigned_to_role: (staff.find((u) => u.name === assignedTo)?.role) || null,
         location:  location || null,
         notes:     notes    || null,
         color:     persistedColor,
@@ -369,12 +397,26 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
           </Field>
 
           <Field label="Assigned to">
-            <input
-              value={assignedTo}
+            {/* Active staff are loaded from the users table on mount.
+                If the event was already bound to someone who's no
+                longer active (or someone typed in a custom name pre-
+                migration), we surface that as a selectable option so
+                the form doesn't silently re-assign the event. */}
+            <select
+              value={assignedTo || ''}
               onChange={(e) => setAssignedTo(e.target.value)}
-              placeholder="Attila"
               className={inputCls}
-            />
+            >
+              <option value="">— Unassigned —</option>
+              {staff.map((u) => (
+                <option key={u.name} value={u.name}>
+                  {u.name}{u.role ? ` · ${u.role}` : ''}
+                </option>
+              ))}
+              {assignedTo && !staff.some((u) => u.name === assignedTo) && (
+                <option value={assignedTo}>{assignedTo} (legacy)</option>
+              )}
+            </select>
           </Field>
 
           <Field label="Location">
