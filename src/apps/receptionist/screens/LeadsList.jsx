@@ -290,8 +290,16 @@ export default function LeadsList({ user, onBack }) {
 
         <div className="relative flex-1 min-w-[220px] max-w-md ml-2">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone pointer-events-none" />
+          {/* autoComplete="off" + a unique name keeps Chrome/Safari
+              from injecting the logged-in user's name here as a
+              "username" guess after they type a PIN in the toggle
+              modal. Without this the browser would silently fill
+              this box on focus and the lead list would disappear. */}
           <input
             type="search"
+            name="omega-leads-search"
+            autoComplete="off"
+            data-form-type="other"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, email, address…"
@@ -527,34 +535,54 @@ function PipelinePinModal({ lead, user, onClose, onConfirm }) {
           The lead will leave Attila's kanban but stay here in My Leads.
           You can promote it back any time. Type your PIN to confirm.
         </p>
-        <input
-          type="password"
-          inputMode="numeric"
-          autoFocus
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          onKeyDown={(e) => { if (e.key === 'Enter') verify(); }}
-          placeholder="Your PIN"
-          className="w-full px-3 py-3 rounded-xl border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none text-center text-lg tracking-[0.4em] font-bold"
-        />
-        {error && (
-          <p className="mt-2 text-xs text-red-600 font-semibold">{error}</p>
-        )}
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-omega-slate text-sm font-semibold hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={verify}
-            disabled={verifying || !pin}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-60"
-          >
-            {verifying ? 'Checking…' : 'Confirm'}
-          </button>
-        </div>
+        {/* Wrapped in its own form with autoComplete="off" so the
+            browser stops trying to pair the PIN field with the search
+            box on the page below as a "login" form — that pairing was
+            silently injecting the user's name into the search box and
+            wiping the visible list when the modal closed. The hidden
+            dummy fields above the real PIN input absorb any aggressive
+            autofill (Chrome on iPad ignores autoComplete="off" on
+            password fields without dummy fields nearby). */}
+        <form
+          autoComplete="off"
+          onSubmit={(e) => { e.preventDefault(); verify(); }}
+        >
+          <input type="text" name="username" autoComplete="off" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1 }} />
+          <input type="password" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1 }} />
+          <input
+            type="password"
+            inputMode="numeric"
+            name="omega-confirm-pin"
+            autoComplete="new-password"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            autoFocus
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="Your PIN"
+            className="w-full px-3 py-3 rounded-xl border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none text-center text-lg tracking-[0.4em] font-bold"
+          />
+          {error && (
+            <p className="mt-2 text-xs text-red-600 font-semibold">{error}</p>
+          )}
+          <div className="flex gap-2 mt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-omega-slate text-sm font-semibold hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={verifying || !pin}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-60"
+            >
+              {verifying ? 'Checking…' : 'Confirm'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
