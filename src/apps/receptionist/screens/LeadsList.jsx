@@ -101,12 +101,20 @@ export default function LeadsList({ user, onBack }) {
   async function load() {
     setLoading(true);
     try {
+      // ⚠️ Historically this query was scoped to created_by='receptionist'
+      // because My Leads was a receptionist-only screen. It now shows
+      // up in 6 different role apps AND ingests CSV imports
+      // (created_by='import'). Filtering on creator hid the entire
+      // import batch from Rafa's view. The screen has no per-owner
+      // filter either — any role with sidebar access sees the whole
+      // book of leads, ordered newest first. Limit bumped to 2000 to
+      // accommodate Ramon's backfill of 200+ cold leads without
+      // pagination work.
       let q = supabase
         .from('jobs')
         .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
-        .eq('created_by', 'receptionist')
         .order('created_at', { ascending: false })
-        .limit(500);
+        .limit(2000);
 
       const gt = startOf(filter);
       if (gt) q = q.gte('created_at', gt);
