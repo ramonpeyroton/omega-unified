@@ -15,6 +15,11 @@ export const EVENT_KIND_META = {
   service_day: { label: 'Service Day',  color: '#3B82F6' }, // blue
   inspection:  { label: 'Inspection',   color: '#EAB308' }, // amber
   meeting:     { label: 'Meeting',      color: '#8B5CF6' }, // violet
+  // Marketing photo/video run. Pink to differentiate from every other
+  // kind — owned by Ramon (marketing) but anyone with EDIT_ALL rights
+  // can book one too. The job site stays visible on the calendar so
+  // sales/manager know media is coming and don't surprise the crew.
+  media_visit: { label: 'Media Visit',  color: '#EC4899' }, // pink
 };
 
 export const EVENT_KIND_OPTIONS = Object.entries(EVENT_KIND_META).map(
@@ -240,9 +245,13 @@ export function canEditKind(role, kind) {
   if (role === 'receptionist') return kind === 'sales_visit';
   if (role === 'sales')        return kind === 'sales_visit';
   if (role === 'manager')      return ['job_start', 'service_day', 'inspection', 'meeting'].includes(kind);
+  // Marketing books media visits (Ramon's photo/video runs) — that's
+  // the kind he owns end-to-end. He can also see the rest of the
+  // calendar but only edits his own kind.
+  if (role === 'marketing')    return kind === 'media_visit';
   return false;
 }
 
 export function canCreateAnyEvent(role) {
-  return EDIT_ALL.has(role) || ['receptionist', 'sales', 'manager'].includes(role);
+  return EDIT_ALL.has(role) || ['receptionist', 'sales', 'manager', 'marketing'].includes(role);
 }
