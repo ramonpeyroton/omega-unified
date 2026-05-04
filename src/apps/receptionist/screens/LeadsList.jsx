@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
-import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES } from '../lib/leadCatalog';
+import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES, LEAD_STATUSES, leadStatusMeta } from '../lib/leadCatalog';
 
 const FILTERS = [
   { id: 'today', label: 'Today' },
@@ -13,22 +13,8 @@ const FILTERS = [
   { id: 'all',   label: 'All' },
 ];
 
-const STATUS_MAP = {
-  estimate_rejected:    { label: 'LOST',    cls: 'bg-red-500 text-white' },
-  estimate_approved:    { label: 'WON',     cls: 'bg-green-600 text-white' },
-  contract_signed:      { label: 'WON',     cls: 'bg-green-600 text-white' },
-  in_progress:          { label: 'WON',     cls: 'bg-green-600 text-white' },
-  completed:            { label: 'WON',     cls: 'bg-green-600 text-white' },
-  new_lead:             { label: 'PENDING', cls: 'bg-amber-400 text-omega-charcoal' },
-  estimate_draft:       { label: 'PENDING', cls: 'bg-amber-400 text-omega-charcoal' },
-  estimate_sent:        { label: 'PENDING', cls: 'bg-amber-400 text-omega-charcoal' },
-  estimate_negotiating: { label: 'PENDING', cls: 'bg-amber-400 text-omega-charcoal' },
-  contract_sent:        { label: 'PENDING', cls: 'bg-amber-400 text-omega-charcoal' },
-};
-
-function statusBadge(pipeline) {
-  return STATUS_MAP[pipeline] || { label: (pipeline || '').toUpperCase(), cls: 'bg-gray-400 text-white' };
-}
+// Lead status meta is sourced from leadCatalog.LEAD_STATUSES — kept
+// in one place so a new option only needs the migration + the catalog.
 
 function startOf(scope) {
   const d = new Date();
@@ -73,7 +59,9 @@ const COLUMNS = [
   { id: 'name',     label: 'Name',         get: (r) => r.client_name || '' },
   { id: 'project',  label: 'Project',      get: (r) => joinedServices(r) },
   { id: 'appt',     label: 'Appt Date',    get: (r) => r.preferred_visit_date || '' },
-  { id: 'status',   label: 'Status',       get: (r) => statusBadge(r.pipeline_status).label },
+  // Status column reflects LEAD_STATUS (Rafaela's tag), NOT
+  // pipeline_status. Sort key is the label so A→Z grouping makes sense.
+  { id: 'status',   label: 'Status',       get: (r) => (leadStatusMeta(r.lead_status)?.label || '') },
   { id: 'touch',    label: 'Last Touch',   get: (r) => r.last_touch_at || '' },
   { id: 'notes',    label: 'Info / Notes', get: (r) => r.last_touch_note || '' },
   { id: 'edit',     label: '',             get: () => '', sortable: false },
@@ -104,7 +92,7 @@ export default function LeadsList({ onBack }) {
     try {
       let q = supabase
         .from('jobs')
-        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
+        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
         .eq('created_by', 'receptionist')
         .order('created_at', { ascending: false })
         .limit(500);
@@ -145,6 +133,26 @@ export default function LeadsList({ onBack }) {
       setEditing(null);
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to save' });
+    }
+  }
+
+  // Inline lead_status update from the table dropdown. Optimistic —
+  // we patch the row immediately and rollback on failure. Empty string
+  // resets the lead to "no status yet" (NULL in the DB).
+  async function saveLeadStatus(id, value) {
+    const next = value || null;
+    const prev = rows;
+    setRows((p) => p.map((r) => (r.id === id ? { ...r, lead_status: next } : r)));
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({ lead_status: next })
+        .eq('id', id);
+      if (error) throw error;
+      setToast({ type: 'success', message: next ? `Status: ${leadStatusMeta(next)?.label || next}` : 'Status cleared' });
+    } catch (err) {
+      setRows(prev);
+      setToast({ type: 'error', message: err.message || 'Failed to update status' });
     }
   }
 
@@ -274,7 +282,7 @@ export default function LeadsList({ onBack }) {
               </thead>
               <tbody>
                 {visibleRows.map((r) => {
-                  const s = statusBadge(r.pipeline_status);
+                  const ls = leadStatusMeta(r.lead_status);
                   return (
                     <tr key={r.id} className="hover:bg-omega-cloud/60 border-b border-gray-100 align-top">
                       <td className="px-3 py-2 text-xs text-omega-charcoal whitespace-nowrap">{fmtShortDate(effectiveDate(r))}</td>
@@ -304,9 +312,17 @@ export default function LeadsList({ onBack }) {
                         {r.preferred_visit_date ? fmtDateOnly(r.preferred_visit_date) : <span className="text-omega-stone">—</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${s.cls}`}>
-                          {s.label}
-                        </span>
+                        {/* Inline-editable lead_status. Pill is the
+                            <select>'s background so the click target
+                            matches the visual chip — no separate
+                            "edit" affordance needed. Native select on
+                            iPad gives Rafaela the standard wheel
+                            picker she's already used to. */}
+                        <LeadStatusSelect
+                          value={r.lead_status || ''}
+                          meta={ls}
+                          onChange={(v) => saveLeadStatus(r.id, v)}
+                        />
                       </td>
                       <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
                         {r.last_touch_at ? fmtShortDate(r.last_touch_at) : <span className="text-omega-stone">—</span>}
@@ -356,6 +372,25 @@ export default function LeadsList({ onBack }) {
         />
       )}
     </div>
+  );
+}
+
+// Inline pill-shaped <select> for the Status column. Tinted with the
+// status's own colors when set; neutral grey + "Set status…" when null.
+function LeadStatusSelect({ value, meta, onChange }) {
+  const cls = meta?.cls || 'bg-gray-100 text-omega-stone border-gray-200';
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border focus:outline-none focus:ring-2 focus:ring-omega-orange/40 cursor-pointer ${cls}`}
+    >
+      <option value="">Set status…</option>
+      {LEAD_STATUSES.map((s) => (
+        <option key={s.value} value={s.value}>{s.label}</option>
+      ))}
+    </select>
   );
 }
 
@@ -483,6 +518,7 @@ function EditLeadModal({ lead, onClose, onSave }) {
     services:        [lead.service, ...(Array.isArray(lead.additional_services) ? lead.additional_services : [])].filter(Boolean),
     lead_source:     lead.lead_source || '',
     pipeline_status: lead.pipeline_status || 'new_lead',
+    lead_status:     lead.lead_status || '',
     notes:           lead.last_touch_note || '',
   });
   const [saving, setSaving] = useState(false);
@@ -519,6 +555,7 @@ function EditLeadModal({ lead, onClose, onSave }) {
       additional_services: extra.length ? extra : null,
       lead_source:         form.lead_source || null,
       pipeline_status:     form.pipeline_status || null,
+      lead_status:         form.lead_status || null,
     };
     await onSave(patch);
     setSaving(false);
@@ -553,6 +590,17 @@ function EditLeadModal({ lead, onClose, onSave }) {
                 {PIPELINE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* Row 1b: Lead Status — Rafaela's quick tag, separate from
+              pipeline. Lives just below pipeline so editors see both
+              tracks side by side and don't confuse them. */}
+          <div>
+            <label className={labelCls}>Lead Status</label>
+            <select className={inputCls} value={form.lead_status} onChange={(e) => set('lead_status', e.target.value)}>
+              <option value="">— None —</option>
+              {LEAD_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
           </div>
 
           {/* Row 2: Name */}

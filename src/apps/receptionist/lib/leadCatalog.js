@@ -164,3 +164,26 @@ export const PIPELINE_STATUSES = [
 export function serviceLabel(v) {
   return SERVICES.find((s) => s.value === v)?.label || v;
 }
+
+// ─── Lead Status (Rafaela's day-to-day tag) ──────────────────────
+//
+// Independent from PIPELINE_STATUSES: this is the receptionist's
+// quick label for "what state is THIS phone call in?" — she'll flip
+// these all day as she dials through the list. Pipeline stays the
+// salesperson's funnel.
+//
+// Values match the CHECK constraint in migration 035; do not add
+// new ones here without also updating the SQL or the insert will
+// fail with a constraint violation.
+export const LEAD_STATUSES = [
+  { value: 'appointment_set', label: 'Appointment Set', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+  { value: 'follow_up',       label: 'Follow Up',       cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { value: 'estimate_sent',   label: 'Estimate Sent',   cls: 'bg-violet-100 text-violet-700 border-violet-200' },
+  { value: 'signed',          label: 'Signed',          cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  { value: 'declined',        label: 'Declined',        cls: 'bg-orange-100 text-orange-700 border-orange-200' },
+  { value: 'lost',            label: 'Lost',            cls: 'bg-red-100 text-red-700 border-red-200' },
+];
+
+export function leadStatusMeta(v) {
+  return LEAD_STATUSES.find((s) => s.value === v) || null;
+}

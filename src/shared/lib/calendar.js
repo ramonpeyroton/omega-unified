@@ -101,13 +101,19 @@ export function buildMonthGrid(year, monthIndex /* 0-11 */) {
   // ordinal dates, not timezone math here.
   const firstOfMonth = new Date(Date.UTC(year, monthIndex, 1));
   const firstDow = firstOfMonth.getUTCDay(); // 0 = Sun
-  const daysIn = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 
   const cells = [];
   const startOffset = firstDow; // how many "previous month" cells to prepend
   for (let i = 0; i < 42; i++) {
     const dayOffset = i - startOffset;
-    const d = new Date(Date.UTC(year, monthIndex, 1 + dayOffset));
+    // ⚠️ Noon UTC, NOT midnight. Midnight UTC of "day N" lands the day
+    // BEFORE in America/New_York (EDT = UTC-4 → 8pm prev day, EST =
+    // UTC-5 → 7pm prev day), which made `isoDateCT(d)` return day N-1
+    // while `d.getUTCDate()` returned N. Net effect: the cell labelled
+    // "9" had iso "2026-05-08", so an event you booked for the 8th
+    // ended up rendering in the cell labelled "9". Noon UTC = 7am-8am
+    // NY → same calendar date in both UTC and NY. Fixes the off-by-one.
+    const d = new Date(Date.UTC(year, monthIndex, 1 + dayOffset, 12));
     cells.push({
       date: d,
       iso: isoDateCT(d),
