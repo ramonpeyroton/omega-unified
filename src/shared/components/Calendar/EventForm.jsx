@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { X, Save, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { X, Save, Loader2, AlertTriangle, CheckCircle2, Clock, User as UserIcon, CalendarDays } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
   EVENT_KIND_OPTIONS, EVENT_KIND_META,
   VISIT_STATUS_META, VISIT_STATUS_ORDER, getVisitStatusMeta,
   composeCTDateTime, findConflict, createEvent, updateEvent,
-  formatDateLongCT, formatTimeCT,
+  formatDateLongCT, formatTimeCT, eventDisplayMeta,
 } from '../../lib/calendar';
 import { logAudit } from '../../lib/audit';
 
@@ -150,6 +150,54 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
     }
   }
 
+  // Day-schedule sidebar — events on the selected date, so Rafa can
+  // see what's already booked while she fills out the form. Updates
+  // whenever `dateIso` or the assignee list changes; falls back to
+  // "all events for that day" when nobody is selected yet.
+  const [dayEvents, setDayEvents] = useState([]);
+  const [dayLoading, setDayLoading] = useState(false);
+  useEffect(() => {
+    if (!dateIso) { setDayEvents([]); return; }
+    let active = true;
+    (async () => {
+      setDayLoading(true);
+      try {
+        // Range = full CT day, expressed as UTC iso strings.
+        const startUtc = composeCTDateTime(dateIso, '00:00');
+        // 24h later. We compute it without re-using composeCTDateTime
+        // on '24:00' (invalid) by adding 24h to the start instant.
+        const endUtc = new Date(new Date(startUtc).getTime() + 24 * 60 * 60 * 1000).toISOString();
+        const { data } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .gte('starts_at', startUtc)
+          .lt('starts_at', endUtc)
+          .order('starts_at', { ascending: true });
+        if (active) setDayEvents((data || []).filter((e) => e.id !== initialEvent?.id));
+      } catch {
+        if (active) setDayEvents([]);
+      } finally {
+        if (active) setDayLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [dateIso, initialEvent?.id]);
+
+  // Filter the day list down to the assignees the form is targeting,
+  // so Rafa sees Attila's day when she's booking for Attila — but if
+  // multiple assignees are checked, show their union. With nobody
+  // assigned yet (default state for a brand-new event), keep
+  // everything visible to surface any office-wide conflicts.
+  const visibleDayEvents = useMemo(() => {
+    if (!assignedToList.length) return dayEvents;
+    const wanted = new Set(assignedToList);
+    return dayEvents.filter((e) => {
+      if (e.assigned_to_name && wanted.has(e.assigned_to_name)) return true;
+      if (Array.isArray(e.assigned_to_names) && e.assigned_to_names.some((n) => wanted.has(n))) return true;
+      return false;
+    });
+  }, [dayEvents, assignedToList]);
+
   // Auto-title when the user changes kind / job — but only if they
   // haven't typed a custom title themselves yet.
   const [autoTitle, setAutoTitle] = useState(!editing && !initialEvent?.title);
@@ -291,10 +339,10 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl max-w-md w-full max-h-[92vh] overflow-auto shadow-xl"
+        className="bg-white rounded-2xl w-full max-w-md lg:max-w-4xl max-h-[92vh] overflow-hidden shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white p-5 border-b border-gray-200 flex items-center justify-between">
+        <div className="bg-white p-5 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-omega-stone font-bold">Calendar</p>
             <p className="font-bold text-omega-charcoal text-base">
@@ -306,6 +354,11 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
           </button>
         </div>
 
+        {/* Two-column layout on desktop / iPad landscape: form on the
+            left, day schedule sidebar on the right so Rafa can see
+            what's already booked for the picked date without leaving
+            the modal. Stacks below the form on narrow screens. */}
+        <div className="flex-1 overflow-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="p-5 space-y-4">
           {prefillJob && (
             <div className="px-3 py-2 rounded-lg bg-omega-pale/60 border border-omega-orange/30">
@@ -534,7 +587,18 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
           )}
         </div>
 
-        <div className="sticky bottom-0 bg-white p-5 border-t border-gray-200 flex justify-end gap-2">
+        {/* ─── Right-side day schedule sidebar ─────────────────── */}
+        <DaySchedule
+          dateIso={dateIso}
+          events={visibleDayEvents}
+          loading={dayLoading}
+          assignedTo={assignedToList}
+          newStartHHMM={timeHHMM}
+          newDurationMin={durationMin}
+        />
+        </div>
+
+        <div className="bg-white p-5 border-t border-gray-200 flex justify-end gap-2 flex-shrink-0">
           <button onClick={onClose} disabled={saving} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">
             Cancel
           </button>
@@ -579,4 +643,106 @@ function hhmmCT(d) {
     timeZone: 'America/New_York',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(d);
+}
+
+// ─── Day schedule sidebar ────────────────────────────────────────
+// Shows the existing events for the selected date + a soft preview
+// of where the new event would land (so Rafa sees overlap visually
+// before she even hits Save). Lives inside the EventForm modal so
+// she doesn't need to pop another window.
+function DaySchedule({ dateIso, events, loading, assignedTo, newStartHHMM, newDurationMin }) {
+  // Pretty-format the date title using the ISO without bouncing
+  // through Date — avoids the same midnight-UTC pitfall that bit us
+  // in MonthView. Builds a noon-UTC date so the CT formatter agrees.
+  const titleDate = useMemo(() => {
+    if (!dateIso) return null;
+    const [y, m, d] = dateIso.split('-').map(Number);
+    return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 12));
+  }, [dateIso]);
+
+  // The preview pill — "your new event". Computed from the form's
+  // current time + duration; doesn't persist anywhere.
+  const previewLabel = useMemo(() => {
+    if (!newStartHHMM || !newDurationMin) return null;
+    const [hh, mm] = newStartHHMM.split(':').map(Number);
+    const start = new Date(Date.UTC(2000, 0, 1, hh || 0, mm || 0));
+    const end = new Date(start.getTime() + (newDurationMin || 60) * 60000);
+    const fmt = (d) =>
+      new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(d).toLowerCase();
+    return `${fmt(start)} – ${fmt(end)}`;
+  }, [newStartHHMM, newDurationMin]);
+
+  return (
+    <aside className="border-t lg:border-t-0 lg:border-l border-gray-200 bg-omega-cloud/40 p-4 flex flex-col min-h-[200px] lg:min-h-0">
+      <div className="flex items-center gap-2 mb-3">
+        <CalendarDays className="w-4 h-4 text-omega-orange" />
+        <p className="text-xs font-bold uppercase tracking-wider text-omega-stone">
+          {titleDate
+            ? new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).format(titleDate)
+            : 'Pick a date'}
+        </p>
+      </div>
+
+      {assignedTo.length > 0 && (
+        <p className="text-[10px] text-omega-stone mb-2">
+          Showing for: {assignedTo.join(', ')}
+        </p>
+      )}
+
+      {/* Preview slot — lets Rafa eyeball where her new event lands */}
+      {previewLabel && (
+        <div className="mb-2 px-2.5 py-1.5 rounded-lg border-2 border-dashed border-omega-orange bg-omega-pale/60">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-omega-orange">
+            New event
+          </p>
+          <p className="text-[11px] font-semibold text-omega-charcoal">{previewLabel}</p>
+        </div>
+      )}
+
+      {loading && (
+        <p className="text-xs text-omega-stone italic py-2">Loading…</p>
+      )}
+
+      {!loading && events.length === 0 && (
+        <p className="text-xs text-omega-stone italic py-2">
+          Nothing scheduled.
+        </p>
+      )}
+
+      {!loading && events.length > 0 && (
+        <ul className="flex-1 overflow-auto space-y-1.5 pr-1">
+          {events.map((e) => {
+            const meta = eventDisplayMeta(e);
+            const start = new Date(e.starts_at);
+            const end = e.ends_at ? new Date(e.ends_at) : null;
+            const names = Array.isArray(e.assigned_to_names) && e.assigned_to_names.length
+              ? e.assigned_to_names
+              : (e.assigned_to_name ? [e.assigned_to_name] : []);
+            return (
+              <li
+                key={e.id}
+                className="px-2 py-1.5 rounded-lg bg-white border border-gray-100"
+                style={{ borderLeftWidth: 3, borderLeftColor: meta.color }}
+              >
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-bold tabular-nums text-omega-stone">
+                  <Clock className="w-3 h-3" />
+                  {formatTimeCT(start)}
+                  {end && <> – {formatTimeCT(end)}</>}
+                </div>
+                <p className="text-[12px] font-semibold text-omega-charcoal truncate mt-0.5">
+                  {e.title || meta.label}
+                </p>
+                {names.length > 0 && (
+                  <p className="inline-flex items-center gap-1 text-[10px] text-omega-stone mt-0.5">
+                    <UserIcon className="w-2.5 h-2.5" />
+                    {names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </aside>
+  );
 }
