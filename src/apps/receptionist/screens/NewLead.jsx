@@ -114,6 +114,37 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
     });
   }
 
+  // ⚠️ Hooks MUST run in the same order on every render. The early
+  // return for the success screen below used to come BEFORE these two
+  // useEffect calls — once `created` flipped truthy, React saw fewer
+  // hooks than on the previous render and threw "Rendered fewer hooks
+  // than during the previous render" → blank white screen at the end
+  // of the form. Keeping all hooks above any conditional return.
+  //
+  // Tiny localStorage cache so the receptionist can step away mid-form
+  // and come back without retyping. Cleared on successful submit.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          setForm({ ...DEFAULT_FORM, ...parsed });
+          setToast({ type: 'success', message: 'Draft restored — pick up where you left off.' });
+        }
+      }
+    } catch { /* corrupt JSON — ignore */ }
+  }, []);
+
+  // Wipe the draft after a successful save. We watch `created` rather
+  // than calling localStorage.removeItem inside submit() so success-by-
+  // any-path (including future programmatic flows) clears it.
+  useEffect(() => {
+    if (created) {
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    }
+  }, [created]);
+
   // Checks whether another job already exists with the same phone (E.164).
   // Fires on blur of the phone field. Blocks Save when a match is found.
   async function checkPhoneDuplicate(raw) {
@@ -289,22 +320,8 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
     );
   }
 
-  // ─── Draft persistence (Save Draft button + autoload) ──────────────
-  // Tiny localStorage cache so the receptionist can step away mid-form
-  // and come back without retyping. Cleared on successful submit.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          setForm({ ...DEFAULT_FORM, ...parsed });
-          setToast({ type: 'success', message: 'Draft restored — pick up where you left off.' });
-        }
-      }
-    } catch { /* corrupt JSON — ignore */ }
-  }, []);
-
+  // saveDraft — manual button next to the form. The auto-load /
+  // auto-clear effects live up top with the rest of the hooks.
   function saveDraft() {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
@@ -313,16 +330,6 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
       setToast({ type: 'error', message: 'Could not save draft.' });
     }
   }
-
-  // Wrap submit so the draft is wiped after a successful save. We
-  // proxy here instead of mutating submit() directly to keep its
-  // shape unchanged. The `created` state flips on success — easiest
-  // signal we have. A useEffect handles that side too.
-  useEffect(() => {
-    if (created) {
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-    }
-  }, [created]);
 
   // ─── FORM screen (redesign per Ramon's mockup) ────────────────────
   const canSave = !saving && !phoneDup;
