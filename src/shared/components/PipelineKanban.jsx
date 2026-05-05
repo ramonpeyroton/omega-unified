@@ -405,30 +405,34 @@ export default function PipelineKanban({
       // Order: pipeline_position ASC NULLS LAST, then created_at DESC.
       // Cards the seller has positioned manually win; the rest fall back
       // to "newest first" so a brand-new lead still pops to the top.
-      // ⚠️ Cold-leads filter: only show rows flagged in_pipeline=true.
-      // Migration 038 defaults the column to true, so existing data is
-      // unaffected. Cold imports / manually-ejected rows have it false
-      // and stay out of the kanban until Rafaela promotes them from
-      // My Leads.
       //
-      // ⚠️ Temporary bypass for Attila (role='sales'): Ramon asked for
-      // unrestricted access so he can shuffle the historical pipeline
-      // (200+ cold leads) into their right columns. Sales sees ALL
-      // jobs including in_pipeline=false. Revoke once the cleanup
-      // pass is done — just remove the role check below.
+      // Visibility model:
+      //   • Active rows: in_pipeline = true.
+      //   • Estimate Rejected: trigger 038 sets in_pipeline=false on
+      //     entry, so the main query MISSES rejected. We pull the 10
+      //     most recent rejected separately and merge — that keeps the
+      //     column populated as a "recent rejections" surface without
+      //     the 200+ historical imports flooding it.
       //
       // We tolerate the column being missing in a fresh env by falling
       // back to the unfiltered query — same defensive pattern used for
       // pipeline_position.
-      const showAllForSales = user?.role === 'sales';
-      const buildJobsQuery = (q) => showAllForSales ? q : q.eq('in_pipeline', true);
-
-      const [jobsResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
+      const [jobsResp, recentRejectedResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
         positionMigrationMissing
-          ? buildJobsQuery(supabase.from('jobs').select('*')).order('created_at', { ascending: false })
-          : buildJobsQuery(supabase.from('jobs').select('*'))
+          ? supabase.from('jobs').select('*').eq('in_pipeline', true).order('created_at', { ascending: false })
+          : supabase
+              .from('jobs').select('*')
+              .eq('in_pipeline', true)
               .order('pipeline_position', { ascending: true, nullsFirst: false })
               .order('created_at', { ascending: false }),
+        // Last 10 rejected — regardless of in_pipeline. Sorted by
+        // updated_at so the most recently rejected sit at top of the
+        // column. Older rejections live only in My Leads.
+        supabase
+          .from('jobs').select('*')
+          .eq('pipeline_status', 'estimate_rejected')
+          .order('updated_at', { ascending: false })
+          .limit(10),
         supabase.from('estimates').select('*'),
         supabase.from('subcontractors').select('id, coi_expiry_date'),
         supabase.from('phase_subcontractor_assignments').select('job_id, subcontractor_id'),
@@ -439,7 +443,8 @@ export default function PipelineKanban({
         // Migration 028 hasn't been applied. Retry with legacy ordering
         // and remember so future refreshes skip the bad column straight away.
         setPositionMigrationMissing(true);
-        const fallback = await buildJobsQuery(supabase.from('jobs').select('*'))
+        const fallback = await supabase
+          .from('jobs').select('*').eq('in_pipeline', true)
           .order('created_at', { ascending: false });
         jobsData = fallback.data;
       } else if (jobsResp.error && /in_pipeline/.test(jobsResp.error.message || '')) {
@@ -453,11 +458,20 @@ export default function PipelineKanban({
         throw jobsResp.error;
       }
 
+      // Merge the last-10-rejected slice in. We dedupe by id so the
+      // (rare) case of a rejected job that's also in_pipeline=true
+      // doesn't render twice. Older rejected rows live only in My
+      // Leads — they're intentionally absent from the kanban.
+      const recentRejected = recentRejectedResp?.data || [];
+      const main = jobsData || [];
+      const seenIds = new Set(main.map((j) => j.id));
+      const merged = main.concat(recentRejected.filter((r) => !seenIds.has(r.id)));
+
       // Always sort client-side too. In legacy mode (migration 028
       // missing) Supabase ordered only by created_at, so any rows that
       // happened to already have a pipeline_position get bucketed
       // correctly here.
-      setJobs(sortJobsForKanban(jobsData || []));
+      setJobs(sortJobsForKanban(merged));
       setEstimates(e || []);
       setSubs(s || []);
       // Load this user's read pointers in a separate query so a missing
@@ -645,13 +659,7 @@ export default function PipelineKanban({
     // pause here and pop a PIN modal so the user has to confirm with
     // their own PIN. The actual save runs from `confirmPendingMove`
     // once the PIN checks out.
-    //
-    // ⚠️ Temporary bypass for Attila (role='sales'): Ramon asked for
-    // unrestricted drag rights so he can shuffle the historical
-    // pipeline (200+ cold leads) into their right columns without
-    // typing his PIN every single time. Revoke this exception once
-    // the cleanup is done — just remove the role check.
-    if (PIN_GATED_PHASES.has(targetCol) && user?.role !== 'sales') {
+    if (PIN_GATED_PHASES.has(targetCol)) {
       setPendingMove({ activeJobId, previous, targetCol, newPosition, job });
       return;
     }

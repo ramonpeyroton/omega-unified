@@ -295,10 +295,14 @@ export default function ImportLeads({ user }) {
         lead_status:          r.lead_status,
         last_touch_note:      r.last_touch_note,
         lead_owner:           defaultOwner || null,
-        // Cold leads — explicitly off the kanban.
+        // Cold leads land directly in 'estimate_rejected' so they
+        // don't show up as fresh prospects in Attila's kanban. The
+        // trigger from migration 038 keeps them in_pipeline=false
+        // automatically; the kanban's recent-rejected slice (top 10)
+        // means even the rejected column doesn't fill up with them.
         in_pipeline:          false,
-        pipeline_status:      'new_lead',
-        status:               'new_lead',
+        pipeline_status:      'estimate_rejected',
+        status:               'rejected',
         created_by:           'import',
       }));
 
