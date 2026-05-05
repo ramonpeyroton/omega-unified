@@ -17,7 +17,6 @@ import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -116,8 +115,6 @@ export default function App({ user, onLogout }) {
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
       case 'commissions':
         return <CommissionsScreen user={user} />;
-      case 'daily-logs':
-        return <DailyLogsScreen user={user} onOpenJob={(job) => setFullViewJob(job)} />;
       case 'estimate-flow':
         return selectedJob
           ? <EstimateFlow job={selectedJob} user={user} onBack={() => setScreen('pipeline')} />
@@ -136,6 +133,7 @@ export default function App({ user, onLogout }) {
         notifCount={notifCount}
         userName={user.name}
         user={user}
+        onOpenJob={(job) => setFullViewJob(job)}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}

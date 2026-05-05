@@ -11,7 +11,6 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import MaterialsRun from '../../shared/components/MaterialsRun';
 import JobFullView from '../../shared/components/JobFullView';
 import PipelineKanban from '../../shared/components/PipelineKanban';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -114,8 +113,6 @@ export default function App({ user, onLogout }) {
       );
     }
 
-    if (screen === 'daily-logs')
-      return <DailyLogsScreen user={user} onOpenJob={(job) => setFullViewJob(job)} />;
 
     return (
       <Dashboard
@@ -137,6 +134,7 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user?.name}
         user={user}
+        onOpenJob={(job) => setFullViewJob(job)}
       />
       {/* pb-16 on mobile leaves room for the bottom-bar navigation */}
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">

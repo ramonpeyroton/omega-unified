@@ -3,11 +3,13 @@ import {
   PlusCircle, Bell, LogOut, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, ArrowRight, TrendingUp, TrendingDown, MapPin, Phone,
   CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign, MessageCircle,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import DailyLogsList from '../../../shared/components/DailyLogsList';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 // ─── Date helpers ───────────────────────────────────────────────────
@@ -105,10 +107,10 @@ const NAV_ITEMS = [
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'calendar',      label: 'Calendar',      icon: CalendarIcon },
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },
-  { id: 'daily-logs',    label: 'Daily Logs',    icon: MessageCircle },
 ];
 
-function SalesSidebar({ activeId, onNavigate, user, onLogout }) {
+function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
+  const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // Pulls the profile photo (and refresh fn for after Edit Profile)
   // from the same shared hook every other role's sidebar uses, so
@@ -162,6 +164,22 @@ function SalesSidebar({ activeId, onNavigate, user, onLogout }) {
             {label}
           </button>
         ))}
+
+        <button
+          onClick={() => setDailyLogsOpen((o) => !o)}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            dailyLogsOpen
+              ? 'bg-white/10 text-white'
+              : 'text-omega-fog hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          <MessageCircle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1 text-left">Daily Logs</span>
+          {dailyLogsOpen
+            ? <ChevronDown className="w-4 h-4 text-white/60" />
+            : <ChevronRight className="w-4 h-4 text-white/60" />}
+        </button>
+        {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={onOpenJob} />}
       </nav>
 
       <div className="px-3 py-4 border-t border-white/10">
@@ -238,7 +256,7 @@ function activityIconFor(kind) {
 // ────────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────────
-export default function Home({ user, onNavigate, onLogout }) {
+export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   const [notifCount, setNotifCount] = useState(0);
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -391,7 +409,7 @@ export default function Home({ user, onNavigate, onLogout }) {
 
   return (
     <div className="flex min-h-screen bg-omega-cloud">
-      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} />
+      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
 
       <main className="flex-1 min-w-0">
         {/* Top bar: greeting + notifications + sign out */}

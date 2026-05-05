@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch, MessageCircle } from 'lucide-react';
+import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import DailyLogsList from '../../../shared/components/DailyLogsList';
 
 // Punch List is per-job (reached from inside a job, not the sidebar).
 // The personal scratchpad "My Punch List" lives on the Today screen.
@@ -16,7 +17,6 @@ const NAV = [
   { id: 'calendar',      label: 'Calendar',      icon: Calendar },
   { id: 'warehouse',     label: 'Warehouse',     icon: Package },
   { id: 'notifications', label: 'Alerts',        icon: Bell },
-  { id: 'daily-logs',    label: 'Daily Logs',    icon: MessageCircle },
 ];
 
 /**
@@ -24,8 +24,9 @@ const NAV = [
  * Collapses to a bottom bar on small screens so Gabriel can still
  * thumb through it from the van — that's handled in CSS via Tailwind.
  */
-export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
+export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
   const [profileOpen, setProfileOpen] = useState(false);
+  const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
   return (
@@ -80,6 +81,22 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
               {label}
             </button>
           ))}
+
+          <button
+            onClick={() => setDailyLogsOpen((o) => !o)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              dailyLogsOpen
+                ? 'bg-white/10 text-white'
+                : 'text-omega-fog hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 text-left">Daily Logs</span>
+            {dailyLogsOpen
+              ? <ChevronDown className="w-4 h-4 text-white/60" />
+              : <ChevronRight className="w-4 h-4 text-white/60" />}
+          </button>
+          {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={onOpenJob} />}
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">

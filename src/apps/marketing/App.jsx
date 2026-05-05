@@ -1,16 +1,17 @@
 import { useState } from 'react';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import JarvisChat from '../../shared/components/JarvisChat';
 import LeadsList from '../receptionist/screens/LeadsList';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
+import DailyLogsList from '../../shared/components/DailyLogsList';
 
 // Placeholder Marketing role — read-only pipeline + My Leads + the
-// new full-page Daily Logs screen so Ramon can chime in on project
-// chats he's a member of without leaving the marketing surface.
+// Daily Logs cascade so Ramon can chime in on project chats he's a
+// member of without leaving the marketing surface.
 export default function MarketingApp({ user, onLogout }) {
   const [tab, setTab] = useState('pipeline');
+  const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [fullViewJob, setFullViewJob] = useState(null);
 
   return (
@@ -26,10 +27,25 @@ export default function MarketingApp({ user, onLogout }) {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <SidebarBtn active={tab === 'pipeline'}    onClick={() => setTab('pipeline')}    icon={GitBranch}      label="Pipeline" />
           <SidebarBtn active={tab === 'leads'}       onClick={() => setTab('leads')}       icon={ClipboardList}  label="My Leads" />
-          <SidebarBtn active={tab === 'daily-logs'}  onClick={() => setTab('daily-logs')}  icon={MessageCircle}  label="Daily Logs" />
+
+          <button
+            onClick={() => setDailyLogsOpen((o) => !o)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              dailyLogsOpen
+                ? 'bg-white/10 text-white'
+                : 'text-omega-fog hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 text-left">Daily Logs</span>
+            {dailyLogsOpen
+              ? <ChevronDown className="w-4 h-4 text-white/60" />
+              : <ChevronRight className="w-4 h-4 text-white/60" />}
+          </button>
+          {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={(job) => setFullViewJob(job)} />}
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">
@@ -43,9 +59,8 @@ export default function MarketingApp({ user, onLogout }) {
       </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col">
-        {tab === 'pipeline'   && <PipelineKanban user={user} readOnly />}
-        {tab === 'leads'      && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
-        {tab === 'daily-logs' && <DailyLogsScreen user={user} onOpenJob={(job) => setFullViewJob(job)} />}
+        {tab === 'pipeline' && <PipelineKanban user={user} readOnly />}
+        {tab === 'leads'    && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
       </main>
 
       {fullViewJob && (
