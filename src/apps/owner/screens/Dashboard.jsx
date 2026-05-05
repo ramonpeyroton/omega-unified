@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   RefreshCw, Calendar, TrendingUp, TrendingDown, ArrowRight, Briefcase,
-  DollarSign, Banknote, Target, GitBranch, Percent, Wallet,
+  DollarSign, Banknote, Target, GitBranch, Percent, Wallet, AlertOctagon,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -150,10 +150,11 @@ export default function Dashboard({ user, onSelectJob }) {
           eventsResp,
           qbResp,
           milestonesResp,
+          materialsResp,
         ] = await Promise.all([
           supabase
             .from('jobs')
-            .select('id, client_name, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date, assigned_to')
+            .select('id, client_name, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date, assigned_to, last_touch_at')
             .limit(5000),
           supabase
             .from('estimates')
@@ -163,10 +164,13 @@ export default function Dashboard({ user, onSelectJob }) {
             .from('job_expenses')
             .select('id, job_id, amount, date')
             .limit(10000),
+          // Calendar events: sales_visits for funnel + inspections
+          // for the bottlenecks panel. Pulled together to keep the
+          // request count down.
           supabase
             .from('calendar_events')
-            .select('id, job_id, kind, starts_at')
-            .eq('kind', 'sales_visit')
+            .select('id, job_id, kind, starts_at, visit_status')
+            .in('kind', ['sales_visit', 'inspection'])
             .gte('starts_at', lastStart.toISOString())
             .lt('starts_at', end.toISOString()),
           // QuickBooks bank balance — soft fail if not connected.
@@ -183,6 +187,13 @@ export default function Dashboard({ user, onSelectJob }) {
             .from('payment_milestones')
             .select('id, job_id, due_date, due_amount, received_amount, status')
             .limit(5000),
+          // Open material requests — fuels the Material Delays
+          // bottleneck. status='needed' = not bought yet.
+          supabase
+            .from('job_materials')
+            .select('id, job_id, status, added_at, name')
+            .eq('status', 'needed')
+            .limit(2000),
         ]);
 
         if (!active) return;
@@ -450,6 +461,191 @@ export default function Dashboard({ user, onSelectJob }) {
           }
         }
 
+        // ─── Phase 3: Alerts & Notifications ────────────────────
+        // Each alert returns { count, ... } so the panel can hide
+        // entries with count === 0. No alert UI noise when there's
+        // nothing to act on.
+        const expensesByJob = new Map();
+        for (const e of expenses) {
+          const acc = expensesByJob.get(e.job_id) || 0;
+          expensesByJob.set(e.job_id, acc + (Number(e.amount) || 0));
+        }
+
+        let jobsOverBudget = 0;
+        let negativeMargin = 0;
+        for (const j of jobs) {
+          if (j.pipeline_status !== 'in_progress' && j.pipeline_status !== 'completed') continue;
+          const est = latestEstByJob[j.id];
+          const estTotal = Number(est?.total_amount) || 0;
+          if (estTotal === 0) continue;
+          const spent = expensesByJob.get(j.id) || 0;
+          if (spent > estTotal) jobsOverBudget += 1;
+          const margin = ((estTotal - spent) / estTotal) * 100;
+          if (margin < 0) negativeMargin += 1;
+        }
+
+        const overdueMilestones = (milestonesResp.data || []).filter((m) => {
+          if (!m.due_date || m.status === 'paid') return false;
+          const remaining = (Number(m.due_amount) || 0) - (Number(m.received_amount) || 0);
+          if (remaining <= 0) return false;
+          const [yy, mm, dd] = m.due_date.split('-').map(Number);
+          const dueDate = new Date(yy, mm - 1, dd);
+          const now2 = new Date();
+          const todayCmp = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate());
+          const overdueCutoff = new Date(todayCmp.getTime() - 3 * 86400000);
+          return dueDate < overdueCutoff;
+        });
+        const overdueAmt = overdueMilestones.reduce((s, m) =>
+          s + ((Number(m.due_amount) || 0) - (Number(m.received_amount) || 0)), 0);
+
+        // Approvals pending = estimates in 'sent' or 'negotiating'.
+        const pendingApprovals = estimates.filter((e) =>
+          ['sent', 'negotiating'].includes(e.status || '')
+        ).length;
+
+        const alerts = [
+          jobsOverBudget > 0 && {
+            id: 'overBudget',
+            tone: 'red',
+            count: jobsOverBudget,
+            title: `${jobsOverBudget} ${jobsOverBudget === 1 ? 'Job' : 'Jobs'} over budget`,
+            subtitle: 'Require your attention',
+          },
+          overdueMilestones.length > 0 && {
+            id: 'overdueInvoices',
+            tone: 'amber',
+            count: overdueMilestones.length,
+            title: `${overdueMilestones.length} ${overdueMilestones.length === 1 ? 'Invoice' : 'Invoices'} overdue`,
+            subtitle: `Total outstanding: ${fmtMoney(overdueAmt)}`,
+          },
+          negativeMargin > 0 && {
+            id: 'negativeMargin',
+            tone: 'red',
+            count: negativeMargin,
+            title: `${negativeMargin} ${negativeMargin === 1 ? 'Job' : 'Jobs'} with negative margin`,
+            subtitle: 'Review and take action',
+          },
+          pendingApprovals > 0 && {
+            id: 'approvalsPending',
+            tone: 'blue',
+            count: pendingApprovals,
+            title: `${pendingApprovals} Approvals pending`,
+            subtitle: 'Estimates and change orders',
+          },
+        ].filter(Boolean);
+
+        // ─── Phase 3: Top Bottlenecks ───────────────────────────
+        const materials = materialsResp.data || [];
+        const threeDaysAgo = new Date(Date.now() - 3 * 86400000);
+        const materialDelayJobs = new Set();
+        for (const m of materials) {
+          if (!m.added_at) continue;
+          if (new Date(m.added_at) <= threeDaysAgo) materialDelayJobs.add(m.job_id);
+        }
+
+        const inspectionEvents = (eventsResp.data || []).filter((e) => e.kind === 'inspection');
+        const inspectionPending = inspectionEvents.filter((ev) => {
+          const t = new Date(ev.starts_at);
+          return t < new Date() && ev.visit_status !== 'completed';
+        }).length;
+
+        const fiveDaysAgo = new Date(Date.now() - 5 * 86400000);
+        const designStuck = estimates.filter((e) =>
+          (e.status === 'negotiating' || e.status === 'changes_requested') &&
+          e.created_at && new Date(e.created_at) <= fiveDaysAgo
+        ).length;
+
+        const bottlenecks = [
+          materialDelayJobs.size > 0 && {
+            id: 'materialDelays',
+            count: materialDelayJobs.size,
+            title: 'Material Delays',
+            subtitle: `${materialDelayJobs.size} ${materialDelayJobs.size === 1 ? 'job' : 'jobs'} waiting > 3 days`,
+            tone: 'orange',
+          },
+          inspectionPending > 0 && {
+            id: 'inspectionPending',
+            count: inspectionPending,
+            title: 'Inspection Pending',
+            subtitle: `${inspectionPending} ${inspectionPending === 1 ? 'event' : 'events'} past due`,
+            tone: 'blue',
+          },
+          designStuck > 0 && {
+            id: 'designApproval',
+            count: designStuck,
+            title: 'Design Approval',
+            subtitle: `${designStuck} ${designStuck === 1 ? 'estimate' : 'estimates'} stuck > 5 days`,
+            tone: 'violet',
+          },
+        ].filter(Boolean);
+
+        // ─── Phase 3: Action Center ─────────────────────────────
+        const actions = [];
+
+        // Overdue invoices → top 3
+        for (const m of overdueMilestones.slice(0, 3)) {
+          const j = jobs.find((x) => x.id === m.job_id);
+          actions.push({
+            id: `inv-${m.id}`,
+            priority: 'high',
+            icon: 'invoice',
+            title: `Follow up: Invoice overdue${j?.client_name ? ' · ' + j.client_name : ''}`,
+            subtitle: m.label || 'Payment milestone past due',
+            due: m.due_date,
+          });
+        }
+
+        // Pending estimates needing review
+        for (const e of estimates.filter((es) => es.status === 'sent').slice(0, 2)) {
+          const j = jobs.find((x) => x.id === e.job_id);
+          actions.push({
+            id: `est-${e.id}`,
+            priority: 'medium',
+            icon: 'estimate',
+            title: `Approve estimate${j?.client_name ? ' · ' + j.client_name : ''}`,
+            subtitle: j?.service ? `${j.service} project` : 'Estimate sent — awaiting approval',
+            due: e.created_at,
+          });
+        }
+
+        // Jobs over 90% of budget but not yet over (early warning)
+        for (const j of jobs) {
+          if (j.pipeline_status !== 'in_progress') continue;
+          const est = latestEstByJob[j.id];
+          const estTotal = Number(est?.total_amount) || 0;
+          if (estTotal === 0) continue;
+          const spent = expensesByJob.get(j.id) || 0;
+          const ratio = spent / estTotal;
+          if (ratio >= 0.9 && ratio <= 1.0) {
+            actions.push({
+              id: `budget-${j.id}`,
+              priority: 'high',
+              icon: 'budget',
+              title: `Review job: ${j.client_name || 'Untitled'} (Budget over ${Math.round(ratio * 100)}%)`,
+              subtitle: j.service || 'In progress',
+              due: null,
+            });
+            if (actions.length >= 8) break;
+          }
+        }
+
+        // Active leads with no touch in > 4 days → call them
+        const fourDaysAgo = new Date(Date.now() - 4 * 86400000);
+        for (const j of jobs) {
+          if (!ACTIVE_PHASES.has(j.pipeline_status)) continue;
+          if (j.pipeline_status !== 'new_lead' && j.pipeline_status !== 'estimate_sent') continue;
+          if (j.last_touch_at && new Date(j.last_touch_at) >= fourDaysAgo) continue;
+          actions.push({
+            id: `call-${j.id}`,
+            priority: 'medium',
+            icon: 'call',
+            title: `Call lead: ${j.client_name || 'Untitled'}`,
+            subtitle: j.service ? `${j.service} project` : 'Cold for 4+ days',
+            due: null,
+          });
+          if (actions.length >= 10) break;
+        }
+
         // ─── Phase 2: QuickBooks balance fetch (best-effort) ────
         let qbCash = null;
         if (qbConnected) {
@@ -485,6 +681,9 @@ export default function Dashboard({ user, onSelectJob }) {
           salesmen,
           marketing, marketingTotal, bestChannel,
           payments: { dueThisWeek, overdue, upcoming30, cashInBank: qbCash },
+          alerts,
+          bottlenecks,
+          actions: actions.slice(0, 8),
         });
       } catch (err) {
         if (active) setError(err?.message || 'Failed to load dashboard.');
@@ -608,160 +807,150 @@ export default function Dashboard({ user, onSelectJob }) {
           />
         </section>
 
-        {/* ─── Active Jobs table ─────────────────────────────── */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-base font-bold text-omega-charcoal">Active Jobs</h2>
-              <p className="text-xs text-omega-stone mt-0.5">In-progress projects ranked by contract value</p>
+        {/* ─── Financial Overview + Alerts ──────────────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 lg:col-span-2">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div>
+                <h2 className="text-base font-bold text-omega-charcoal">Financial Overview</h2>
+                <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} — Revenue, Costs, Profit by day</p>
+              </div>
+              <div className="inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-omega-stone">
+                <Legend color="#22C55E" label="Revenue" />
+                <Legend color="#F97316" label="Costs" />
+                <Legend color="#1F2937" label="Profit" dashed />
+              </div>
             </div>
-            {data.inProgressJobs.length === 6 && (
-              <span className="text-[11px] font-bold text-omega-stone uppercase tracking-wider">
-                Top 6 of {data.activeJobsCount}
-              </span>
-            )}
+            <FinancialChart series={data.series} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+              <MiniStat label="Total Revenue" value={fmtMoney(data.revenueMTD)} positive />
+              <MiniStat label="Total Costs"   value={fmtMoney(data.costsMTD)}   tone="orange" />
+              <MiniStat label="Total Profit"  value={fmtMoney(data.profitMTD)}  positive={data.profitMTD >= 0} negative={data.profitMTD < 0} />
+              <MiniStat label="Profit Margin" value={
+                data.revenueMTD === 0 ? '—' : `${((data.profitMTD / data.revenueMTD) * 100).toFixed(1)}%`
+              } positive />
+            </div>
           </div>
-          {data.inProgressJobs.length === 0 ? (
-            <p className="text-sm text-omega-stone italic py-8 text-center">
-              No jobs are currently in progress.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
-                <thead>
-                  <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
-                    <th className="text-left py-2 px-2">Job / Client</th>
-                    <th className="text-left py-2 px-2">Type</th>
-                    <th className="text-left py-2 px-2 w-[180px]">Progress</th>
-                    <th className="text-left py-2 px-2">Financial Status</th>
-                    <th className="text-right py-2 px-2">Margin</th>
-                    <th className="w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.inProgressJobs.map((j) => {
-                    const bucket = marginBucket(j.margin);
-                    return (
-                      <tr
-                        key={j.id}
-                        onClick={() => onSelectJob?.(j.raw)}
-                        className="border-t border-gray-100 hover:bg-omega-cloud/40 cursor-pointer"
-                      >
-                        <td className="py-2.5 px-2">
-                          <p className="font-bold text-omega-charcoal text-sm truncate max-w-[260px]">
-                            {j.client_name || 'Untitled'}
-                          </p>
-                          {j.address && (
-                            <p className="text-[11px] text-omega-stone truncate max-w-[260px]">{j.address}</p>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-2 text-xs">
-                          {j.service && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase text-[10px]">
-                              {j.service}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-2">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                              <div className="h-full bg-omega-orange" style={{ width: `${j.progress}%` }} />
-                            </div>
-                            <span className="text-xs font-bold text-omega-charcoal tabular-nums w-10 text-right">{j.progress}%</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-2">
-                          <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${bucket.cls}`}>
-                            {bucket.label}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-2 text-right text-sm font-bold text-omega-charcoal tabular-nums">
-                          {j.margin == null ? '—' : `${j.margin >= 0 ? '+' : ''}${j.margin.toFixed(0)}%`}
-                        </td>
-                        <td className="py-2.5 px-2 text-omega-stone">
-                          <ArrowRight className="w-4 h-4" />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+
+          <AlertsPanel alerts={data.alerts} />
         </section>
 
-        {/* ─── Sales Pipeline funnel + side stats ─────────────── */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
+        {/* ─── Active Jobs + Top Bottlenecks ────────────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-bold text-omega-charcoal">Active Jobs</h2>
+                <p className="text-xs text-omega-stone mt-0.5">In-progress projects ranked by contract value</p>
+              </div>
+              {data.inProgressJobs.length === 6 && (
+                <span className="text-[11px] font-bold text-omega-stone uppercase tracking-wider">
+                  Top 6 of {data.activeJobsCount}
+                </span>
+              )}
+            </div>
+            {data.inProgressJobs.length === 0 ? (
+              <p className="text-sm text-omega-stone italic py-8 text-center">
+                No jobs are currently in progress.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[600px]">
+                  <thead>
+                    <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
+                      <th className="text-left py-2 px-2">Job / Client</th>
+                      <th className="text-left py-2 px-2">Type</th>
+                      <th className="text-left py-2 px-2 w-[160px]">Progress</th>
+                      <th className="text-left py-2 px-2">Status</th>
+                      <th className="text-right py-2 px-2">Margin</th>
+                      <th className="w-6"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.inProgressJobs.map((j) => {
+                      const bucket = marginBucket(j.margin);
+                      return (
+                        <tr
+                          key={j.id}
+                          onClick={() => onSelectJob?.(j.raw)}
+                          className="border-t border-gray-100 hover:bg-omega-cloud/40 cursor-pointer"
+                        >
+                          <td className="py-2.5 px-2">
+                            <p className="font-bold text-omega-charcoal text-sm truncate max-w-[220px]">
+                              {j.client_name || 'Untitled'}
+                            </p>
+                            {j.address && (
+                              <p className="text-[11px] text-omega-stone truncate max-w-[220px]">{j.address}</p>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-xs">
+                            {j.service && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase text-[10px]">
+                                {j.service}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                                <div className="h-full bg-omega-orange" style={{ width: `${j.progress}%` }} />
+                              </div>
+                              <span className="text-xs font-bold text-omega-charcoal tabular-nums w-9 text-right">{j.progress}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${bucket.cls}`}>
+                              {bucket.label}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right text-sm font-bold text-omega-charcoal tabular-nums">
+                            {j.margin == null ? '—' : `${j.margin >= 0 ? '+' : ''}${j.margin.toFixed(0)}%`}
+                          </td>
+                          <td className="py-2.5 px-2 text-omega-stone">
+                            <ArrowRight className="w-4 h-4" />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <BottlenecksPanel bottlenecks={data.bottlenecks} />
+        </section>
+
+        {/* ─── Sales Pipeline + Salesman + Marketing ────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+            <div className="mb-4">
               <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
               <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} funnel</p>
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6">
             <Funnel
               steps={[
-                { label: 'Leads',         value: data.funnel.leadsCount,   color: '#A78BFA' }, // violet-400
-                { label: 'Appointments',  value: data.funnel.monthAppts,   color: '#60A5FA' }, // blue-400
-                { label: 'Estimates Sent', value: data.funnel.monthEstSent, color: '#FB923C' }, // orange-400
-                { label: 'Closed Won',    value: data.funnel.monthClosed,  color: '#34D399' }, // emerald-400
+                { label: 'Leads',          value: data.funnel.leadsCount,   color: '#A78BFA' },
+                { label: 'Appointments',   value: data.funnel.monthAppts,   color: '#60A5FA' },
+                { label: 'Estimates Sent', value: data.funnel.monthEstSent, color: '#FB923C' },
+                { label: 'Closed Won',     value: data.funnel.monthClosed,  color: '#34D399' },
               ]}
             />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <SideStat
-                icon={Percent}
-                label="Conversion Rate"
-                value={fmtPct(data.funnel.conversionRate)}
-                delta={convDelta}
-                deltaSuffix={`vs ${lastMonthAbbr}`}
-              />
-              <SideStat
-                icon={GitBranch}
-                label="Pipeline Value"
-                value={fmtMoney(data.pipelineValue)}
-                delta={null}
-                deltaSuffix={`${data.funnel.leadsCount} new leads`}
-              />
-              <SideStat
-                icon={Banknote}
-                label="Avg Deal Size"
-                value={fmtMoney(data.funnel.avgDealSize)}
-                delta={avgDealDelta}
-                deltaSuffix={`vs ${lastMonthAbbr}`}
-              />
+            <div className="grid grid-cols-1 gap-2 mt-4 pt-4 border-t border-gray-100">
+              <SideStatRow icon={Percent}  label="Conversion Rate" value={fmtPct(data.funnel.conversionRate)} delta={convDelta} deltaSuffix={`vs ${lastMonthAbbr}`} />
+              <SideStatRow icon={GitBranch} label="Pipeline Value" value={fmtMoney(data.pipelineValue)} delta={null} deltaSuffix={`${data.funnel.leadsCount} new leads`} />
+              <SideStatRow icon={Banknote}  label="Avg Deal Size"  value={fmtMoney(data.funnel.avgDealSize)} delta={avgDealDelta} deltaSuffix={`vs ${lastMonthAbbr}`} />
             </div>
           </div>
-        </section>
 
-        {/* ─── Phase 2: Financial Overview chart ─────────────── */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-base font-bold text-omega-charcoal">Financial Overview</h2>
-              <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} — Revenue, Costs, Profit by day</p>
-            </div>
-            <div className="inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-omega-stone">
-              <Legend color="#22C55E" label="Revenue" />
-              <Legend color="#F97316" label="Costs" />
-              <Legend color="#1F2937" label="Profit" dashed />
-            </div>
-          </div>
-          <FinancialChart series={data.series} />
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-            <MiniStat label="Total Revenue" value={fmtMoney(data.revenueMTD)} positive />
-            <MiniStat label="Total Costs"   value={fmtMoney(data.costsMTD)}   tone="orange" />
-            <MiniStat label="Total Profit"  value={fmtMoney(data.profitMTD)}  positive={data.profitMTD >= 0} negative={data.profitMTD < 0} />
-            <MiniStat label="Profit Margin" value={
-              data.revenueMTD === 0 ? '—' : `${((data.profitMTD / data.revenueMTD) * 100).toFixed(1)}%`
-            } positive />
-          </div>
-        </section>
-
-        {/* ─── Phase 2: Salesman / Marketing / Cash & Payments ── */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <SalesmanPerformance salesmen={data.salesmen} />
           <MarketingOverview marketing={data.marketing} total={data.marketingTotal} best={data.bestChannel} />
+        </section>
+
+        {/* ─── Cash & Payments + Action Center ──────────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <CashAndPayments payments={data.payments} qbConnected={data.qbConnected} />
+          <ActionCenter actions={data.actions} />
         </section>
 
         <p className="text-[11px] text-omega-stone text-center pt-2">
@@ -811,6 +1000,167 @@ function SideStat({ icon: Icon, label, value, delta, deltaSuffix }) {
           {delta?.positive === false ? <TrendingDown className="w-3 h-3 inline mr-0.5" /> : delta ? <TrendingUp className="w-3 h-3 inline mr-0.5" /> : null}
           {delta?.text}{delta && deltaSuffix ? ' ' : ''}{deltaSuffix}
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Side stat row — used inside the narrow Sales Pipeline col ──
+function SideStatRow({ icon: Icon, label, value, delta, deltaSuffix }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon className="w-3.5 h-3.5 text-omega-orange flex-shrink-0" />
+        <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone truncate">{label}</span>
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-sm font-black text-omega-charcoal tabular-nums">{value}</p>
+        {(delta || deltaSuffix) && (
+          <p className={`text-[10px] font-semibold ${
+            delta?.positive === false ? 'text-red-600' : delta ? 'text-emerald-600' : 'text-omega-stone'
+          }`}>
+            {delta?.text}{delta && deltaSuffix ? ' ' : ''}{deltaSuffix}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Alerts panel ────────────────────────────────────────────────
+function AlertsPanel({ alerts }) {
+  const tones = {
+    red:    { iconBg: 'bg-red-100',     iconColor: 'text-red-600' },
+    amber:  { iconBg: 'bg-amber-100',   iconColor: 'text-amber-600' },
+    blue:   { iconBg: 'bg-blue-100',    iconColor: 'text-blue-600' },
+    orange: { iconBg: 'bg-orange-100',  iconColor: 'text-orange-600' },
+    violet: { iconBg: 'bg-violet-100',  iconColor: 'text-violet-600' },
+  };
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-bold text-omega-charcoal">Alerts &amp; Notifications</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">{alerts.length}</span>
+      </div>
+      {alerts.length === 0 ? (
+        <p className="text-sm text-omega-stone italic py-6 text-center">All clear. Nothing needs your attention.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {alerts.map((a) => {
+            const t = tones[a.tone] || tones.red;
+            return (
+              <li key={a.id} className="py-2.5 flex items-start gap-3">
+                <span className={`w-9 h-9 rounded-lg ${t.iconBg} ${t.iconColor} inline-flex items-center justify-center flex-shrink-0 font-black text-sm`}>
+                  {a.count}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-omega-charcoal truncate">{a.title}</p>
+                  <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-omega-stone flex-shrink-0 mt-1" />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Bottlenecks panel ───────────────────────────────────────────
+function BottlenecksPanel({ bottlenecks }) {
+  const tones = {
+    red:    { iconBg: 'bg-red-100',     iconColor: 'text-red-600' },
+    amber:  { iconBg: 'bg-amber-100',   iconColor: 'text-amber-600' },
+    blue:   { iconBg: 'bg-blue-100',    iconColor: 'text-blue-600' },
+    orange: { iconBg: 'bg-orange-100',  iconColor: 'text-orange-600' },
+    violet: { iconBg: 'bg-violet-100',  iconColor: 'text-violet-600' },
+  };
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-bold text-omega-charcoal">Top Bottlenecks</h2>
+      </div>
+      {bottlenecks.length === 0 ? (
+        <p className="text-sm text-omega-stone italic py-6 text-center">No bottlenecks detected. 🎉</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {bottlenecks.map((b) => {
+            const t = tones[b.tone] || tones.amber;
+            return (
+              <li key={b.id} className="py-2.5 flex items-center gap-3">
+                <span className={`w-9 h-9 rounded-lg ${t.iconBg} ${t.iconColor} inline-flex items-center justify-center flex-shrink-0`}>
+                  <AlertOctagon className="w-4 h-4" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-omega-charcoal truncate">{b.title}</p>
+                  <p className="text-[11px] text-omega-stone truncate">{b.subtitle}</p>
+                </div>
+                <span className="text-base font-black text-omega-charcoal tabular-nums">{b.count}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Action Center ───────────────────────────────────────────────
+function ActionCenter({ actions }) {
+  const priorityCls = {
+    high:   'bg-red-100 text-red-700 border-red-200',
+    medium: 'bg-amber-100 text-amber-800 border-amber-200',
+    low:    'bg-gray-100 text-gray-700 border-gray-200',
+  };
+  const buttonCls = {
+    high:   'bg-omega-orange hover:bg-omega-dark text-white',
+    medium: 'border border-gray-200 hover:border-omega-orange text-omega-charcoal',
+    low:    'border border-gray-200 hover:border-omega-orange text-omega-charcoal',
+  };
+  const buttonLabel = (a) => {
+    if (a.icon === 'invoice') return 'Take Action';
+    if (a.icon === 'estimate') return 'Review';
+    if (a.icon === 'budget') return 'Review';
+    if (a.icon === 'call') return 'Call';
+    return 'View';
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-bold text-omega-charcoal">Action Center</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">
+          {actions.length} {actions.length === 1 ? 'item' : 'items'}
+        </span>
+      </div>
+      {actions.length === 0 ? (
+        <p className="text-sm text-omega-stone italic py-6 text-center">Inbox zero. Nothing pending.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {actions.map((a) => (
+            <li key={a.id} className="py-2.5 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-omega-charcoal truncate">{a.title}</p>
+                <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border flex-shrink-0 ${priorityCls[a.priority] || priorityCls.medium}`}>
+                {a.priority}
+              </span>
+              {a.due && (
+                <span className="text-[11px] font-semibold text-omega-stone tabular-nums flex-shrink-0">
+                  {new Date(a.due).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              )}
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex-shrink-0 ${buttonCls[a.priority] || buttonCls.medium}`}
+              >
+                {buttonLabel(a)}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
