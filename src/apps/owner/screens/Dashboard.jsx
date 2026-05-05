@@ -151,6 +151,7 @@ export default function Dashboard({ user, onSelectJob }) {
           qbResp,
           milestonesResp,
           materialsResp,
+          spendResp,
         ] = await Promise.all([
           supabase
             .from('jobs')
@@ -194,6 +195,12 @@ export default function Dashboard({ user, onSelectJob }) {
             .select('id, job_id, status, added_at, name')
             .eq('status', 'needed')
             .limit(2000),
+          // Marketing spend for the current month — drives Cost per
+          // Lead in the Marketing Overview panel.
+          supabase
+            .from('marketing_spend')
+            .select('channel, amount')
+            .eq('period_start', `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`),
         ]);
 
         if (!active) return;
@@ -422,14 +429,31 @@ export default function Dashboard({ user, onSelectJob }) {
           leadsBySource.set(src, (leadsBySource.get(src) || 0) + 1);
         }
         const marketingTotal = monthLeads.length;
+        const spendByChannel = new Map();
+        for (const s of (spendResp?.data || [])) {
+          spendByChannel.set(s.channel, Number(s.amount) || 0);
+        }
         const marketing = Array.from(leadsBySource.entries())
-          .map(([source, count]) => ({
-            source,
-            count,
-            pct: marketingTotal === 0 ? 0 : (count / marketingTotal) * 100,
-          }))
+          .map(([source, count]) => {
+            const spend = spendByChannel.get(source) || 0;
+            return {
+              source,
+              count,
+              pct: marketingTotal === 0 ? 0 : (count / marketingTotal) * 100,
+              spend,
+              cpl: count === 0 || spend === 0 ? null : spend / count,
+            };
+          })
           .sort((a, b) => b.count - a.count);
-        const bestChannel = marketing[0] || null;
+        const totalSpend = Array.from(spendByChannel.values()).reduce((s, v) => s + v, 0);
+        const overallCpl = marketingTotal === 0 || totalSpend === 0 ? null : totalSpend / marketingTotal;
+        // Best channel = lowest CPL among those with both spend AND
+        // leads. Falls back to highest count when no CPL data exists.
+        const cplCandidates = marketing.filter((m) => m.cpl != null);
+        const bestChannel = cplCandidates.length
+          ? cplCandidates.sort((a, b) => a.cpl - b.cpl)[0]
+          : (marketing[0] || null);
+        const bestByVolume = marketing[0] || null;
 
         // ─── Phase 2: Cash & Payments ───────────────────────────
         // Payments due this week, overdue, and upcoming receivables
@@ -679,7 +703,7 @@ export default function Dashboard({ user, onSelectJob }) {
           },
           series,
           salesmen,
-          marketing, marketingTotal, bestChannel,
+          marketing, marketingTotal, bestChannel, overallCpl, totalMarketingSpend: totalSpend,
           payments: { dueThisWeek, overdue, upcoming30, cashInBank: qbCash },
           alerts,
           bottlenecks,
@@ -944,7 +968,13 @@ export default function Dashboard({ user, onSelectJob }) {
           </div>
 
           <SalesmanPerformance salesmen={data.salesmen} />
-          <MarketingOverview marketing={data.marketing} total={data.marketingTotal} best={data.bestChannel} />
+          <MarketingOverview
+            marketing={data.marketing}
+            total={data.marketingTotal}
+            best={data.bestChannel}
+            overallCpl={data.overallCpl}
+            totalSpend={data.totalMarketingSpend}
+          />
         </section>
 
         {/* ─── Cash & Payments + Action Center ──────────────────── */}
@@ -1305,7 +1335,7 @@ function SalesmanPerformance({ salesmen }) {
 // ─── Marketing Overview — donut by lead source ───────────────────
 const MARKETING_COLORS = ['#3B82F6', '#F97316', '#22C55E', '#A78BFA', '#F43F5E', '#FACC15', '#06B6D4', '#9CA3AF'];
 
-function MarketingOverview({ marketing, total, best }) {
+function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
   // Donut math.
   const size = 140;
   const stroke = 22;
@@ -1345,24 +1375,46 @@ function MarketingOverview({ marketing, total, best }) {
               <text x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="10" fill="#9ca3af" fontWeight="700">Total Leads</text>
               <text x={size / 2} y={size / 2 + 18} textAnchor="middle" fontSize="22" fill="#1f2937" fontWeight="900">{total}</text>
             </svg>
-            <ul className="flex-1 min-w-0 space-y-1.5">
+            <ul className="flex-1 min-w-0 space-y-1">
               {marketing.slice(0, 6).map((m, i) => (
                 <li key={m.source} className="flex items-center gap-2 text-xs">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: MARKETING_COLORS[i % MARKETING_COLORS.length] }} />
                   <span className="flex-1 truncate text-omega-charcoal font-semibold">{m.source}</span>
-                  <span className="text-omega-stone tabular-nums">{m.count} ({Math.round(m.pct)}%)</span>
+                  <span className="text-omega-stone tabular-nums whitespace-nowrap">
+                    {m.count} {m.cpl != null && (
+                      <span className="text-[10px] text-omega-orange font-bold">· {fmtMoney(m.cpl)}/lead</span>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
-          {best && (
-            <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">Best Channel</p>
-              <p className="text-sm font-bold text-omega-charcoal">
-                {best.source} <span className="text-omega-stone font-normal">({Math.round(best.pct)}%)</span>
+          <div className="border-t border-gray-100 pt-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">Cost per Lead</p>
+              <p className="text-sm font-bold text-omega-charcoal tabular-nums">
+                {overallCpl == null ? '—' : fmtMoney(overallCpl)}
+                {totalSpend > 0 && (
+                  <span className="text-[10px] text-omega-stone font-normal ml-1">
+                    · {fmtMoney(totalSpend)} spent
+                  </span>
+                )}
               </p>
             </div>
-          )}
+            {best && (
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">Best Channel</p>
+                <p className="text-sm font-bold text-omega-charcoal">
+                  {best.source}
+                  {best.cpl != null && (
+                    <span className="text-omega-stone font-normal ml-1">
+                      ({fmtMoney(best.cpl)}/lead)
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
