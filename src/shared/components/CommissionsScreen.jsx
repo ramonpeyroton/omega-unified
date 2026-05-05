@@ -289,7 +289,7 @@ export default function CommissionsScreen({ user }) {
               {isAdmin
                 ? 'Full ledger. Click any column header to sort. Click Amount, %, or Paid to edit.'
                 : isReception
-                  ? 'One row per client. Use Payment Status to track each appointment.'
+                  ? 'One row per client. Amount sums every visit + signed bonus you earned.'
                   : 'Auto-generated when contracts are signed.'}
             </p>
           </div>
