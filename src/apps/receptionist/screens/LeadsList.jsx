@@ -63,7 +63,10 @@ const COLUMNS = [
   // Sortable so you can group everything yours-vs-mine in one click.
   { id: 'owner',    label: 'Owner',        get: (r) => r.lead_owner || '' },
   { id: 'project',  label: 'Project',      get: (r) => joinedServices(r) },
-  { id: 'appt',     label: 'Appt Date',    get: (r) => r.preferred_visit_date || '' },
+  // Effective appt date — earliest upcoming sales_visit event, or
+  // the lead's preferred_visit_date when no event exists yet.
+  // Loaded into row.appt_date_effective in the load() function.
+  { id: 'appt',     label: 'Appt Date',    get: (r) => r.appt_date_effective || '' },
   // Status column reflects LEAD_STATUS (Rafaela's tag), NOT
   // pipeline_status. Sort key is the label so A→Z grouping makes sense.
   { id: 'status',   label: 'Status',       get: (r) => (leadStatusMeta(r.lead_status)?.label || '') },
@@ -121,7 +124,46 @@ export default function LeadsList({ user, onBack }) {
 
       const { data, error } = await q;
       if (error) throw error;
-      setRows(data || []);
+
+      // Pull every sales_visit calendar event linked to one of the
+      // leads we just loaded. Then for each lead pick the EARLIEST
+      // upcoming visit (or, if no upcoming, the most recent past).
+      // This is what fills the "Appt Date" column — the previously
+      // shown jobs.preferred_visit_date is only ever set by the
+      // CSV import, so it was misleading when Rafa actually scheduled
+      // a visit through the Calendar.
+      const ids = (data || []).map((r) => r.id);
+      let apptByJob = {};
+      if (ids.length) {
+        const { data: events } = await supabase
+          .from('calendar_events')
+          .select('id, job_id, starts_at, kind')
+          .eq('kind', 'sales_visit')
+          .in('job_id', ids)
+          .order('starts_at', { ascending: true });
+        const now = Date.now();
+        const future = {};   // job_id → earliest upcoming
+        const past   = {};   // job_id → most recent past
+        for (const ev of (events || [])) {
+          if (!ev.job_id || !ev.starts_at) continue;
+          const t = new Date(ev.starts_at).getTime();
+          if (t >= now) {
+            // events came sorted asc, so first hit per job IS the earliest.
+            if (!future[ev.job_id]) future[ev.job_id] = ev.starts_at;
+          } else {
+            past[ev.job_id] = ev.starts_at;
+          }
+        }
+        for (const jid of ids) apptByJob[jid] = future[jid] || past[jid] || null;
+      }
+
+      // Stamp each row with appt_date_effective so the COLUMNS getter
+      // and the cell render both read from the same source.
+      const decorated = (data || []).map((r) => ({
+        ...r,
+        appt_date_effective: apptByJob[r.id] || r.preferred_visit_date || null,
+      }));
+      setRows(decorated);
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to load leads' });
     } finally {
@@ -386,7 +428,11 @@ export default function LeadsList({ user, onBack }) {
                         {joinedServices(r) || <span className="text-omega-stone">—</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
-                        {r.preferred_visit_date ? fmtDateOnly(r.preferred_visit_date) : <span className="text-omega-stone">—</span>}
+                        {r.appt_date_effective
+                          ? (r.appt_date_effective.includes('T')
+                              ? new Date(r.appt_date_effective).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })
+                              : fmtDateOnly(r.appt_date_effective))
+                          : <span className="text-omega-stone">—</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {/* Inline-editable lead_status. Pill is the

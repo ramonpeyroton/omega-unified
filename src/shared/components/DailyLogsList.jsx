@@ -168,34 +168,34 @@ export default function DailyLogsList({ user, onOpenJob }) {
     <div className="px-2 pb-2 space-y-0.5 max-h-[55vh] overflow-y-auto">
       <div className="flex items-center gap-1 sticky top-0 bg-omega-charcoal pt-1 pb-1.5 z-10">
         <div className="relative flex-1">
-          <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter…"
-            className="w-full pl-6 pr-2 py-1 text-[11px] rounded bg-white/5 text-white placeholder-white/30 border border-white/10 focus:border-omega-orange focus:outline-none"
+            className="w-full pl-7 pr-2 py-1.5 text-[12px] rounded bg-white/5 text-white placeholder-white/30 border border-white/10 focus:border-omega-orange focus:outline-none"
           />
         </div>
         <button
           type="button"
           onClick={() => setUnreadOnly((u) => !u)}
           title={unreadOnly ? 'Showing unread only' : 'Show unread only'}
-          className={`p-1 rounded transition-colors ${
+          className={`p-1.5 rounded transition-colors ${
             unreadOnly
               ? 'bg-omega-orange text-white'
               : 'bg-white/5 text-white/60 hover:bg-white/10'
           }`}
         >
-          <BellRing className="w-3 h-3" />
+          <BellRing className="w-3.5 h-3.5" />
         </button>
       </div>
 
       {loading && (
-        <p className="text-[10px] text-white/40 italic px-2 py-1">Loading…</p>
+        <p className="text-[12px] text-white/40 italic px-2 py-1">Loading…</p>
       )}
 
       {!loading && visible.length === 0 && (
-        <p className="text-[10px] text-white/40 italic px-2 py-1">
+        <p className="text-[12px] text-white/40 italic px-2 py-1">
           {unreadOnly ? 'No unread.' : 'No projects yet.'}
         </p>
       )}
@@ -205,7 +205,7 @@ export default function DailyLogsList({ user, onOpenJob }) {
           key={j.id}
           type="button"
           onClick={() => onOpenJob?.(j)}
-          className={`w-full text-left flex items-center gap-2 px-2 py-1 rounded text-[11px] transition-colors ${
+          className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-[13px] transition-colors ${
             j.isUnread
               ? 'text-white font-bold hover:bg-white/10'
               : 'text-white/70 hover:bg-white/5'
@@ -215,7 +215,7 @@ export default function DailyLogsList({ user, onOpenJob }) {
           <span className="text-white/40 flex-shrink-0">#</span>
           <span className="flex-1 truncate">{j.label}</span>
           {j.isMentioned && (
-            <span className="text-[9px] font-bold text-white bg-omega-orange px-1.5 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold text-white bg-omega-orange px-1.5 py-0.5 rounded-full">
               @
             </span>
           )}
