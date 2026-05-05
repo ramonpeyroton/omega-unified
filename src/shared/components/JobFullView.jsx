@@ -12,6 +12,7 @@ import JobCostingSection from './JobCostingSection';
 import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
 import ProjectChat from './ProjectChat';
+import NativeProjectChat from './NativeProjectChat';
 import TimeTrackingSection from './TimeTrackingSection';
 import ProjectReportSection from './ProjectReportSection';
 import CostProjectionSection from './CostProjectionSection';
@@ -558,17 +559,22 @@ export default function JobFullView({
               <h2 className="text-lg font-bold text-omega-charcoal mb-4 inline-flex items-center gap-2">
                 <FileText className="w-4 h-4 text-omega-orange" /> Daily Logs
               </h2>
-              {/* Sprint 3 of the chat-per-project feature: this tab now
-                  renders the Slack channel linked to the job. The legacy
-                  structured DailyLogsSection (weather, workers on site,
-                  etc.) is intentionally kept in the codebase so we can
-                  surface that history again later if needed — it's just
-                  no longer the primary UX here. */}
-              <ProjectChat
-                job={job}
-                user={user}
-                onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-              />
+              {/* Two chat backends live behind this tab:
+                  • Native chat (chat_messages table + Supabase Realtime)
+                    — every NEW project from migration 043 onward, plus
+                    cold imports that have no slack_channel_id. Default
+                    going forward.
+                  • Slack chat (legacy) — projects whose slack_channel_id
+                    was set before the cutover. Stays until the import
+                    script runs (Sprint 6) and flips them to native.
+                  The job's `use_native_chat` boolean picks which one. */}
+              {job.use_native_chat
+                ? <NativeProjectChat job={job} user={user} />
+                : <ProjectChat
+                    job={job}
+                    user={user}
+                    onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+                  />}
             </div>
           )}
 
