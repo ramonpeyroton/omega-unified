@@ -24,6 +24,7 @@ const PENDING_VISIT_KEY = 'omega_receptionist_pending_visit';
 export default function ReceptionistApp({ user, onLogout }) {
   const [screen, setScreen] = useState('calendar');
   const [fullViewJob, setFullViewJob] = useState(null);
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   // Initial state — try to rehydrate a pending visit from sessionStorage
   // so a hard reload (or accidental click outside the form) doesn't drop
@@ -130,7 +131,7 @@ export default function ReceptionistApp({ user, onLogout }) {
         onLogout={onLogout}
         userName={user?.name}
         user={user}
-        onOpenJob={(job) => setFullViewJob(job)}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Sticky banner reminds the receptionist of any pending visit
@@ -149,9 +150,10 @@ export default function ReceptionistApp({ user, onLogout }) {
         <JobFullView
           job={fullViewJob}
           user={user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
     </div>

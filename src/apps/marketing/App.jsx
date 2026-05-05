@@ -13,6 +13,7 @@ export default function MarketingApp({ user, onLogout }) {
   const [tab, setTab] = useState('pipeline');
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [fullViewJob, setFullViewJob] = useState(null);
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -45,7 +46,7 @@ export default function MarketingApp({ user, onLogout }) {
               ? <ChevronDown className="w-4 h-4 text-white/60" />
               : <ChevronRight className="w-4 h-4 text-white/60" />}
           </button>
-          {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={(job) => setFullViewJob(job)} />}
+          {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }} />}
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">
@@ -67,9 +68,10 @@ export default function MarketingApp({ user, onLogout }) {
         <JobFullView
           job={fullViewJob}
           user={user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
 

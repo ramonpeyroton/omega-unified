@@ -28,6 +28,9 @@ export default function App({ user, onLogout }) {
   // cascade (Sprint 3 of the chat replacement). Independent from the
   // existing JobDetail screen so we don't disrupt the dashboard flow.
   const [fullViewJob, setFullViewJob] = useState(null);
+  // initial tab hint — used when the cascade opens a chat so we land
+  // on the Daily Logs tab instead of the default Report.
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -133,7 +136,7 @@ export default function App({ user, onLogout }) {
         notifCount={notifCount}
         userName={user.name}
         user={user}
-        onOpenJob={(job) => setFullViewJob(job)}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}
@@ -142,9 +145,10 @@ export default function App({ user, onLogout }) {
         <JobFullView
           job={fullViewJob}
           user={user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
       <JarvisChat user={user} />

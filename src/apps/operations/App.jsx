@@ -17,6 +17,7 @@ export default function App({ user, onLogout }) {
   const [screen, setScreen] = useState('dashboard');
   const [selectedJob, setSelectedJob] = useState(null);
   const [fullViewJob, setFullViewJob] = useState(null);
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   const navigate = (s) => setScreen(s);
 
@@ -70,7 +71,7 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user.name}
         user={user}
-        onOpenJob={(job) => setFullViewJob(job)}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}
@@ -79,9 +80,10 @@ export default function App({ user, onLogout }) {
         <JobFullView
           job={fullViewJob}
           user={user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
       <JarvisChat user={user} />

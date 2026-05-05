@@ -118,14 +118,22 @@ export default function JobFullView({
   // the host app can pre-fill its own NewJob form. Currently wired up
   // by the Sales app — Owner/Operations don't surface the button.
   onStartNewJobForClient,
+  // When the user opens this view from the Daily Logs sidebar cascade
+  // we want the chat tab to be selected immediately, not the default
+  // Report. Pass `initialTab="daily"` from those entry points; other
+  // openers (kanban click, JobOfTheDay 'Open', etc.) skip it and keep
+  // the legacy "land on report" behavior.
+  initialTab,
 }) {
   const [job, setJob] = useState(initialJob);
   // Report is the primary landing tab — it's why most people open the job.
   // For receptionist (READ_ONLY_BASIC_ROLES), we land on Details directly
-  // because that's the only tab they have.
-  const [tab, setTab] = useState(
-    READ_ONLY_BASIC_ROLES.has(user?.role) ? 'details' : 'report'
-  );
+  // because that's the only tab they have. An explicit `initialTab` from
+  // the caller wins over the role-based default.
+  const [tab, setTab] = useState(() => {
+    if (initialTab) return initialTab;
+    return READ_ONLY_BASIC_ROLES.has(user?.role) ? 'details' : 'report';
+  });
   const [estimate, setEstimate] = useState(null);
   const [contract, setContract] = useState(null);
   const [toast, setToast] = useState(null);

@@ -24,17 +24,22 @@ export default function App(props) {
   // it without prop drilling. The overlay renders above SalesRouter
   // and below Jarvis.
   const [fullViewJob, setFullViewJob] = useState(null);
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   return (
     <>
-      <SalesRouter {...props} onOpenJob={setFullViewJob} />
+      <SalesRouter
+        {...props}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
+      />
       {fullViewJob && (
         <JobFullView
           job={fullViewJob}
           user={props.user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
       <JarvisChat user={props.user} />

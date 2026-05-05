@@ -20,6 +20,7 @@ export default function App({ user, onLogout }) {
   const [selectedPhases, setSelectedPhases] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
   const [fullViewJob, setFullViewJob] = useState(null);
+  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   const handleLogout = () => { onLogout(); };
   const navigate = (s) => {
@@ -134,7 +135,7 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user?.name}
         user={user}
-        onOpenJob={(job) => setFullViewJob(job)}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
       />
       {/* pb-16 on mobile leaves room for the bottom-bar navigation */}
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
@@ -145,9 +146,10 @@ export default function App({ user, onLogout }) {
         <JobFullView
           job={fullViewJob}
           user={user}
-          onClose={() => setFullViewJob(null)}
+          initialTab={fullViewInitialTab}
+          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => setFullViewJob(null)}
+          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
       <JarvisChat user={user} />
