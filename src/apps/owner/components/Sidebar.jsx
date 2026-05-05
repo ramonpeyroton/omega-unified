@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign, ClipboardList, MessageCircle } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
-import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 
 const NAV = [
   { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
@@ -19,9 +18,10 @@ const NAV = [
   { id: 'omega-brain',      label: 'Omega Brain',       icon: Brain },
   { id: 'subcontractors',   label: 'Subcontractors',    icon: Users },
   { id: 'notifications',    label: 'Notifications',     icon: Bell },
+  { id: 'daily-logs',       label: 'Daily Logs',        icon: MessageCircle },
 ];
 
-export default function Sidebar({ screen, onNavigate, onLogout, notifCount, userName, user, onOpenJob }) {
+export default function Sidebar({ screen, onNavigate, onLogout, notifCount, userName, user }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
@@ -80,8 +80,6 @@ export default function Sidebar({ screen, onNavigate, onLogout, notifCount, user
           </button>
         ))}
       </nav>
-
-      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button

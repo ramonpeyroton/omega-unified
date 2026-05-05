@@ -4,18 +4,17 @@ import PipelineKanban from '../../shared/components/PipelineKanban';
 import JarvisChat from '../../shared/components/JarvisChat';
 import LeadsList from '../receptionist/screens/LeadsList';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsCascade from '../../shared/components/DailyLogsCascade';
+import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 
 // Placeholder Marketing role — read-only pipeline + My Leads + the
-// new Daily Logs cascade so Ramon can chime in on project chats he's
-// a member of without leaving the marketing surface.
+// new full-page Daily Logs screen so Ramon can chime in on project
+// chats he's a member of without leaving the marketing surface.
 export default function MarketingApp({ user, onLogout }) {
   const [tab, setTab] = useState('pipeline');
   const [fullViewJob, setFullViewJob] = useState(null);
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
-      {/* Left rail — sidebar with the cascade pinned at the bottom. */}
       <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col">
         <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-omega-orange flex items-center justify-center flex-shrink-0">
@@ -28,11 +27,10 @@ export default function MarketingApp({ user, onLogout }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
-          <SidebarBtn active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={GitBranch} label="Pipeline" />
-          <SidebarBtn active={tab === 'leads'}    onClick={() => setTab('leads')}    icon={ClipboardList} label="My Leads" />
+          <SidebarBtn active={tab === 'pipeline'}    onClick={() => setTab('pipeline')}    icon={GitBranch}      label="Pipeline" />
+          <SidebarBtn active={tab === 'leads'}       onClick={() => setTab('leads')}       icon={ClipboardList}  label="My Leads" />
+          <SidebarBtn active={tab === 'daily-logs'}  onClick={() => setTab('daily-logs')}  icon={MessageCircle}  label="Daily Logs" />
         </nav>
-
-        <DailyLogsCascade user={user} onOpenJob={(job) => setFullViewJob(job)} />
 
         <div className="px-3 py-4 border-t border-white/10">
           <button
@@ -45,8 +43,9 @@ export default function MarketingApp({ user, onLogout }) {
       </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col">
-        {tab === 'pipeline' && <PipelineKanban user={user} readOnly />}
-        {tab === 'leads'    && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
+        {tab === 'pipeline'   && <PipelineKanban user={user} readOnly />}
+        {tab === 'leads'      && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
+        {tab === 'daily-logs' && <DailyLogsScreen user={user} onOpenJob={(job) => setFullViewJob(job)} />}
       </main>
 
       {fullViewJob && (

@@ -11,6 +11,7 @@ import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
+import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -57,6 +58,8 @@ export default function App({ user, onLogout }) {
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
       case 'commissions':
         return <CommissionsScreen user={user} />;
+      case 'daily-logs':
+        return <DailyLogsScreen user={user} onOpenJob={(job) => setFullViewJob(job)} />;
       default:
         return <Dashboard onOpenEstimate={openEstimate} onNavigate={navigate} user={user} />;
     }
@@ -70,7 +73,6 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user.name}
         user={user}
-        onOpenJob={(job) => setFullViewJob(job)}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}

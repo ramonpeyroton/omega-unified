@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Calendar, UserPlus, List, LogOut, GitBranch, DollarSign } from 'lucide-react';
+import { Calendar, UserPlus, List, LogOut, GitBranch, DollarSign, MessageCircle } from 'lucide-react';
 import Logo from './Logo';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
-import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 
 const NAV = [
   { id: 'calendar',  label: 'Calendar',  icon: Calendar  },
@@ -12,6 +11,7 @@ const NAV = [
   { id: 'new-lead',  label: 'New Lead',  icon: UserPlus  },
   { id: 'leads',     label: 'My Leads',  icon: List      },
   { id: 'commissions', label: 'Commissions', icon: DollarSign },
+  { id: 'daily-logs',  label: 'Daily Logs',  icon: MessageCircle },
 ];
 
 /**
@@ -20,7 +20,7 @@ const NAV = [
  * Calendar is intentionally on top: that's the default screen she lands
  * on after login so she can see the day before taking the next call.
  */
-export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
+export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
@@ -71,8 +71,6 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
           </button>
         ))}
       </nav>
-
-      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button

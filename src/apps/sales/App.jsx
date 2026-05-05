@@ -15,6 +15,7 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
+import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 import { ArrowLeft } from 'lucide-react';
 
@@ -225,6 +226,18 @@ function SalesRouter({ user, onLogout, onOpenJob }) {
           </button>
         </div>
         <CommissionsScreen user={user} />
+      </div>
+    );
+
+  if (screen === 'daily-logs')
+    return (
+      <div className="min-h-screen bg-omega-cloud flex flex-col">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button onClick={() => setScreen('home')} className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal">
+            <ArrowLeft className="w-4 h-4" /> Home
+          </button>
+        </div>
+        <DailyLogsScreen user={user} onOpenJob={onOpenJob} />
       </div>
     );
 

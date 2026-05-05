@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   PlusCircle, Bell, LogOut, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, ArrowRight, TrendingUp, TrendingDown, MapPin, Phone,
-  CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign,
+  CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign, MessageCircle,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
-import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 // ─── Date helpers ───────────────────────────────────────────────────
@@ -106,9 +105,10 @@ const NAV_ITEMS = [
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'calendar',      label: 'Calendar',      icon: CalendarIcon },
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },
+  { id: 'daily-logs',    label: 'Daily Logs',    icon: MessageCircle },
 ];
 
-function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
+function SalesSidebar({ activeId, onNavigate, user, onLogout }) {
   const [profileOpen, setProfileOpen] = useState(false);
   // Pulls the profile photo (and refresh fn for after Edit Profile)
   // from the same shared hook every other role's sidebar uses, so
@@ -163,8 +163,6 @@ function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
           </button>
         ))}
       </nav>
-
-      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button
@@ -240,7 +238,7 @@ function activityIconFor(kind) {
 // ────────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────────
-export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
+export default function Home({ user, onNavigate, onLogout }) {
   const [notifCount, setNotifCount] = useState(0);
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -393,7 +391,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
 
   return (
     <div className="flex min-h-screen bg-omega-cloud">
-      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
+      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} />
 
       <main className="flex-1 min-w-0">
         {/* Top bar: greeting + notifications + sign out */}

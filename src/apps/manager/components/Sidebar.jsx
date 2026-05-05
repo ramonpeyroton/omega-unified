@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch } from 'lucide-react';
+import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch, MessageCircle } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
-import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 
 // Punch List is per-job (reached from inside a job, not the sidebar).
 // The personal scratchpad "My Punch List" lives on the Today screen.
@@ -17,6 +16,7 @@ const NAV = [
   { id: 'calendar',      label: 'Calendar',      icon: Calendar },
   { id: 'warehouse',     label: 'Warehouse',     icon: Package },
   { id: 'notifications', label: 'Alerts',        icon: Bell },
+  { id: 'daily-logs',    label: 'Daily Logs',    icon: MessageCircle },
 ];
 
 /**
@@ -24,7 +24,7 @@ const NAV = [
  * Collapses to a bottom bar on small screens so Gabriel can still
  * thumb through it from the van — that's handled in CSS via Tailwind.
  */
-export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
+export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
@@ -81,8 +81,6 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
             </button>
           ))}
         </nav>
-
-        <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
         <div className="px-3 py-4 border-t border-white/10">
           <button
