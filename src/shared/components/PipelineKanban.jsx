@@ -631,7 +631,13 @@ export default function PipelineKanban({
     // pause here and pop a PIN modal so the user has to confirm with
     // their own PIN. The actual save runs from `confirmPendingMove`
     // once the PIN checks out.
-    if (PIN_GATED_PHASES.has(targetCol)) {
+    //
+    // ⚠️ Temporary bypass for Attila (role='sales'): Ramon asked for
+    // unrestricted drag rights so he can shuffle the historical
+    // pipeline (200+ cold leads) into their right columns without
+    // typing his PIN every single time. Revoke this exception once
+    // the cleanup is done — just remove the role check.
+    if (PIN_GATED_PHASES.has(targetCol) && user?.role !== 'sales') {
       setPendingMove({ activeJobId, previous, targetCol, newPosition, job });
       return;
     }
