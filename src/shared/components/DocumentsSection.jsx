@@ -41,6 +41,9 @@ const FOLDERS = [
   { id: 'checks',         label: 'Checks',         icon: CheckSquare     },
   { id: 'contracts',      label: 'Contracts',      icon: FileSignature   },
   { id: 'change_orders',  label: 'Change Orders',  icon: FileText        },
+  // Auto-populated from NativeProjectChat uploads (sprint 5). Users
+  // typically don't add to this folder manually — they just chat.
+  { id: 'daily_logs',     label: 'Daily Logs Media', icon: ImageIcon     },
 ];
 
 export default function DocumentsSection({ job, user, onJobUpdated }) {

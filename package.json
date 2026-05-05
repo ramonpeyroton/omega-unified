@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --port 5174",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import-slack": "node scripts/import-slack.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -20,7 +21,8 @@
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0"
+    "react-router-dom": "^6.22.0",
+    "yauzl": "^3.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

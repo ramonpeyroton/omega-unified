@@ -261,6 +261,21 @@ export default function NativeProjectChat({ job, user }) {
           size: pendingFile.size,
           name: pendingFile.name,
         }];
+
+        // Mirror the upload into job_documents under the daily_logs
+        // folder so the Documents tab grows an automatic archive of
+        // every image shared in the chat. Failure here is non-fatal —
+        // the chat send proceeds; worst case the user has the photo
+        // in chat history but not in the Documents folder.
+        try {
+          await supabase.from('job_documents').insert([{
+            job_id:      job.id,
+            folder:      'daily_logs',
+            title:       pendingFile.name || `Chat photo · ${new Date().toLocaleString('en-US')}`,
+            photo_url:   url,
+            uploaded_by: user?.name || null,
+          }]);
+        } catch { /* non-fatal */ }
       }
 
       const mentions = parseMentions(text, members);
