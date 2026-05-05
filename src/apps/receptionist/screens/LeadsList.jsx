@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock } from 'lucide-react';
+import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
-import { validateUserPin } from '../../../shared/lib/userPin';
+import { validateUserPinDetailed } from '../../../shared/lib/userPin';
 import { logAudit } from '../../../shared/lib/audit';
 import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES, LEAD_STATUSES, leadStatusMeta } from '../lib/leadCatalog';
 
@@ -553,18 +553,30 @@ function PipelineToggle({ on, onToggle }) {
 // is intentionally NOT gated — it's a positive action and the bar
 // to entry should stay low. The reverse (yanking a lead Attila has
 // been working) costs a few seconds of friction so it's deliberate.
+// Reason → friendly message. Surfaces the specific failure mode so
+// the user knows what to do next (re-login vs retype PIN).
+const PIN_REASON_MSG = {
+  empty_pin:    'Type your PIN to confirm.',
+  no_session:   'Your session looks stale — sign out and sign back in.',
+  wrong_pin:    'Wrong PIN — try again.',
+  role_mismatch:'PIN matches a different role. Sign out and sign back in.',
+  name_mismatch:'PIN belongs to another user — double-check the digits.',
+  query_failed: 'Network error talking to the server. Try again.',
+};
+
 function PipelinePinModal({ lead, user, onClose, onConfirm }) {
   const [pin, setPin] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
+  const [showPin, setShowPin] = useState(false);
 
   async function verify() {
     setError('');
     setVerifying(true);
     try {
-      const ok = await validateUserPin(user, pin);
-      if (!ok) {
-        setError('Wrong PIN — try again.');
+      const result = await validateUserPinDetailed(user, pin);
+      if (!result.ok) {
+        setError(PIN_REASON_MSG[result.reason] || 'Verification failed.');
         return;
       }
       await onConfirm();
@@ -603,20 +615,31 @@ function PipelinePinModal({ lead, user, onClose, onConfirm }) {
         >
           <input type="text" name="username" autoComplete="off" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1 }} />
           <input type="password" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1 }} />
-          <input
-            type="password"
-            inputMode="numeric"
-            name="omega-confirm-pin"
-            autoComplete="new-password"
-            data-form-type="other"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            autoFocus
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="Your PIN"
-            className="w-full px-3 py-3 rounded-xl border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none text-center text-lg tracking-[0.4em] font-bold"
-          />
+          <div className="relative">
+            <input
+              type={showPin ? 'text' : 'password'}
+              inputMode="numeric"
+              name="omega-confirm-pin"
+              autoComplete="new-password"
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              autoFocus
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="Your PIN"
+              className="w-full px-3 py-3 pr-12 rounded-xl border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none text-center text-lg tracking-[0.4em] font-bold"
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPin((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-omega-stone hover:text-omega-charcoal"
+              aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
+            >
+              {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
           {error && (
             <p className="mt-2 text-xs text-red-600 font-semibold">{error}</p>
           )}

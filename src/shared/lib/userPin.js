@@ -16,13 +16,35 @@
 
 import { supabase } from './supabase';
 
+// Returns true / false for legacy callers. For UIs that want a
+// human-readable reason on failure, call validateUserPinDetailed.
 export async function validateUserPin(user, pin) {
+  const result = await validateUserPinDetailed(user, pin);
+  return result.ok;
+}
+
+// Same logic as validateUserPin but returns { ok, reason } so the
+// caller can surface a specific error in the UI. Reasons:
+//   'empty_pin'      — caller passed nothing in the PIN field
+//   'no_session'     — user.role / user.name missing (stale session)
+//   'query_failed'   — Supabase query threw / errored
+//   'wrong_pin'      — no row in the users table matches that PIN
+//   'role_mismatch'  — found a row with the PIN but the role doesn't
+//                      match the logged-in user's role (different
+//                      person sharing the same PIN, or the session's
+//                      role is stale and needs a re-login)
+//   'name_mismatch'  — PIN + role match but name/username don't —
+//                      another user shares this PIN and role
+export async function validateUserPinDetailed(user, pin) {
   const cleaned = String(pin || '').trim();
-  if (!cleaned || !user?.role) return false;
+  if (!cleaned) return { ok: false, reason: 'empty_pin' };
+  if (!user?.role || !user?.name) {
+    return { ok: false, reason: 'no_session' };
+  }
 
   try {
     const handle = (user.name || '').trim();
-    if (!handle) return false;
+    if (!handle) return { ok: false, reason: 'no_session' };
     const handleLower = handle.toLowerCase();
 
     // Query by PIN only and filter client-side. The previous
@@ -58,7 +80,18 @@ export async function validateUserPin(user, pin) {
       })),
     });
 
-    if (!Array.isArray(data) || data.length === 0) return false;
+    if (error) return { ok: false, reason: 'query_failed' };
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, reason: 'wrong_pin' };
+    }
+
+    const roleMatchedRow = data.find((row) => row.role === user.role);
+    if (!roleMatchedRow) {
+      // PIN exists but for a different role — most often means the
+      // session has stale role data (user logged in months ago, role
+      // changed since). A re-login fixes it.
+      return { ok: false, reason: 'role_mismatch' };
+    }
 
     const match = data.find((row) => {
       if (row.role !== user.role) return false;
@@ -66,11 +99,11 @@ export async function validateUserPin(user, pin) {
       const usernameOk = (row.username || '').trim().toLowerCase() === handleLower;
       return nameOk || usernameOk;
     });
-    return !!match;
+    return match ? { ok: true } : { ok: false, reason: 'name_mismatch' };
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[validateUserPin] threw:', err);
-    return false;
+    return { ok: false, reason: 'query_failed' };
   }
 }
 
