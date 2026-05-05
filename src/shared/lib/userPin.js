@@ -23,14 +23,30 @@ export async function validateUserPin(user, pin) {
   try {
     const handle = (user.name || '').trim();
     if (!handle) return false;
+    const handleLower = handle.toLowerCase();
 
+    // Query by PIN only and filter client-side. The previous
+    // implementation tried to combine `.eq('pin', x).or(name.ilike.X,
+    // username.eq.x)` in a single query, but PostgREST's .or() parser
+    // breaks when the value contains spaces — and "Rafaela Costa"
+    // does. The query returned zero rows even with the correct PIN.
+    // Fetching by PIN alone is fine (few users will ever share one)
+    // and filtering by role+name in JS is bulletproof.
     const { data } = await supabase
       .from('users')
       .select('id, name, username, role, pin')
       .eq('pin', cleaned)
-      .or(`name.ilike.${handle},username.eq.${handle.toLowerCase()}`)
-      .limit(1);
-    return Array.isArray(data) && !!data[0] && data[0].role === user.role;
+      .limit(20);
+
+    if (!Array.isArray(data) || data.length === 0) return false;
+
+    const match = data.find((row) => {
+      if (row.role !== user.role) return false;
+      const nameOk = (row.name || '').trim().toLowerCase() === handleLower;
+      const usernameOk = (row.username || '').trim().toLowerCase() === handleLower;
+      return nameOk || usernameOk;
+    });
+    return !!match;
   } catch {
     // Schema drift or query failure — fail closed.
     return false;
