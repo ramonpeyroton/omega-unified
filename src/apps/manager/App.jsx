@@ -133,6 +133,7 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user?.name}
         user={user}
+        onOpenJob={(job) => setFullViewJob(job)}
       />
       {/* pb-16 on mobile leaves room for the bottom-bar navigation */}
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">

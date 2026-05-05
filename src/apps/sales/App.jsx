@@ -14,21 +14,35 @@ import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
+import JobFullView from '../../shared/components/JobFullView';
 import { useBackNavHome } from '../../shared/lib/backNav';
 import { ArrowLeft } from 'lucide-react';
 
 export default function App(props) {
-  // Render the screen tree, then overlay Jarvis so it appears on every
-  // Sales route without refactoring the existing state-based router.
+  // Sales JobFullView overlay — opened from the Daily Logs sidebar
+  // cascade. Lifted to the top-level App so any sub-route can trigger
+  // it without prop drilling. The overlay renders above SalesRouter
+  // and below Jarvis.
+  const [fullViewJob, setFullViewJob] = useState(null);
+
   return (
     <>
-      <SalesRouter {...props} />
+      <SalesRouter {...props} onOpenJob={setFullViewJob} />
+      {fullViewJob && (
+        <JobFullView
+          job={fullViewJob}
+          user={props.user}
+          onClose={() => setFullViewJob(null)}
+          onJobUpdated={(u) => setFullViewJob(u)}
+          onJobDeleted={() => setFullViewJob(null)}
+        />
+      )}
       <JarvisChat user={props.user} />
     </>
   );
 }
 
-function SalesRouter({ user, onLogout }) {
+function SalesRouter({ user, onLogout, onOpenJob }) {
   const [screen, setScreen] = useState('home');
   const [currentJob, setCurrentJob] = useState(null);
   const [reportJob, setReportJob] = useState(null);
@@ -60,7 +74,7 @@ function SalesRouter({ user, onLogout }) {
   });
 
   if (screen === 'home')
-    return <Home user={user} onNavigate={navigate} onLogout={handleLogout} />;
+    return <Home user={user} onNavigate={navigate} onLogout={handleLogout} onOpenJob={onOpenJob} />;
 
   if (screen === 'new-job')
     return (

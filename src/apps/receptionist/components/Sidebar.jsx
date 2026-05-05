@@ -4,6 +4,7 @@ import Logo from './Logo';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 
 const NAV = [
   { id: 'calendar',  label: 'Calendar',  icon: Calendar  },
@@ -19,7 +20,7 @@ const NAV = [
  * Calendar is intentionally on top: that's the default screen she lands
  * on after login so she can see the day before taking the next call.
  */
-export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
+export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
@@ -70,6 +71,8 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
           </button>
         ))}
       </nav>
+
+      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button

@@ -1,60 +1,81 @@
 import { useState } from 'react';
-import { LogOut, Megaphone, GitBranch, ClipboardList } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle } from 'lucide-react';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import JarvisChat from '../../shared/components/JarvisChat';
 import LeadsList from '../receptionist/screens/LeadsList';
+import JobFullView from '../../shared/components/JobFullView';
+import DailyLogsCascade from '../../shared/components/DailyLogsCascade';
 
-// Placeholder Marketing role — read-only pipeline view + My Leads
-// (so Ramon can scan the cold-leads pile when planning campaigns).
-// No financial data anywhere.
+// Placeholder Marketing role — read-only pipeline + My Leads + the
+// new Daily Logs cascade so Ramon can chime in on project chats he's
+// a member of without leaving the marketing surface.
 export default function MarketingApp({ user, onLogout }) {
   const [tab, setTab] = useState('pipeline');
+  const [fullViewJob, setFullViewJob] = useState(null);
 
   return (
-    <div className="flex flex-col h-screen bg-omega-cloud overflow-hidden">
-      <header className="bg-omega-charcoal text-white px-5 py-3 flex items-center justify-between">
-        <div className="inline-flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-omega-orange flex items-center justify-center">
-            <Megaphone className="w-4 h-4" />
+    <div className="flex h-screen bg-omega-cloud overflow-hidden">
+      {/* Left rail — sidebar with the cascade pinned at the bottom. */}
+      <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col">
+        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-omega-orange flex items-center justify-center flex-shrink-0">
+            <Megaphone className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-omega-fog font-semibold">Marketing</p>
-            <p className="text-sm font-bold">{user?.name || 'Marketing'}</p>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-widest text-omega-stone font-semibold">Marketing</p>
+            <p className="text-sm font-bold text-white truncate">{user?.name || 'Marketing'}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <TabButton active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={GitBranch} label="Pipeline" />
-          <TabButton active={tab === 'leads'}    onClick={() => setTab('leads')}    icon={ClipboardList} label="My Leads" />
+
+        <nav className="flex-1 px-3 py-4 space-y-1">
+          <SidebarBtn active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={GitBranch} label="Pipeline" />
+          <SidebarBtn active={tab === 'leads'}    onClick={() => setTab('leads')}    icon={ClipboardList} label="My Leads" />
+        </nav>
+
+        <DailyLogsCascade user={user} onOpenJob={(job) => setFullViewJob(job)} />
+
+        <div className="px-3 py-4 border-t border-white/10">
           <button
             onClick={onLogout}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 ml-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-omega-fog hover:bg-white/10 hover:text-white transition-all"
           >
-            <LogOut className="w-3.5 h-3.5" /> Sign Out
+            <LogOut className="w-4 h-4" /> Sign Out
           </button>
         </div>
-      </header>
+      </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col">
         {tab === 'pipeline' && <PipelineKanban user={user} readOnly />}
         {tab === 'leads'    && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
       </main>
 
+      {fullViewJob && (
+        <JobFullView
+          job={fullViewJob}
+          user={user}
+          onClose={() => setFullViewJob(null)}
+          onJobUpdated={(u) => setFullViewJob(u)}
+          onJobDeleted={() => setFullViewJob(null)}
+        />
+      )}
+
       <JarvisChat user={user} />
     </div>
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label }) {
+function SidebarBtn({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
         active
           ? 'bg-omega-orange text-white'
-          : 'bg-white/10 hover:bg-white/20 text-white'
+          : 'text-omega-fog hover:bg-white/10 hover:text-white'
       }`}
     >
-      <Icon className="w-3.5 h-3.5" /> {label}
+      <Icon className="w-4 h-4 flex-shrink-0" />
+      {label}
     </button>
   );
 }

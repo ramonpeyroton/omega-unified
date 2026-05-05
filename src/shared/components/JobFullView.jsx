@@ -3,7 +3,7 @@ import {
   ArrowLeft, Edit3, Save, X, Eye, EyeOff, Trash2, Calendar, MapPin, Phone, Mail,
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
   AlertCircle, DollarSign, Clock, Receipt, ArrowRight, TrendingUp, Info, MessageSquare,
-  FolderClosed, RotateCcw, UserPlus, Globe, Loader2, Plus, MoreHorizontal,
+  FolderClosed, RotateCcw, UserPlus, Globe, Loader2, Plus, MoreHorizontal, UsersRound,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
@@ -13,6 +13,7 @@ import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
 import ProjectChat from './ProjectChat';
 import NativeProjectChat from './NativeProjectChat';
+import ChatMembersModal from './ChatMembersModal';
 import TimeTrackingSection from './TimeTrackingSection';
 import ProjectReportSection from './ProjectReportSection';
 import CostProjectionSection from './CostProjectionSection';
@@ -133,6 +134,10 @@ export default function JobFullView({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => pickEditable(initialJob));
   const [saving, setSaving] = useState(false);
+
+  // Chat members modal — owner / operations / admin only.
+  const [membersModalOpen, setMembersModalOpen] = useState(false);
+  const canManageChatMembers = ['owner', 'operations', 'admin'].includes(user?.role || '');
 
   // Delete modal
   const [deleteModal, setDeleteModal] = useState(false);
@@ -556,9 +561,34 @@ export default function JobFullView({
 
           {tab === 'daily' && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-              <h2 className="text-lg font-bold text-omega-charcoal mb-4 inline-flex items-center gap-2">
-                <FileText className="w-4 h-4 text-omega-orange" /> Daily Logs
-              </h2>
+              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-omega-orange" /> Daily Logs
+                </h2>
+                {/* Members button — admin roles open the modal,
+                    everyone else gets a read-only summary chip. The
+                    chat_members ACL drives sidebar visibility, so
+                    even non-admin users benefit from seeing who
+                    can read this thread. */}
+                {Array.isArray(job.chat_members) && job.chat_members.length > 0 && (
+                  canManageChatMembers ? (
+                    <button
+                      type="button"
+                      onClick={() => setMembersModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-charcoal"
+                      title="Manage chat members"
+                    >
+                      <UsersRound className="w-3.5 h-3.5 text-omega-orange" />
+                      {job.chat_members.length} {job.chat_members.length === 1 ? 'member' : 'members'}
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-omega-pale text-xs font-bold text-omega-charcoal">
+                      <UsersRound className="w-3.5 h-3.5 text-omega-orange" />
+                      {job.chat_members.length} {job.chat_members.length === 1 ? 'member' : 'members'}
+                    </span>
+                  )
+                )}
+              </div>
               {/* Two chat backends live behind this tab:
                   • Native chat (chat_messages table + Supabase Realtime)
                     — every NEW project from migration 043 onward, plus
@@ -743,6 +773,15 @@ export default function JobFullView({
           )}
         </div>
       </div>
+
+      {membersModalOpen && (
+        <ChatMembersModal
+          job={job}
+          user={user}
+          onClose={() => setMembersModalOpen(false)}
+          onUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+        />
+      )}
 
       {/* ─── Delete-job confirmation ───────────────────────── */}
       {deleteModal && (

@@ -5,6 +5,7 @@ import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 
 const NAV = [
   { id: 'users',     label: 'Users & Access',    icon: Users },
@@ -20,7 +21,7 @@ const NAV = [
   { id: 'screen',    label: 'TV Dashboard',      icon: Monitor },
 ];
 
-export default function Sidebar({ screen, onNavigate, onLogout, userName, user }) {
+export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
@@ -74,6 +75,8 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user }
           </button>
         ))}
       </nav>
+
+      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button

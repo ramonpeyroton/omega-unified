@@ -16,6 +16,7 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
+import JobFullView from '../../shared/components/JobFullView';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -23,6 +24,10 @@ export default function App({ user, onLogout }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedPhases, setSelectedPhases] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
+  // JobFullView overlay — opened by clicks from the Daily Logs sidebar
+  // cascade (Sprint 3 of the chat replacement). Independent from the
+  // existing JobDetail screen so we don't disrupt the dashboard flow.
+  const [fullViewJob, setFullViewJob] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -128,10 +133,20 @@ export default function App({ user, onLogout }) {
         notifCount={notifCount}
         userName={user.name}
         user={user}
+        onOpenJob={(job) => setFullViewJob(job)}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}
       </main>
+      {fullViewJob && (
+        <JobFullView
+          job={fullViewJob}
+          user={user}
+          onClose={() => setFullViewJob(null)}
+          onJobUpdated={(u) => setFullViewJob(u)}
+          onJobDeleted={() => setFullViewJob(null)}
+        />
+      )}
       <JarvisChat user={user} />
     </div>
   );

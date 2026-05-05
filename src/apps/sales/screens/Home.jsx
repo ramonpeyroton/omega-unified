@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import DailyLogsCascade from '../../../shared/components/DailyLogsCascade';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 // ─── Date helpers ───────────────────────────────────────────────────
@@ -107,7 +108,7 @@ const NAV_ITEMS = [
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },
 ];
 
-function SalesSidebar({ activeId, onNavigate, user, onLogout }) {
+function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
   const [profileOpen, setProfileOpen] = useState(false);
   // Pulls the profile photo (and refresh fn for after Edit Profile)
   // from the same shared hook every other role's sidebar uses, so
@@ -162,6 +163,8 @@ function SalesSidebar({ activeId, onNavigate, user, onLogout }) {
           </button>
         ))}
       </nav>
+
+      <DailyLogsCascade user={user} onOpenJob={onOpenJob} />
 
       <div className="px-3 py-4 border-t border-white/10">
         <button
@@ -237,7 +240,7 @@ function activityIconFor(kind) {
 // ────────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────────
-export default function Home({ user, onNavigate, onLogout }) {
+export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   const [notifCount, setNotifCount] = useState(0);
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -390,7 +393,7 @@ export default function Home({ user, onNavigate, onLogout }) {
 
   return (
     <div className="flex min-h-screen bg-omega-cloud">
-      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} />
+      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
 
       <main className="flex-1 min-w-0">
         {/* Top bar: greeting + notifications + sign out */}

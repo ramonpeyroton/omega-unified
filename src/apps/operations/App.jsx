@@ -10,11 +10,13 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
+import JobFullView from '../../shared/components/JobFullView';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
   const [screen, setScreen] = useState('dashboard');
   const [selectedJob, setSelectedJob] = useState(null);
+  const [fullViewJob, setFullViewJob] = useState(null);
 
   const navigate = (s) => setScreen(s);
 
@@ -68,10 +70,20 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user.name}
         user={user}
+        onOpenJob={(job) => setFullViewJob(job)}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}
       </main>
+      {fullViewJob && (
+        <JobFullView
+          job={fullViewJob}
+          user={user}
+          onClose={() => setFullViewJob(null)}
+          onJobUpdated={(u) => setFullViewJob(u)}
+          onJobDeleted={() => setFullViewJob(null)}
+        />
+      )}
       <JarvisChat user={user} />
     </div>
   );
