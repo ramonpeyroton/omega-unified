@@ -26,18 +26,6 @@ import { logAudit } from '../lib/audit';
 
 const ADMIN_ROLES = new Set(['owner', 'operations', 'admin']);
 
-// Rafa's appointment status — five values mirroring the column from
-// her old spreadsheet. NULL means "not tagged yet" (cold backfilled
-// rows or freshly auto-created ones).
-const APPT_STATUS_META = {
-  booked:   { label: 'Booked',   cls: 'bg-blue-100 text-blue-800 border-blue-200' },
-  held:     { label: 'Held',     cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-  paid:     { label: 'PAID',     cls: 'bg-violet-100 text-violet-800 border-violet-200' },
-  no_show:  { label: 'No show',  cls: 'bg-red-100 text-red-800 border-red-200' },
-  canceled: { label: 'Canceled', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
-};
-const APPT_STATUS_OPTIONS = ['booked', 'held', 'paid', 'no_show', 'canceled'];
-
 const PIPELINE_LABEL = {
   new_lead:             'New Lead',
   estimate_draft:       'Estimate Draft',
@@ -275,9 +263,6 @@ export default function CommissionsScreen({ user }) {
     }
   }
 
-  async function setApptStatus(agg, value) {
-    await patchAggregate(agg, { appt_status: value || null });
-  }
   async function toggleAggregatePaid(agg) {
     if (!isAdmin) return;
     const next = !agg.paid;
@@ -372,7 +357,6 @@ export default function CommissionsScreen({ user }) {
               rows={receptionAgg}
               jobs={jobs}
               isAdmin={isAdmin}
-              onApptStatus={setApptStatus}
               onTogglePaid={toggleAggregatePaid}
             />
           </Section>
@@ -510,7 +494,7 @@ function SalesTable({ rows, jobs, isAdmin, onTogglePaid, onCommit }) {
 // ─── Receptionist consolidated table ──────────────────────────────
 // One row per (job_id, recipient_name). Amount = sum across the
 // underlying visit + signed commissions.
-function ReceptionTable({ rows, jobs, isAdmin, onApptStatus, onTogglePaid }) {
+function ReceptionTable({ rows, jobs, isAdmin, onTogglePaid }) {
   const [sortBy, setSortBy] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -524,14 +508,13 @@ function ReceptionTable({ rows, jobs, isAdmin, onApptStatus, onTogglePaid }) {
     const get = (r) => {
       const j = jobs[r.job_id] || {};
       switch (sortBy) {
-        case 'date':           return j.preferred_visit_date || j.signed_at || j.lead_date || r._trigger_at_max;
-        case 'client':         return j.client_name || '';
-        case 'pipeline':       return PIPELINE_LABEL[j.pipeline_status] || '';
-        case 'paymentStatus':  return r.appt_status ? APPT_STATUS_META[r.appt_status]?.label || '' : '';
-        case 'recipient':      return r.recipient_name || '';
-        case 'amount':         return Number(r.amount) || 0;
-        case 'paid':           return r.paid ? 1 : 0;
-        default:               return '';
+        case 'date':       return j.preferred_visit_date || j.signed_at || j.lead_date || r._trigger_at_max;
+        case 'client':     return j.client_name || '';
+        case 'pipeline':   return PIPELINE_LABEL[j.pipeline_status] || '';
+        case 'recipient':  return r.recipient_name || '';
+        case 'amount':     return Number(r.amount) || 0;
+        case 'paid':       return r.paid ? 1 : 0;
+        default:           return '';
       }
     };
     return [...rows].sort((a, b) => sign * cmp(get(a), get(b)));
@@ -539,23 +522,21 @@ function ReceptionTable({ rows, jobs, isAdmin, onApptStatus, onTogglePaid }) {
 
   return (
     <div className="overflow-x-auto bg-white rounded-2xl border border-gray-100 shadow-card">
-      <table className="w-full text-sm min-w-[1000px]">
+      <table className="w-full text-sm min-w-[860px]">
         <thead className="bg-omega-cloud">
           <tr>
-            <SortHeader label="Date"           columnId="date"          sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
-            <SortHeader label="Client"         columnId="client"        sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
-            <SortHeader label="Pipeline"       columnId="pipeline"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
-            <SortHeader label="Payment Status" columnId="paymentStatus" sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
-            <SortHeader label="Recipient"      columnId="recipient"     sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
-            <SortHeader label="Amount"         columnId="amount"        sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
-            <SortHeader label="Paid"           columnId="paid"          sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="center" />
+            <SortHeader label="Date"      columnId="date"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Client"    columnId="client"    sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Pipeline"  columnId="pipeline"  sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Recipient" columnId="recipient" sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortHeader label="Amount"    columnId="amount"    sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="right" />
+            <SortHeader label="Paid"      columnId="paid"      sortBy={sortBy} sortDir={sortDir} onClick={toggleSort} align="center" />
           </tr>
         </thead>
         <tbody>
           {sorted.map((r) => {
             const j = jobs[r.job_id] || {};
             const date = j.preferred_visit_date || j.signed_at || j.lead_date || r._trigger_at_max;
-            const apptMeta = r.appt_status ? APPT_STATUS_META[r.appt_status] : null;
             return (
               <tr key={`${r.job_id}::${r.recipient_name}`} className="border-b border-gray-100 hover:bg-omega-cloud/40">
                 <td className="px-3 py-2 text-xs text-omega-charcoal whitespace-nowrap">{fmtDate(date)}</td>
@@ -571,13 +552,6 @@ function ReceptionTable({ rows, jobs, isAdmin, onApptStatus, onTogglePaid }) {
                 </td>
                 <td className="px-3 py-2 text-xs">
                   <PipelinePill status={j.pipeline_status} />
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  <ApptStatusSelect
-                    value={r.appt_status || ''}
-                    meta={apptMeta}
-                    onChange={(v) => onApptStatus(r, v)}
-                  />
                 </td>
                 <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
                   {r.recipient_name}
@@ -616,26 +590,6 @@ function PipelinePill({ status }) {
     <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${tone}`}>
       {label}
     </span>
-  );
-}
-
-// ─── Inline Payment Status select (Rafa's appt_status) ───────────
-// Editable by all roles. Pill-shaped <select> with the option's tint
-// applied as background so it reads as a chip, not a form control.
-function ApptStatusSelect({ value, meta, onChange }) {
-  const cls = meta?.cls || 'bg-gray-100 text-omega-stone border-gray-200';
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border focus:outline-none focus:ring-2 focus:ring-omega-orange/40 cursor-pointer ${cls}`}
-    >
-      <option value="">— Set status —</option>
-      {APPT_STATUS_OPTIONS.map((s) => (
-        <option key={s} value={s}>{APPT_STATUS_META[s].label}</option>
-      ))}
-    </select>
   );
 }
 
