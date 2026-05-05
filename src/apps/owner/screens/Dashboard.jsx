@@ -195,12 +195,12 @@ export default function Dashboard({ user, onSelectJob }) {
             .select('id, job_id, status, added_at, name')
             .eq('status', 'needed')
             .limit(2000),
-          // Marketing spend for the current month — drives Cost per
-          // Lead in the Marketing Overview panel.
+          // Marketing spend per channel — single recurring monthly
+          // value (migration 049). Drives Cost per Lead in the
+          // Marketing Overview panel for every month.
           supabase
             .from('marketing_spend')
-            .select('channel, amount')
-            .eq('period_start', `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`),
+            .select('channel, monthly_amount'),
         ]);
 
         if (!active) return;
@@ -431,7 +431,7 @@ export default function Dashboard({ user, onSelectJob }) {
         const marketingTotal = monthLeads.length;
         const spendByChannel = new Map();
         for (const s of (spendResp?.data || [])) {
-          spendByChannel.set(s.channel, Number(s.amount) || 0);
+          spendByChannel.set(s.channel, Number(s.monthly_amount) || 0);
         }
         const marketing = Array.from(leadsBySource.entries())
           .map(([source, count]) => {
