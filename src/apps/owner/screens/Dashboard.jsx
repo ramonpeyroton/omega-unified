@@ -149,10 +149,11 @@ export default function Dashboard({ user, onSelectJob }) {
           expensesResp,
           eventsResp,
           qbResp,
+          milestonesResp,
         ] = await Promise.all([
           supabase
             .from('jobs')
-            .select('id, client_name, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date')
+            .select('id, client_name, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date, assigned_to')
             .limit(5000),
           supabase
             .from('estimates')
@@ -177,6 +178,11 @@ export default function Dashboard({ user, onSelectJob }) {
             .select('id, realm_id')
             .limit(1)
             .maybeSingle(),
+          // Payment milestones — drives the Cash & Payments block.
+          supabase
+            .from('payment_milestones')
+            .select('id, job_id, due_date, due_amount, received_amount, status')
+            .limit(5000),
         ]);
 
         if (!active) return;
@@ -352,6 +358,115 @@ export default function Dashboard({ user, onSelectJob }) {
         const lastConversion = lastLeads === 0 ? 0 : (lastClosed / lastLeads) * 100;
         const lastAvgDeal = lastClosed === 0 ? 0 : revenueLast / lastClosed;
 
+        // ─── Phase 2: Daily series for Financial Overview chart ──
+        // Bucket revenue + costs per calendar day from the 1st of
+        // the month through today. Days yet-to-come stay 0 for
+        // both — the chart line stops at today via the cutoff in
+        // FinancialChart.
+        const daysInRange = Math.ceil((end - start) / 86400000); // includes today
+        const series = Array.from({ length: daysInRange }, (_, i) => {
+          const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+          const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+          let revenue = 0;
+          for (const j of jobs) {
+            if (!SIGNED_PHASES.has(j.pipeline_status)) continue;
+            const est = latestEstByJob[j.id];
+            const ts = est?.signed_at ? new Date(est.signed_at) : new Date(j.updated_at || j.created_at);
+            if (ts >= day && ts < dayEnd) revenue += Number(est?.total_amount) || 0;
+          }
+          let cost = 0;
+          for (const e of expenses) {
+            if (!e.date) continue;
+            const [y, m, d] = e.date.split('-').map(Number);
+            if (y === day.getFullYear() && (m - 1) === day.getMonth() && d === day.getDate()) {
+              cost += Number(e.amount) || 0;
+            }
+          }
+          return { day: day.getDate(), revenue, cost, profit: revenue - cost };
+        });
+
+        // ─── Phase 2: Salesman Performance ──────────────────────
+        // Group MTD won jobs by assigned_to. Count + revenue + avg.
+        const salesByPerson = new Map();
+        for (const j of jobs) {
+          if (!WON_PHASES.has(j.pipeline_status)) continue;
+          const ts = new Date(j.updated_at || j.created_at);
+          if (ts < start || ts >= end) continue;
+          const name = j.assigned_to || 'Unassigned';
+          const est = latestEstByJob[j.id];
+          const amount = Number(est?.total_amount) || 0;
+          const acc = salesByPerson.get(name) || { name, count: 0, revenue: 0 };
+          acc.count += 1;
+          acc.revenue += amount;
+          salesByPerson.set(name, acc);
+        }
+        const salesmen = Array.from(salesByPerson.values())
+          .map((p) => ({ ...p, avg: p.count === 0 ? 0 : p.revenue / p.count }))
+          .sort((a, b) => b.revenue - a.revenue);
+
+        // ─── Phase 2: Marketing — leads by source MTD ───────────
+        const leadsBySource = new Map();
+        for (const j of monthLeads) {
+          const src = j.lead_source || 'Other';
+          leadsBySource.set(src, (leadsBySource.get(src) || 0) + 1);
+        }
+        const marketingTotal = monthLeads.length;
+        const marketing = Array.from(leadsBySource.entries())
+          .map(([source, count]) => ({
+            source,
+            count,
+            pct: marketingTotal === 0 ? 0 : (count / marketingTotal) * 100,
+          }))
+          .sort((a, b) => b.count - a.count);
+        const bestChannel = marketing[0] || null;
+
+        // ─── Phase 2: Cash & Payments ───────────────────────────
+        // Payments due this week, overdue, and upcoming receivables
+        // (next 30 days). All from payment_milestones.
+        const milestones = milestonesResp.data || [];
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const inSevenDays = new Date(today.getTime() + 7 * 86400000);
+        const inThirtyDays = new Date(today.getTime() + 30 * 86400000);
+        const graceDays = 3; // Brenda's overdue rule (matches Finance screen)
+        const overdueThreshold = new Date(today.getTime() - graceDays * 86400000);
+
+        let dueThisWeek = 0, overdue = 0, upcoming30 = 0;
+        for (const m of milestones) {
+          if (!m.due_date) continue;
+          if (m.status === 'paid') continue;
+          const remaining = (Number(m.due_amount) || 0) - (Number(m.received_amount) || 0);
+          if (remaining <= 0) continue;
+          const [yy, mm, dd] = m.due_date.split('-').map(Number);
+          const dueDate = new Date(yy, mm - 1, dd);
+
+          if (dueDate < overdueThreshold) {
+            overdue += remaining;
+          } else if (dueDate <= inSevenDays) {
+            dueThisWeek += remaining;
+          }
+          if (dueDate <= inThirtyDays && dueDate >= today) {
+            upcoming30 += remaining;
+          }
+        }
+
+        // ─── Phase 2: QuickBooks balance fetch (best-effort) ────
+        let qbCash = null;
+        if (qbConnected) {
+          try {
+            const r = await fetch('/api/quickbooks/balances');
+            if (r.ok) {
+              const j = await r.json();
+              const accounts = Array.isArray(j?.accounts) ? j.accounts : [];
+              // Sum bank-type accounts; ignore credit cards / other.
+              qbCash = accounts
+                .filter((a) => (a.type || '').toLowerCase() === 'bank')
+                .reduce((s, a) => s + (Number(a.currentBalance) || 0), 0);
+            }
+          } catch { /* leave qbCash null */ }
+        }
+        if (!active) return;
+
         setData({
           revenueMTD, revenueLast,
           profitMTD, profitLast,
@@ -359,13 +474,17 @@ export default function Dashboard({ user, onSelectJob }) {
           pipelineValue,
           closeRateMTD, closeRateLast,
           activeJobsCount, activeJobsLast,
-          qbConnected,
+          qbConnected, qbCash,
           inProgressJobs,
           funnel: {
             leadsCount, monthAppts, monthEstSent, monthClosed,
             conversionRate, avgDealSize,
             lastConversion, lastAvgDeal,
           },
+          series,
+          salesmen,
+          marketing, marketingTotal, bestChannel,
+          payments: { dueThisWeek, overdue, upcoming30, cashInBank: qbCash },
         });
       } catch (err) {
         if (active) setError(err?.message || 'Failed to load dashboard.');
@@ -461,9 +580,15 @@ export default function Dashboard({ user, onSelectJob }) {
             icon={Wallet}
             iconBg="bg-violet-100" iconColor="text-violet-600"
             label="Cash Available"
-            value="—"
+            value={data.qbCash != null ? fmtMoney(data.qbCash) : '—'}
             delta={null}
-            deltaSuffix={data.qbConnected ? 'Coming in Phase 2' : 'Connect QuickBooks'}
+            deltaSuffix={
+              data.qbCash != null
+                ? 'QuickBooks bank accounts'
+                : data.qbConnected
+                  ? 'Refreshing…'
+                  : 'Connect QuickBooks'
+            }
           />
           <KpiCard
             icon={GitBranch}
@@ -608,6 +733,37 @@ export default function Dashboard({ user, onSelectJob }) {
           </div>
         </section>
 
+        {/* ─── Phase 2: Financial Overview chart ─────────────── */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-base font-bold text-omega-charcoal">Financial Overview</h2>
+              <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} — Revenue, Costs, Profit by day</p>
+            </div>
+            <div className="inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-omega-stone">
+              <Legend color="#22C55E" label="Revenue" />
+              <Legend color="#F97316" label="Costs" />
+              <Legend color="#1F2937" label="Profit" dashed />
+            </div>
+          </div>
+          <FinancialChart series={data.series} />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <MiniStat label="Total Revenue" value={fmtMoney(data.revenueMTD)} positive />
+            <MiniStat label="Total Costs"   value={fmtMoney(data.costsMTD)}   tone="orange" />
+            <MiniStat label="Total Profit"  value={fmtMoney(data.profitMTD)}  positive={data.profitMTD >= 0} negative={data.profitMTD < 0} />
+            <MiniStat label="Profit Margin" value={
+              data.revenueMTD === 0 ? '—' : `${((data.profitMTD / data.revenueMTD) * 100).toFixed(1)}%`
+            } positive />
+          </div>
+        </section>
+
+        {/* ─── Phase 2: Salesman / Marketing / Cash & Payments ── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <SalesmanPerformance salesmen={data.salesmen} />
+          <MarketingOverview marketing={data.marketing} total={data.marketingTotal} best={data.bestChannel} />
+          <CashAndPayments payments={data.payments} qbConnected={data.qbConnected} />
+        </section>
+
         <p className="text-[11px] text-omega-stone text-center pt-2">
           All data is updated as of {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
         </p>
@@ -657,6 +813,251 @@ function SideStat({ icon: Icon, label, value, delta, deltaSuffix }) {
         </p>
       )}
     </div>
+  );
+}
+
+// ─── Mini stat used under the chart ──────────────────────────────
+function MiniStat({ label, value, tone = 'gray', positive = false, negative = false }) {
+  const cls = negative
+    ? 'text-red-600'
+    : positive
+      ? 'text-emerald-600'
+      : tone === 'orange'
+        ? 'text-orange-600'
+        : 'text-omega-charcoal';
+  return (
+    <div className="bg-omega-cloud/60 rounded-xl border border-gray-100 p-3">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">{label}</p>
+      <p className={`text-xl font-black tabular-nums mt-0.5 ${cls}`}>{value}</p>
+    </div>
+  );
+}
+
+function Legend({ color, label, dashed = false }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span
+        className="inline-block w-3 h-[2px]"
+        style={{
+          background: dashed ? `repeating-linear-gradient(to right, ${color} 0, ${color} 3px, transparent 3px, transparent 5px)` : color,
+        }}
+      />
+      {label}
+    </span>
+  );
+}
+
+// ─── Financial Overview chart — pure SVG line chart ──────────────
+// 3 series (Revenue / Costs / Profit) by day for the visible MTD
+// range. No charting library — keeps the bundle slim.
+function FinancialChart({ series }) {
+  const W = 920;
+  const H = 240;
+  const padX = 36;
+  const padY = 24;
+
+  if (!series || series.length === 0) {
+    return <div className="text-sm text-omega-stone italic py-12 text-center">No data yet.</div>;
+  }
+
+  const maxVal = Math.max(
+    1,
+    ...series.map((p) => Math.max(p.revenue, p.cost, Math.abs(p.profit))),
+  );
+  const minVal = Math.min(0, ...series.map((p) => p.profit));
+
+  const xFor = (i) => padX + (i * (W - padX * 2)) / Math.max(1, series.length - 1);
+  const yFor = (v) => {
+    const range = maxVal - minVal;
+    return padY + (1 - (v - minVal) / range) * (H - padY * 2);
+  };
+
+  const pathFor = (key) => series.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p[key])}`).join(' ');
+
+  // Y-axis labels — three reference lines at 0, mid, max.
+  const midVal = (maxVal + minVal) / 2;
+
+  const fmtAxis = (n) => {
+    if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}K`;
+    return `$${Math.round(n)}`;
+  };
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none">
+        {/* Reference horizontal lines */}
+        {[maxVal, midVal, 0].map((v, i) => (
+          <g key={i}>
+            <line
+              x1={padX} x2={W - padX}
+              y1={yFor(v)} y2={yFor(v)}
+              stroke="#e5e7eb" strokeDasharray="2 4"
+            />
+            <text x={6} y={yFor(v) + 4} fontSize="10" fill="#9ca3af">{fmtAxis(v)}</text>
+          </g>
+        ))}
+
+        {/* Lines */}
+        <path d={pathFor('revenue')} fill="none" stroke="#22C55E" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={pathFor('cost')}    fill="none" stroke="#F97316" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={pathFor('profit')}  fill="none" stroke="#1F2937" strokeWidth="2" strokeDasharray="4 3" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* X-axis: day numbers (every ~5 days) */}
+        {series.map((p, i) => {
+          const showLabel = i === 0 || i === series.length - 1 || (i + 1) % 5 === 0;
+          if (!showLabel) return null;
+          return (
+            <text key={i} x={xFor(i)} y={H - 4} fontSize="10" fill="#9ca3af" textAnchor="middle">
+              {p.day}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ─── Salesman Performance ────────────────────────────────────────
+function SalesmanPerformance({ salesmen }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <h2 className="text-base font-bold text-omega-charcoal mb-3">Salesman Performance</h2>
+      {salesmen.length === 0 ? (
+        <p className="text-sm text-omega-stone italic py-6 text-center">No closed deals this month.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[300px]">
+            <thead>
+              <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
+                <th className="text-left py-1.5">Salesman</th>
+                <th className="text-right py-1.5">Closed</th>
+                <th className="text-right py-1.5">Revenue</th>
+                <th className="text-right py-1.5">Avg Deal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {salesmen.map((s) => (
+                <tr key={s.name} className="border-t border-gray-100">
+                  <td className="py-2 text-sm font-bold text-omega-charcoal truncate max-w-[140px]">{s.name}</td>
+                  <td className="py-2 text-right text-sm tabular-nums">{s.count}</td>
+                  <td className="py-2 text-right text-sm tabular-nums">{fmtMoney(s.revenue)}</td>
+                  <td className="py-2 text-right text-sm tabular-nums">{fmtMoney(s.avg)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Marketing Overview — donut by lead source ───────────────────
+const MARKETING_COLORS = ['#3B82F6', '#F97316', '#22C55E', '#A78BFA', '#F43F5E', '#FACC15', '#06B6D4', '#9CA3AF'];
+
+function MarketingOverview({ marketing, total, best }) {
+  // Donut math.
+  const size = 140;
+  const stroke = 22;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <h2 className="text-base font-bold text-omega-charcoal mb-3">Marketing Overview</h2>
+      {marketing.length === 0 ? (
+        <p className="text-sm text-omega-stone italic py-6 text-center">No leads logged this month.</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-4 mb-3">
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+              {/* Background ring */}
+              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f3f4f6" strokeWidth={stroke} />
+              {marketing.map((m, i) => {
+                const len = (m.pct / 100) * c;
+                const seg = (
+                  <circle
+                    key={m.source}
+                    cx={size / 2} cy={size / 2} r={r}
+                    fill="none"
+                    stroke={MARKETING_COLORS[i % MARKETING_COLORS.length]}
+                    strokeWidth={stroke}
+                    strokeDasharray={`${len} ${c - len}`}
+                    strokeDashoffset={-offset}
+                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                  />
+                );
+                offset += len;
+                return seg;
+              })}
+              {/* Center label */}
+              <text x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="10" fill="#9ca3af" fontWeight="700">Total Leads</text>
+              <text x={size / 2} y={size / 2 + 18} textAnchor="middle" fontSize="22" fill="#1f2937" fontWeight="900">{total}</text>
+            </svg>
+            <ul className="flex-1 min-w-0 space-y-1.5">
+              {marketing.slice(0, 6).map((m, i) => (
+                <li key={m.source} className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: MARKETING_COLORS[i % MARKETING_COLORS.length] }} />
+                  <span className="flex-1 truncate text-omega-charcoal font-semibold">{m.source}</span>
+                  <span className="text-omega-stone tabular-nums">{m.count} ({Math.round(m.pct)}%)</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {best && (
+            <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">Best Channel</p>
+              <p className="text-sm font-bold text-omega-charcoal">
+                {best.source} <span className="text-omega-stone font-normal">({Math.round(best.pct)}%)</span>
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Cash & Payments block ───────────────────────────────────────
+function CashAndPayments({ payments, qbConnected }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
+      <h2 className="text-base font-bold text-omega-charcoal mb-3">Cash & Payments</h2>
+      <ul className="space-y-2">
+        <PayRow icon={Wallet}    iconColor="text-violet-600" label="Cash in Bank"
+          value={payments.cashInBank != null ? fmtMoney(payments.cashInBank) : '—'}
+          hint={qbConnected ? null : 'Connect QuickBooks'}
+        />
+        <PayRow icon={Banknote}  iconColor="text-amber-600" label="Payments Due This Week"
+          value={fmtMoney(payments.dueThisWeek)} valueClass="text-amber-700"
+        />
+        <PayRow icon={DollarSign} iconColor="text-red-600"  label="Overdue Payments"
+          value={fmtMoney(payments.overdue)} valueClass="text-red-700"
+        />
+        <PayRow icon={TrendingUp} iconColor="text-emerald-600" label="Upcoming Receivables"
+          subtitle="Next 30 days"
+          value={fmtMoney(payments.upcoming30)} valueClass="text-emerald-700"
+        />
+      </ul>
+    </div>
+  );
+}
+
+function PayRow({ icon: Icon, iconColor, label, subtitle, value, valueClass = 'text-omega-charcoal', hint }) {
+  return (
+    <li className="flex items-center justify-between gap-2 py-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`w-8 h-8 rounded-lg bg-omega-cloud/60 inline-flex items-center justify-center flex-shrink-0 ${iconColor}`}>
+          <Icon className="w-4 h-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold text-omega-charcoal truncate">{label}</p>
+          {(subtitle || hint) && <p className="text-[10px] text-omega-stone truncate">{subtitle || hint}</p>}
+        </div>
+      </div>
+      <p className={`text-sm font-bold tabular-nums flex-shrink-0 ${valueClass}`}>{value}</p>
+    </li>
   );
 }
 
