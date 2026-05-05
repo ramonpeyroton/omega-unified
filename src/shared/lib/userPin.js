@@ -32,11 +32,31 @@ export async function validateUserPin(user, pin) {
     // does. The query returned zero rows even with the correct PIN.
     // Fetching by PIN alone is fine (few users will ever share one)
     // and filtering by role+name in JS is bulletproof.
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('users')
       .select('id, name, username, role, pin')
       .eq('pin', cleaned)
       .limit(20);
+
+    // Temporary diagnostic log — Rafaela's pin gate kept rejecting
+    // even after the .or() fix. Logs the raw rows, the expected
+    // handle/role, and which check failed for each row so the
+    // mismatch is visible in the user's devtools console. Remove
+    // once the cause is confirmed.
+    // eslint-disable-next-line no-console
+    console.debug('[validateUserPin]', {
+      input: { handle, handleLower, role: user.role, pinLength: cleaned.length },
+      query: { error, rowCount: Array.isArray(data) ? data.length : 0 },
+      rows: (data || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        username: r.username,
+        role: r.role,
+        roleMatch: r.role === user.role,
+        nameMatch: (r.name || '').trim().toLowerCase() === handleLower,
+        usernameMatch: (r.username || '').trim().toLowerCase() === handleLower,
+      })),
+    });
 
     if (!Array.isArray(data) || data.length === 0) return false;
 
@@ -47,8 +67,9 @@ export async function validateUserPin(user, pin) {
       return nameOk || usernameOk;
     });
     return !!match;
-  } catch {
-    // Schema drift or query failure — fail closed.
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[validateUserPin] threw:', err);
     return false;
   }
 }
