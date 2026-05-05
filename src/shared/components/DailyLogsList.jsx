@@ -24,13 +24,29 @@ const ACTIVE_PHASES = new Set([
   'in_progress',
 ]);
 
-// Slack-style channel slug from a client name.
-function slugify(name) {
-  return (name || 'untitled')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 36);
+// Channel-style label like "#BrendaDasilva - 855 MainSt".
+// Client name → CamelCase concatenated. Address → first segment only
+// (street line, not city/state), with the first token (typically the
+// house number) preserved as-is + the rest CamelCase'd. Falls back
+// to just the client part when there's no address yet.
+function fmtChatLabel(client, address) {
+  const camelCase = (s) => (s || '')
+    .replace(/[^\w\s]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join('');
+
+  const clientPart = camelCase(client) || 'Untitled';
+  const street = (address || '').split(',')[0].trim();
+  if (!street) return clientPart;
+
+  const tokens = street.split(/\s+/);
+  const first = tokens[0];
+  const restCC = tokens.slice(1)
+    .map((t) => (t[0] ? t[0].toUpperCase() + t.slice(1).toLowerCase() : ''))
+    .join('');
+  return restCC ? `${clientPart} - ${first} ${restCC}` : `${clientPart} - ${first}`;
 }
 
 export default function DailyLogsList({ user, onOpenJob }) {
@@ -121,7 +137,7 @@ export default function DailyLogsList({ user, onOpenJob }) {
       const lastReadIso = reads[j.id];
       const isUnread = last && (!lastReadIso || new Date(last.created_at) > new Date(lastReadIso));
       const isMentioned = isUnread && Array.isArray(last.mentions) && last.mentions.includes(userName);
-      return { ...j, last, isUnread: !!isUnread, isMentioned: !!isMentioned, slug: slugify(j.client_name) };
+      return { ...j, last, isUnread: !!isUnread, isMentioned: !!isMentioned, label: fmtChatLabel(j.client_name, j.address) };
     });
   }, [jobs, latest, reads, userName]);
 
@@ -131,7 +147,8 @@ export default function DailyLogsList({ user, onOpenJob }) {
     if (needle) {
       out = out.filter((j) =>
         (j.client_name || '').toLowerCase().includes(needle) ||
-        (j.slug || '').toLowerCase().includes(needle)
+        (j.label || '').toLowerCase().includes(needle) ||
+        (j.address || '').toLowerCase().includes(needle)
       );
     }
     if (unreadOnly) out = out.filter((j) => j.isUnread);
@@ -196,7 +213,7 @@ export default function DailyLogsList({ user, onOpenJob }) {
           title={j.client_name}
         >
           <span className="text-white/40 flex-shrink-0">#</span>
-          <span className="flex-1 truncate">{j.slug}</span>
+          <span className="flex-1 truncate">{j.label}</span>
           {j.isMentioned && (
             <span className="text-[9px] font-bold text-white bg-omega-orange px-1.5 py-0.5 rounded-full">
               @
