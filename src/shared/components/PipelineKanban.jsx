@@ -403,15 +403,24 @@ export default function PipelineKanban({
       // Migration 038 defaults the column to true, so existing data is
       // unaffected. Cold imports / manually-ejected rows have it false
       // and stay out of the kanban until Rafaela promotes them from
-      // My Leads. We tolerate the column being missing in a fresh
-      // env by falling back to the unfiltered query — same defensive
-      // pattern used for pipeline_position.
+      // My Leads.
+      //
+      // ⚠️ Temporary bypass for Attila (role='sales'): Ramon asked for
+      // unrestricted access so he can shuffle the historical pipeline
+      // (200+ cold leads) into their right columns. Sales sees ALL
+      // jobs including in_pipeline=false. Revoke once the cleanup
+      // pass is done — just remove the role check below.
+      //
+      // We tolerate the column being missing in a fresh env by falling
+      // back to the unfiltered query — same defensive pattern used for
+      // pipeline_position.
+      const showAllForSales = user?.role === 'sales';
+      const buildJobsQuery = (q) => showAllForSales ? q : q.eq('in_pipeline', true);
+
       const [jobsResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
         positionMigrationMissing
-          ? supabase.from('jobs').select('*').eq('in_pipeline', true).order('created_at', { ascending: false })
-          : supabase
-              .from('jobs').select('*')
-              .eq('in_pipeline', true)
+          ? buildJobsQuery(supabase.from('jobs').select('*')).order('created_at', { ascending: false })
+          : buildJobsQuery(supabase.from('jobs').select('*'))
               .order('pipeline_position', { ascending: true, nullsFirst: false })
               .order('created_at', { ascending: false }),
         supabase.from('estimates').select('*'),
@@ -424,8 +433,7 @@ export default function PipelineKanban({
         // Migration 028 hasn't been applied. Retry with legacy ordering
         // and remember so future refreshes skip the bad column straight away.
         setPositionMigrationMissing(true);
-        const fallback = await supabase
-          .from('jobs').select('*').eq('in_pipeline', true)
+        const fallback = await buildJobsQuery(supabase.from('jobs').select('*'))
           .order('created_at', { ascending: false });
         jobsData = fallback.data;
       } else if (jobsResp.error && /in_pipeline/.test(jobsResp.error.message || '')) {
@@ -658,12 +666,17 @@ export default function PipelineKanban({
     // load query (position ASC NULLS LAST, created_at DESC).
     setJobs((prev) =>
       sortJobsForKanban(prev.map((j) => (j.id === activeJobId
-        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition }
+        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition, in_pipeline: true }
         : j)))
     );
 
-    const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition };
-    const legacyPatch = { pipeline_status: targetCol };
+    // Dragging a card by definition puts it in the pipeline. Any cold
+    // lead Attila drags in becomes visible to everyone else (otherwise
+    // his bypass lets him see it but Brenda / Inácio still wouldn't).
+    // The trigger from migration 038 still flips it back to false on
+    // moves to estimate_rejected — that's the desired outcome.
+    const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition, in_pipeline: true };
+    const legacyPatch = { pipeline_status: targetCol, in_pipeline: true };
     let { error } = await supabase
       .from('jobs')
       .update(positionMigrationMissing ? legacyPatch : fullPatch)
