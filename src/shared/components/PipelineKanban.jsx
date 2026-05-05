@@ -326,10 +326,16 @@ function SortableJobCard({ id, children }) {
 // still register a hit area for cross-column drops.
 function DroppableColumn({ columnId, children, isOver }) {
   const { setNodeRef } = useDroppable({ id: columnId });
+  // ⚠️ min-h-[80vh]: empty columns used to collapse to ~200px,
+  // which made them tiny drop targets. When a populated column had
+  // 19 cards stretching the row, the user dragging from the bottom
+  // had nothing to drop on for the empty siblings — the cursor was
+  // way below their hit area. 80vh keeps every column at least the
+  // viewport's height so any cross-column drop has somewhere to land.
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-h-[200px] p-2 overflow-y-auto transition-all ${
+      className={`flex-1 min-h-[80vh] p-2 overflow-y-auto transition-all ${
         isOver ? 'ring-2 ring-omega-orange ring-inset rounded-2xl' : ''
       }`}
     >
