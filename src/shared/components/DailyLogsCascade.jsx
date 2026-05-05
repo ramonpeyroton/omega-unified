@@ -33,7 +33,9 @@ const ACTIVE_PHASES = new Set([
 ]);
 
 export default function DailyLogsCascade({ user, onOpenJob }) {
-  const [open, setOpen]         = useState(false);
+  // Defaulted to open per Ramon: he drew the blue rectangle around
+  // this area expecting the list to be visible without an extra click.
+  const [open, setOpen]         = useState(true);
   const [jobs, setJobs]         = useState([]);     // [{id, client_name, pipeline_status, ...}]
   const [reads, setReads]       = useState({});     // {job_id: last_read_at}
   const [latest, setLatest]     = useState({});     // {job_id: {created_at, mentions, body}}
@@ -193,9 +195,9 @@ export default function DailyLogsCascade({ user, onOpenJob }) {
       </button>
 
       {open && (
-        <div className="px-2 pb-2 space-y-1">
+        <div className="px-2 pb-2 space-y-1 max-h-[40vh] overflow-y-auto">
           {/* Search + filter */}
-          <div className="flex items-center gap-1 mb-1.5">
+          <div className="flex items-center gap-1 mb-1.5 sticky top-0 bg-omega-charcoal pt-1 pb-1.5 z-10">
             <div className="relative flex-1">
               <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
               <input
