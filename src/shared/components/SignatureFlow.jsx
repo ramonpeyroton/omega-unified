@@ -239,6 +239,38 @@ export default function SignatureFlow({
           <Kicker color="#15803d">Signature</Kicker>
           <img src={signed.png} alt="Signature" style={{ maxWidth: 320, display: 'block', marginTop: 6 }} />
         </div>
+
+        {/* Permanently visible (collapsible) record of the terms the
+            customer accepted. Before this section existed the disclaimer
+            text disappeared as soon as the 3-step flow collapsed into
+            this receipt — leaving Ramon to fish in the database to
+            confirm WHAT was acknowledged. Now it's right there, one
+            click away from both the customer and the team. */}
+        {disclaimers && (
+          <details style={{
+            background: 'white', border: '1px solid #bbf7d0', borderRadius: 6,
+            padding: '8px 12px', marginTop: 8, fontSize: 12,
+          }}>
+            <summary style={{
+              cursor: 'pointer', fontWeight: 700, color: '#15803d',
+              outline: 'none', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{ fontSize: 14 }}>📜</span>
+              View signed terms
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#166534' }}>
+                ({(disclaimers.match(/\*\*\d+\./g) || []).length || '12'} sections — acknowledged on signing)
+              </span>
+            </summary>
+            <div style={{
+              maxHeight: 360, overflowY: 'auto',
+              marginTop: 10, paddingTop: 10, borderTop: '1px solid #bbf7d0',
+              fontSize: 12, lineHeight: 1.55, color: '#1f2937',
+            }}>
+              {renderDisclaimers(disclaimers)}
+            </div>
+          </details>
+        )}
+
         <p style={{ fontSize: 11, color: '#166534', marginTop: 10 }}>
           Omega will send the final contract shortly with a payment schedule and deposit request.
           {companyPhone ? ` Questions: ${companyPhone}.` : ''}
