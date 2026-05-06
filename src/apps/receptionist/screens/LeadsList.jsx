@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock, Eye, EyeOff } from 'lucide-react';
+import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock, Eye, EyeOff, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
@@ -85,7 +85,7 @@ function compare(a, b) {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 }
 
-export default function LeadsList({ user, onBack }) {
+export default function LeadsList({ user, onBack, onOpenJob }) {
   const [filter, setFilter] = useState('all');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -419,7 +419,18 @@ export default function LeadsList({ user, onBack }) {
                         {r.client_phone || <span className="text-omega-stone">—</span>}
                       </td>
                       <td className="px-3 py-2 text-xs font-semibold text-omega-charcoal whitespace-nowrap">
-                        {r.client_name || <span className="text-omega-stone">—</span>}
+                        <div className="flex items-center gap-1.5">
+                          <span>{r.client_name || <span className="text-omega-stone">—</span>}</span>
+                          {onOpenJob && (
+                            <button
+                              onClick={() => onOpenJob(r)}
+                              title="Open job card"
+                              className="flex-shrink-0 p-0.5 rounded text-omega-stone hover:text-omega-orange hover:bg-omega-pale transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-xs text-omega-slate whitespace-nowrap">
                         {r.lead_owner || <span className="text-omega-stone italic">—</span>}

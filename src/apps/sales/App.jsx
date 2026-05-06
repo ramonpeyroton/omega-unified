@@ -217,7 +217,7 @@ function SalesRouter({ user, onLogout, onOpenJob }) {
             <ArrowLeft className="w-4 h-4" /> Home
           </button>
         </div>
-        <LeadsList user={user} onBack={() => setScreen('home')} />
+        <LeadsList user={user} onBack={() => setScreen('home')} onOpenJob={onOpenJob} />
       </div>
     );
 

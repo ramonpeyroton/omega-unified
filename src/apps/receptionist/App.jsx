@@ -102,6 +102,7 @@ export default function ReceptionistApp({ user, onLogout }) {
           user={user}
           onBack={() => navigate('new-lead')}
           onLogout={onLogout}
+          onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
         />
       );
     }
