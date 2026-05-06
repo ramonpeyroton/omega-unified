@@ -11,6 +11,7 @@ import MarketingApp from './apps/marketing/App';
 import ReceptionistApp from './apps/receptionist/App';
 import EstimateView from './apps/estimate-view/EstimateView';
 import EstimateOptionsView from './apps/estimate-view/EstimateOptionsView';
+import EstimateBundleView from './apps/estimate-view/EstimateBundleView';
 import SubOfferView from './apps/sub-offer/SubOfferView';
 import PrivacyPolicy from './public/PrivacyPolicy';
 import Terms from './public/Terms';
@@ -43,6 +44,8 @@ export default function App() {
   const isEstimateView    = pathname.startsWith('/estimate-view/');
   // Multi-option variant — customer sees N alternatives side-by-side and picks one.
   const isEstimateOptions = pathname.startsWith('/estimate-options/');
+  // Bundle variant — customer sees N estimates for different services, signs each independently.
+  const isEstimateBundle  = pathname.startsWith('/estimate-bundle/');
   // Public, auth-less page for subcontractors to Accept / Reject a job offer.
   const isSubOffer        = pathname.startsWith('/sub-offer/');
   // Public legal pages — linked from the Twilio A2P 10DLC campaign and
@@ -93,6 +96,10 @@ export default function App() {
 
   if (isEstimateOptions) {
     return <EstimateOptionsView />;
+  }
+
+  if (isEstimateBundle) {
+    return <EstimateBundleView />;
   }
 
   if (isSubOffer) {

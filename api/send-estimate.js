@@ -219,6 +219,84 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
 </body></html>`;
 }
 
+// Email for a multi-service bundle. Lists each service with its total
+// and a single CTA → /estimate-bundle/:bundle_id where the customer
+// reviews and signs each proposal independently.
+function renderBundleHTML({ bundleMembers, job, company, clientLink }) {
+  const customerFirst = (job.client_name || 'there').split(' ')[0];
+  const logoUrl = company?.logo_url || `${PUBLIC_APP_URL.replace(/\/$/, '')}/logo.png`;
+  const grandTotal = bundleMembers.reduce((s, m) => s + Number(m.total_amount || 0), 0);
+  const brandHTML = company?.logo_url
+    ? `<img src="${escape(logoUrl)}" alt="${escape(company?.company_name || 'Omega Development')}" height="72" style="display:block;border:0;outline:none;text-decoration:none;height:72px;width:auto;" />`
+    : `
+      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr>
+          <td style="vertical-align:middle;padding-right:12px;">
+            <img src="${escape(logoUrl)}" alt="Omega" width="64" height="64" style="display:block;border:0;outline:none;width:64px;height:64px;" />
+          </td>
+          <td style="vertical-align:middle;">
+            <div style="font-size:22px;font-weight:900;color:#2C2C2A;letter-spacing:-0.02em;line-height:1;">
+              OMEGA<span style="color:#E8732A;">DEVELOPMENT</span>
+            </div>
+            <div style="font-size:10px;font-weight:600;color:#6b6b6b;letter-spacing:.18em;margin-top:6px;">RENOVATIONS &amp; CONSTRUCTION</div>
+          </td>
+        </tr>
+      </table>`;
+
+  const rows = bundleMembers.map((m, i) => {
+    const label = m.bundle_label || `Proposal ${i + 1}`;
+    return `
+      <tr>
+        <td style="padding:10px 14px;border:1px solid #eee;border-radius:6px;background:#fafafa;margin-bottom:8px;display:block;">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:700;">Proposal ${i + 1}</div>
+          <div style="font-size:16px;font-weight:800;color:#2C2C2A;margin-top:2px;">${escape(label)}</div>
+          <div style="font-size:20px;color:#2C2C2A;font-weight:900;margin-top:6px;font-variant-numeric:tabular-nums;">${money(m.total_amount || 0)}</div>
+        </td>
+      </tr>
+      <tr><td style="height:8px;"></td></tr>
+    `;
+  }).join('');
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Your proposals — ${escape(company?.company_name || 'Omega Development')}</title></head>
+<body style="margin:0;padding:32px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:600px;margin:0 auto;background:white;padding:32px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
+
+    ${brandHTML}
+
+    <h1 style="font-size:22px;margin:28px 0 8px;font-weight:900;">Hi ${escape(customerFirst)},</h1>
+    <p style="font-size:14px;line-height:1.55;color:#444;margin:0 0 20px;">
+      We've put together <strong>${bundleMembers.length} separate proposals</strong> for your project.
+      Each one covers a different scope of work — please review and sign whichever ones
+      you'd like to move forward with. You can approve any combination independently.
+    </p>
+
+    <table style="width:100%;border-collapse:separate;border-spacing:0;margin-bottom:24px;">
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="background:#fafafa;border:1px solid #eee;border-radius:6px;padding:12px 16px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;color:#6b6b6b;font-weight:600;">Combined total (all proposals)</span>
+      <span style="font-size:18px;font-weight:900;font-variant-numeric:tabular-nums;">${money(grandTotal)}</span>
+    </div>
+
+    <div style="text-align:center;margin:28px 0 8px;">
+      <a href="${clientLink}" style="display:inline-block;padding:14px 28px;background:#E8732A;color:white;font-weight:900;font-size:15px;text-decoration:none;border-radius:8px;letter-spacing:.02em;">
+        Review &amp; Sign Proposals
+      </a>
+    </div>
+
+    <p style="font-size:11px;color:#888;margin:20px 0 0;text-align:center;">
+      Each proposal can be signed independently. Signing one does not affect the others.
+    </p>
+
+    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#888;text-align:center;">
+      Questions? Reply to this email or call ${escape(company?.phone || '')}.
+    </div>
+  </div>
+</body></html>`;
+}
+
 // Compact email body for multi-option groups. Instead of rendering N
 // full estimates in a single mail (heavy and overwhelming), we list
 // the options with totals and drop a single CTA that opens the
@@ -319,28 +397,49 @@ export default async function handler(req, res) {
     .from('company_settings').select('*')
     .order('updated_at', { ascending: false }).limit(1).maybeSingle();
 
+  // Check for multi-service bundle first (bundle_id takes precedence).
+  // Bundle = multiple estimates for DIFFERENT services, each needing
+  // independent approval → /estimate-bundle/:bundle_id.
+  let bundleMembers = [];
+  if (estimate.bundle_id) {
+    const { data: bm } = await supabase
+      .from('estimates')
+      .select('id, bundle_label, total_amount, status, estimate_number')
+      .eq('bundle_id', estimate.bundle_id)
+      .order('created_at', { ascending: true });
+    bundleMembers = bm || [];
+  }
+  const isBundle = bundleMembers.length > 1;
+
   // Check whether this estimate is part of a multi-option group. When
   // the group has >1 row we email a single link to /estimate-options/:id
   // so the customer sees all alternatives side-by-side and picks one
   // via a unified signature block. Single-option estimates keep the
   // existing /estimate-view/:id link (unchanged UX).
   const group_id = estimate.group_id || estimate.id;
-  const { data: siblings } = await supabase
+  const { data: siblings } = !isBundle ? await supabase
     .from('estimates')
     .select('id, option_label, option_order, status, total_amount')
     .eq('group_id', group_id)
-    .order('option_order', { ascending: true });
-  const isMultiOption = Array.isArray(siblings) && siblings.length > 1;
-  const clientLink = isMultiOption
-    ? `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-options/${group_id}`
-    : `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`;
+    .order('option_order', { ascending: true }) : { data: [] };
+  const isMultiOption = !isBundle && Array.isArray(siblings) && siblings.length > 1;
 
-  const html = isMultiOption
-    ? renderMultiOptionHTML({ siblings, job, company, clientLink })
-    : renderEstimateHTML({ estimate, job, company, clientLink });
-  const subject = isMultiOption
-    ? `Your ${siblings.length} estimate options — ${company?.company_name || 'Omega Development'}`
-    : `Estimate #${estimate.estimate_number || ''} — ${company?.company_name || 'Omega Development'}`.trim();
+  const clientLink = isBundle
+    ? `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-bundle/${estimate.bundle_id}`
+    : isMultiOption
+      ? `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-options/${group_id}`
+      : `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`;
+
+  const html = isBundle
+    ? renderBundleHTML({ bundleMembers, job, company, clientLink })
+    : isMultiOption
+      ? renderMultiOptionHTML({ siblings, job, company, clientLink })
+      : renderEstimateHTML({ estimate, job, company, clientLink });
+  const subject = isBundle
+    ? `Your ${bundleMembers.length} proposals — ${company?.company_name || 'Omega Development'}`
+    : isMultiOption
+      ? `Your ${siblings.length} estimate options — ${company?.company_name || 'Omega Development'}`
+      : `Estimate #${estimate.estimate_number || ''} — ${company?.company_name || 'Omega Development'}`.trim();
   const requester = {
     role: (req.headers['x-omega-role'] || '').toString(),
     name: (req.headers['x-omega-user'] || '').toString(),
@@ -390,11 +489,18 @@ export default async function handler(req, res) {
   if (!providerId) return json(res, 500, { ok: false, error: errorMsg || 'Send failed' });
 
   // On success, stamp `status = 'sent' + sent_at + pdf_url` on every
-  // row in the group. Multi-option sends flip all N options together
-  // (one email covers them all), single-option just touches its row.
+  // row involved. Bundle stamps all bundle members; multi-option stamps
+  // all siblings; single-option touches only its own row.
   const nowIso = new Date().toISOString();
   try {
-    if (isMultiOption) {
+    if (isBundle) {
+      await supabase.from('estimates').update({
+        status: 'sent',
+        sent_at: nowIso,
+        sent_by: requester.name || null,
+        pdf_url: clientLink,
+      }).eq('bundle_id', estimate.bundle_id);
+    } else if (isMultiOption) {
       await supabase.from('estimates').update({
         status: 'sent',
         sent_at: nowIso,
@@ -411,5 +517,9 @@ export default async function handler(req, res) {
     }
   } catch { /* ignore */ }
 
-  return json(res, 200, { ok: true, providerId, multiOption: isMultiOption, optionCount: isMultiOption ? siblings.length : 1 });
+  return json(res, 200, {
+    ok: true, providerId,
+    bundle: isBundle, bundleCount: isBundle ? bundleMembers.length : 0,
+    multiOption: isMultiOption, optionCount: isMultiOption ? siblings.length : 1,
+  });
 }

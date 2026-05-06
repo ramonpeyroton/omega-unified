@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
   AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
-  GripVertical, MoreVertical, Eye,
+  GripVertical, MoreVertical, Eye, Package, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
@@ -47,6 +47,10 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   const [options, setOptions] = useState([]);
   const [activeId, setActiveId] = useState(null);
 
+  // Bundle state — different service estimates sent together.
+  const [bundleLabel, setBundleLabel] = useState('');
+  const [bundleMembers, setBundleMembers] = useState([]);
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
 
   async function load(preferredActiveId) {
@@ -73,6 +77,18 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       const siblings = (group && group.length) ? group : [latest];
       setOptions(siblings);
 
+      // Load bundle members if this estimate belongs to a bundle.
+      if (latest.bundle_id) {
+        const { data: bm } = await supabase
+          .from('estimates')
+          .select('id, bundle_label, total_amount, status, estimate_number, job_id')
+          .eq('bundle_id', latest.bundle_id)
+          .order('created_at', { ascending: true });
+        setBundleMembers(bm || []);
+      } else {
+        setBundleMembers([]);
+      }
+
       // Figure out which option to land on:
       //   1) the caller's preferred id (just created / switched)
       //   2) whichever we were already editing
@@ -98,6 +114,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     // them on this estimate; otherwise fall back to the default. A row
     // saved before migration 019 will have `disclaimers === undefined`.
     setDisclaimers(row?.disclaimers || DEFAULT_ESTIMATE_DISCLAIMERS);
+    setBundleLabel(row?.bundle_label || '');
   }
 
   // ─── Section / item helpers ───────────────────────────────────────
@@ -150,6 +167,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       customer_message: customerMessage,
       total_amount: total,
       option_label: optionLabel || null,
+      bundle_label: bundleLabel || null,
       // Persist whatever disclaimer text the seller has on screen, so
       // the customer always sees the latest version when they open the
       // signing page. Migration 019 adds the column; row-level fallback
@@ -308,6 +326,84 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   }
 
   const isMultiOption = options.length > 1;
+  const isInBundle = bundleMembers.length > 1;
+
+  // ─── Bundle helpers ───────────────────────────────────────────────
+  async function addServiceToBundle() {
+    if (saving || sending) return;
+    setSaving(true);
+    setToast(null);
+    try {
+      // Save current estimate first.
+      const current = await persist();
+
+      // Generate a bundle_id — reuse existing one if already in a bundle.
+      const newBundleId = current.bundle_id || crypto.randomUUID();
+
+      // Backfill bundle_id + default bundle_label on current if not set.
+      if (!current.bundle_id) {
+        const defaultLabel = current.bundle_label || (job?.service ? job.service.charAt(0).toUpperCase() + job.service.slice(1).toLowerCase() : 'Service 1');
+        await supabase.from('estimates').update({
+          bundle_id: newBundleId,
+          bundle_label: current.bundle_label || defaultLabel,
+        }).eq('id', current.id);
+      }
+
+      // Create a blank draft estimate in the same bundle.
+      const { data: seqData } = await supabase.rpc('next_estimate_number');
+      const number = typeof seqData === 'number' ? seqData : (Array.isArray(seqData) ? seqData[0] : null);
+      const { data: created, error } = await supabase.from('estimates').insert([{
+        job_id: job.id,
+        header_description: '',
+        sections: [{ title: 'Section 1', items: [{ description: '', scope: '', price: 0 }] }],
+        customer_message: current.customer_message,
+        total_amount: 0,
+        status: 'draft',
+        bundle_id: newBundleId,
+        bundle_label: `Service ${bundleMembers.length + 1}`,
+        option_order: 0,
+        estimate_number: number,
+        disclaimers: current.disclaimers || null,
+      }]).select().single();
+      if (error) throw error;
+
+      logAudit({ user, action: 'estimate.bundle_add_service', entityType: 'estimate', entityId: created.id, details: { bundle_id: newBundleId } });
+      await load(created.id);
+      setToast({ type: 'success', message: 'New service estimate created. Add line items and set the service label.' });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to add service' });
+    }
+    setSaving(false);
+  }
+
+  async function switchToBundleMember(id) {
+    if (id === estimate?.id || saving || sending) return;
+    setSaving(true);
+    try {
+      if (estimate?.id) { try { await persist(); } catch { /* ignore */ } }
+      const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
+      if (data) loadIntoForm(data);
+      await load(id);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeBundleMember(id) {
+    if (!confirm('Remove this service from the bundle? The estimate will remain as a standalone draft.')) return;
+    try {
+      await supabase.from('estimates').update({ bundle_id: null, bundle_label: null }).eq('id', id);
+      logAudit({ user, action: 'estimate.bundle_remove_service', entityType: 'estimate', entityId: id });
+      if (id === estimate?.id) {
+        await load(null);
+      } else {
+        await load(estimate?.id || null);
+      }
+      setToast({ type: 'success', message: 'Removed from bundle.' });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to remove' });
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -379,6 +475,64 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
 
   return (
     <div className="space-y-5">
+
+      {/* Bundle panel — shows when 2+ estimates are grouped together for
+          different services that all need independent client approval. */}
+      {isInBundle && (
+        <div className="bg-white rounded-xl border-2 border-omega-orange/30 p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-omega-orange uppercase tracking-wider">
+              <Package className="w-3.5 h-3.5" /> Multi-Service Bundle
+              <span className="text-omega-stone font-semibold normal-case tracking-normal">— client approves each one independently</span>
+            </div>
+            <button
+              onClick={addServiceToBundle}
+              disabled={saving || sending}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
+            >
+              <Plus className="w-3 h-3" /> Add Service
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {bundleMembers.map((m, i) => {
+              const isActive = m.id === estimate?.id;
+              const isSigned = m.status === 'approved';
+              return (
+                <div key={m.id} className="inline-flex items-center">
+                  <button
+                    onClick={() => switchToBundleMember(m.id)}
+                    disabled={saving || sending}
+                    className={`px-3 py-1.5 rounded-l-lg text-xs font-bold transition-colors ${
+                      isActive
+                        ? 'bg-omega-orange text-white'
+                        : 'bg-white border border-gray-200 text-omega-slate hover:border-omega-orange'
+                    }`}
+                  >
+                    {m.bundle_label || `Service ${i + 1}`}
+                    {m.total_amount > 0 && ` · $${Number(m.total_amount).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                    {isSigned && ' ✓'}
+                    {!isSigned && m.status === 'sent' && ' · SENT'}
+                  </button>
+                  {!isSigned && (
+                    <button
+                      onClick={() => removeBundleMember(m.id)}
+                      disabled={saving || sending}
+                      className={`px-2 py-1.5 rounded-r-lg text-xs ${
+                        isActive
+                          ? 'bg-omega-orange/90 text-white hover:bg-red-500'
+                          : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
+                      }`}
+                      title="Remove from bundle"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Options switcher — only shows once there are 2+ options. Single
           estimates stay invisible so the UX matches the original behavior. */}
@@ -459,8 +613,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
 
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-5">
           <div className="space-y-4">
-            {/* Option name — only when there are 2+ alternatives, OR if
-                the seller already started typing one for option 1. */}
+            {/* Option name — only when there are 2+ alternatives */}
             {(isMultiOption || optionLabel) && (
               <label className="block">
                 <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">
@@ -473,6 +626,37 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
                   className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none"
                 />
               </label>
+            )}
+
+            {/* Bundle service label — shown when in a bundle */}
+            {isInBundle && (
+              <label className="block">
+                <span className="text-[10px] font-semibold text-omega-orange uppercase tracking-wider">
+                  Service label for this proposal (in the bundle)
+                </span>
+                <input
+                  value={bundleLabel}
+                  onChange={(e) => setBundleLabel(e.target.value)}
+                  placeholder='e.g. "Kitchen Remodel", "Bathroom Renovation"…'
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-omega-orange/40 text-sm focus:border-omega-orange focus:outline-none bg-orange-50/30"
+                />
+              </label>
+            )}
+
+            {/* Start a bundle when not in one yet */}
+            {!isInBundle && !isMultiOption && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={addServiceToBundle}
+                  disabled={saving || sending || !estimate?.id}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-300 text-xs font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange disabled:opacity-50"
+                  title="Bundle this with another service estimate — the client approves each one separately"
+                >
+                  <Package className="w-3.5 h-3.5" /> Bundle with another service
+                  <span className="text-[10px] text-omega-stone font-normal">(client approves each independently)</span>
+                </button>
+              </div>
             )}
 
             <label className="block">
@@ -688,12 +872,21 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
             <button
               onClick={handleSend}
               disabled={saving || sending || total <= 0}
-              title={total <= 0 ? 'Add at least one priced item before sending' : isMultiOption ? `All ${options.length} options will be sent in one email` : ''}
+              title={
+                total <= 0 ? 'Add at least one priced item before sending'
+                : isBundle ? `All ${bundleMembers.length} service proposals will be sent in one email`
+                : isMultiOption ? `All ${options.length} options will be sent in one email`
+                : ''
+              }
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-sm font-bold"
             >
               {sending
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
-                : <><Mail className="w-4 h-4" /> {isMultiOption ? `Save & Send ${options.length} Options` : 'Save & Send to Client'}</>
+                : isBundle
+                  ? <><Package className="w-4 h-4" /> Send Bundle ({bundleMembers.length} proposals)</>
+                  : isMultiOption
+                    ? <><Mail className="w-4 h-4" /> Save & Send {options.length} Options</>
+                    : <><Mail className="w-4 h-4" /> Save & Send to Client</>
               }
             </button>
           </div>

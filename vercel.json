@@ -4,6 +4,7 @@
     { "source": "/admin-x9k2",               "destination": "/" },
     { "source": "/estimate-view/:path*",     "destination": "/" },
     { "source": "/estimate-options/:path*",  "destination": "/" },
+    { "source": "/estimate-bundle/:path*",   "destination": "/" },
     { "source": "/sub-offer/:path*",         "destination": "/" },
     { "source": "/privacy",                  "destination": "/" },
     { "source": "/privacy-policy",           "destination": "/" },
