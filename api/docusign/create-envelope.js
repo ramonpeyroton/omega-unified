@@ -389,6 +389,12 @@ export default async function handler(req, res) {
             }],
           },
         }],
+        carbonCopies: [{
+          email:        'office@omeganyct.com',
+          name:         'Omega Development Office',
+          recipientId:  '2',
+          routingOrder: '2',
+        }],
       },
     };
 
