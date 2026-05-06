@@ -35,16 +35,13 @@ import { validateUserPin, validateOwnerPin } from '../lib/userPin';
 const PICKER_PIN_GATED = new Set(['estimate_rejected']);
 
 // Roles allowed to see the Financials tab (Cost Projection + Job Costing + Actual Costs).
-// Internal money only — sellers don't see margin/cost data.
-const FINANCIAL_ROLES = new Set(['owner', 'operations', 'admin']);
+const FINANCIAL_ROLES = new Set(['owner', 'operations', 'admin', 'sales', 'salesperson']);
 
 // Roles allowed to see the Estimate tab (what the client receives).
-// Sales needs this because the seller builds the estimate during the
-// visit; operations/owner/admin also see it for oversight.
 const ESTIMATE_ROLES = new Set(['sales', 'salesperson', 'owner', 'operations', 'admin']);
 
 // Roles allowed to see the Contact tab (send SMS / WhatsApp to subs + client).
-const CONTACT_ROLES = new Set(['manager', 'owner', 'operations', 'admin']);
+const CONTACT_ROLES = new Set(['manager', 'owner', 'operations', 'admin', 'sales', 'salesperson']);
 
 // Roles allowed to see the Subcontractors tab. Hidden from Manager
 // (Gabriel does the work, doesn't pick subs) and Receptionist (Rafaela
