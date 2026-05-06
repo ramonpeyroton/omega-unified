@@ -175,6 +175,8 @@ export default function ContractTemplate({
     }
   }
 
+  const [contractorSignDate, setContractorSignDate] = useState(todayIso());
+
   // Editable input style — flat, underlined, blends with the printed
   // contract so PDF output looks like a typed form.
   const inputCls = 'inline-block min-w-[120px] px-1 py-0.5 border-b border-omega-charcoal/60 bg-transparent focus:outline-none focus:border-omega-orange print:border-b-black';
@@ -334,12 +336,26 @@ export default function ContractTemplate({
         </p>
 
         <div className="grid grid-cols-2 gap-12 mt-12">
+          {/* Owner / Client side */}
           <div>
-            <div className="border-b border-omega-charcoal h-10" />
+            <div className="border-b border-omega-charcoal h-10 flex items-end pb-1">
+              {ownerName && (
+                <span className="text-[13px] font-semibold uppercase tracking-wide">
+                  {ownerName}
+                </span>
+              )}
+            </div>
             <p className="text-xs mt-1">OWNER</p>
-            <div className="border-b border-omega-charcoal h-10 mt-8" />
+            <div className="border-b border-omega-charcoal mt-8 flex items-end pb-0.5">
+              <input
+                type="date"
+                className={`${inputCls} w-full`}
+                placeholder="mm/dd/yyyy"
+              />
+            </div>
             <p className="text-xs mt-1">DATE</p>
           </div>
+          {/* Contractor side */}
           <div>
             <div className="relative border-b border-omega-charcoal h-10">
               <img
@@ -349,7 +365,14 @@ export default function ContractTemplate({
               />
             </div>
             <p className="text-xs mt-1">Agent on behalf of Omega Development LLC</p>
-            <div className="border-b border-omega-charcoal h-10 mt-8" />
+            <div className="border-b border-omega-charcoal mt-8 flex items-end pb-0.5">
+              <input
+                type="date"
+                value={contractorSignDate}
+                onChange={(e) => setContractorSignDate(e.target.value)}
+                className={`${inputCls} w-full`}
+              />
+            </div>
             <p className="text-xs mt-1">DATE</p>
           </div>
         </div>
