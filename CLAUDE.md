@@ -509,8 +509,35 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-05-05 (Finance reconstruction + Job amount received)** — Ramon + Claude (Sonnet 4.6).
+
+**Finance Screen reconstruído do zero** (`src/shared/components/Finance/FinanceScreen.jsx`):
+- **QuickBooks removido completamente** — app é agora 100% self-contained. Brenda imprime relatório e lança no QB manualmente.
+- **Company tab**: 5 KPIs internos (Receivable 30d, Received MTD, Owed to Subs 30d, Ghost Checks MTD, Net Cash MTD) + job health breakdown (profitable/at-risk/loss count) + botão "Print Report".
+- **Print Report**: função `openPrintReport()` busca todos os dados financeiros e abre HTML formatado em nova janela com `window.print()` — sem servidor, sem dependência externa.
+- **Clients tab**: `PaymentDrawer` ganhou CRUD completo — `+ Add Installment`, lápis (edit) e lixeira (delete, só status `pending`) em cada milestone. Modal `MilestoneFormModal` reutilizável (label, due_amount, due_date).
+- **Subs tab**: `SubPaymentDrawer` idêntico ao Clients — add/edit/delete sub payments. Reutiliza `MilestoneFormModal`.
+- **Bank Accounts**: botão Delete com confirmação + audit log.
+- **Ghost Account tab**: mantido sem alterações (importa `GhostAccountTab`).
+- Todos os CRUD com `logAudit()` para rastreabilidade.
+
+**JobCostingSection** (`src/shared/components/JobCostingSection.jsx`):
+- Novo campo "Amount Received from Client" (destacado em verde, separado por borda).
+- 6 KPI cards no resumo: Revenue / Total Cost / Gross Profit / Margin % / **Received** / **Balance Due**.
+- `amount_received` salvo em `job_costs.amount_received` (migration 050).
+
+**Pendências do Ramon:**
+- Rodar SQL no Supabase para criar tabela `job_costs` (ver SQL fornecido na conversa — inclui `amount_received`). **Sem isso a aba Financials dos jobs mostrará erro.**
+- Migration 026 (`finance.sql`) também precisa estar rodada para Finance screen funcionar.
+
+**O que NÃO está implementado (decisões travadas):**
+- ❌ QuickBooks sync — removido. App é fonte da verdade, QB é destino manual via print.
+- ❌ Lembretes automáticos — ver `project_finance_reminders_pending.md`.
+
+---
+
 **2026-04-30 (madrugada — QuickBooks read-only)** — Ramon + Claude (Opus 4.7).
-Sprint 2 do Finance entregue: integração QuickBooks read-only.
+Sprint 2 do Finance entregue: integração QuickBooks read-only. **⚠️ OBSOLETO** — QB foi removido na sessão de 2026-05-05. Ver entrada acima.
 
 **Backend** (`api/quickbooks/*` + `api/_lib/quickbooks.js`):
 - Migration 027 — tabela `quickbooks_tokens` (1 row por realm/company,
