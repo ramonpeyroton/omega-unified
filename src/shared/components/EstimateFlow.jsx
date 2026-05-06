@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Check, Trash2, Plus, Send, FileText, DollarSign, Lock, Info, MessageSquare, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { createEnvelope, getEnvelopeStatus } from '../lib/docusign';
+import { createEnvelope, getEnvelopeStatus, downloadSignedDocument } from '../lib/docusign';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
 import StatusBadge from './StatusBadge';
@@ -78,6 +78,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [toast, setToast] = useState(null);
 
   const [estimate, setEstimate] = useState(null);
@@ -317,6 +318,24 @@ export default function EstimateFlow({ job, user, onBack }) {
     }
   }
 
+  async function handleDownloadSignedPdf() {
+    if (!contract?.docusign_envelope_id) return;
+    setDownloadingPdf(true);
+    try {
+      const blob = await downloadSignedDocument(contract.docusign_envelope_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `signed-contract-${job.client_name || contract.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Could not download PDF' });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   async function sendDepositInvoice() {
     if (!perms.canSendInvoice) { setToast({ type: 'warning', message: 'Only Operations or Owner can send the deposit invoice' }); return; }
     if (!contract) return;
@@ -513,7 +532,15 @@ export default function EstimateFlow({ job, user, onBack }) {
             )}
 
             {contract?.signed_at && (
-              <div className="mt-5 flex justify-end">
+              <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
+                <button
+                  onClick={handleDownloadSignedPdf}
+                  disabled={downloadingPdf || !contract.docusign_envelope_id}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4" />
+                  {downloadingPdf ? 'Downloading…' : 'Download Signed PDF'}
+                </button>
                 <button
                   onClick={() => setStep(4)}
                   className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold"
