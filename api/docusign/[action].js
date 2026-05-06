@@ -1,8 +1,14 @@
-// POST /api/docusign/create-envelope
+// /api/docusign/:action  (Vercel dynamic route)
 //
-// Body (contract):     { contractId, job, estimate, paymentPlan }
-// Body (sub agr):      { kind:'subcontractor_agreement', agreementId, ...fields }
-// Returns:             { envelopeId }
+// Single Function that fans out to all DocuSign sub-handlers so the whole
+// integration counts as ONE serverless function — Vercel Hobby plan caps
+// at 12 total.
+//
+// Routes:
+//   POST /api/docusign/create-envelope   → create envelope, return { envelopeId }
+//   GET  /api/docusign/envelope-status   → { status, completedAt, history[] }
+//   GET  /api/docusign/download          → proxied signed PDF
+//   POST /api/docusign/send-reminder     → resend notification to pending signers
 
 import { json, readJson } from '../_lib/http.js';
 import { getAccessToken } from '../_lib/docusignAuth.js';
@@ -10,6 +16,8 @@ import { INACIO_SIG } from '../_lib/inacioSignature.js';
 
 const ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID || '';
 const BASE_URL   = (process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi').replace(/\/$/, '');
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function money(n) {
   return `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -326,9 +334,9 @@ equipment, permits, and labor required to complete the Work unless otherwise spe
 </html>`;
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
+// ─── Sub-handlers ─────────────────────────────────────────────────────────────
 
-export default async function handler(req, res) {
+async function handleCreateEnvelope(req, res) {
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
 
   let body;
@@ -374,9 +382,9 @@ export default async function handler(req, res) {
       }],
       recipients: {
         signers: [{
-          email:       signerEmail,
-          name:        signerName,
-          recipientId: '1',
+          email:        signerEmail,
+          name:         signerName,
+          recipientId:  '1',
           routingOrder: '1',
           tabs: {
             signHereTabs: [{
@@ -404,10 +412,7 @@ export default async function handler(req, res) {
 
     const dsRes = await fetch(`${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes`, {
       method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(envelope),
     });
 
@@ -424,4 +429,129 @@ export default async function handler(req, res) {
     console.error('[docusign/create-envelope]', err);
     return json(res, 500, { error: err.message || 'Internal error' });
   }
+}
+
+async function handleEnvelopeStatus(req, res) {
+  if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
+
+  const envelopeId = new URL(req.url, 'http://x').searchParams.get('envelopeId');
+  if (!envelopeId) return json(res, 400, { error: 'Missing envelopeId' });
+
+  try {
+    const token = await getAccessToken();
+
+    const [envRes, auditRes] = await Promise.all([
+      fetch(`${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      fetch(`${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}/audit_events`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ]);
+
+    if (!envRes.ok) {
+      const text = await envRes.text();
+      return json(res, envRes.status, { error: text });
+    }
+
+    const envelope = await envRes.json();
+
+    let history = [];
+    if (auditRes.ok) {
+      const audit = await auditRes.json();
+      history = (audit.auditEvents || []).map(e => {
+        const fields = e.eventFields || [];
+        const find   = (name) => fields.find(f => f.name === name)?.value || '';
+        return { event: find('Action'), timestamp: find('Timestamp'), actor: find('UserName') };
+      }).filter(e => e.event);
+    }
+
+    return json(res, 200, {
+      status:      envelope.status            || 'unknown',
+      completedAt: envelope.completedDateTime || null,
+      history,
+    });
+
+  } catch (err) {
+    console.error('[docusign/envelope-status]', err);
+    return json(res, 500, { error: err.message || 'Internal error' });
+  }
+}
+
+async function handleDownload(req, res) {
+  if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
+
+  const envelopeId = new URL(req.url, 'http://x').searchParams.get('envelopeId');
+  if (!envelopeId) return json(res, 400, { error: 'Missing envelopeId' });
+
+  try {
+    const token = await getAccessToken();
+
+    const dsRes = await fetch(
+      `${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}/documents/combined`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!dsRes.ok) {
+      const text = await dsRes.text();
+      return json(res, dsRes.status, { error: text });
+    }
+
+    const buffer = await dsRes.arrayBuffer();
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="signed-contract-${envelopeId}.pdf"`);
+    res.end(Buffer.from(buffer));
+
+  } catch (err) {
+    console.error('[docusign/download]', err);
+    return json(res, 500, { error: err.message || 'Internal error' });
+  }
+}
+
+async function handleSendReminder(req, res) {
+  if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
+
+  let body;
+  try { body = await readJson(req); } catch { return json(res, 400, { error: 'Invalid JSON' }); }
+
+  const { envelopeId } = body;
+  if (!envelopeId) return json(res, 400, { error: 'Missing envelopeId' });
+
+  try {
+    const token = await getAccessToken();
+
+    const dsRes = await fetch(
+      `${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}/recipients?resend_envelope=true`,
+      {
+        method:  'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }
+    );
+
+    if (!dsRes.ok) {
+      const text = await dsRes.text();
+      return json(res, dsRes.status, { error: text });
+    }
+
+    return json(res, 200, { ok: true });
+
+  } catch (err) {
+    console.error('[docusign/send-reminder]', err);
+    return json(res, 500, { error: err.message || 'Internal error' });
+  }
+}
+
+// ─── Router ───────────────────────────────────────────────────────────────────
+
+export default async function handler(req, res) {
+  const action = req.query.action;
+
+  if (action === 'create-envelope')  return handleCreateEnvelope(req, res);
+  if (action === 'envelope-status')  return handleEnvelopeStatus(req, res);
+  if (action === 'download')         return handleDownload(req, res);
+  if (action === 'send-reminder')    return handleSendReminder(req, res);
+
+  return json(res, 404, { error: `Unknown DocuSign action: ${action}` });
 }
