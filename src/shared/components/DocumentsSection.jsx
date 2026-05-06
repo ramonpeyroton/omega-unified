@@ -349,8 +349,19 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                 {!loading && f.items.length === 0 && !isAdding && (
                   <p className="px-4 py-5 text-xs text-omega-stone italic text-center">No documents in this folder yet.</p>
                 )}
-                {f.items.map((d) => (
+                {f.items.map((d) => {
+                  const isPdf = d.photo_url?.toLowerCase().includes('.pdf');
+                  return (
                   <div key={d.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 group">
+                    {isPdf ? (
+                      <a
+                        href={d.photo_url} target="_blank" rel="noopener noreferrer"
+                        className="w-10 h-10 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0"
+                        title="Open PDF"
+                      >
+                        <FileText className="w-5 h-5 text-red-500" />
+                      </a>
+                    ) : (
                     <button
                       onClick={() => d.photo_url && setViewer(d)}
                       disabled={!d.photo_url}
@@ -362,13 +373,14 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                         : <ImageIcon className="w-4 h-4 text-gray-400" />
                       }
                     </button>
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-omega-charcoal truncate">{d.title}</p>
                       <p className="text-[10px] text-omega-stone">
                         {d.uploaded_by || '—'} · {new Date(d.created_at).toLocaleDateString()}
                       </p>
                     </div>
-                    {d.photo_url && (
+                    {d.photo_url && !isPdf && (
                       <a
                         href={d.photo_url} target="_blank" rel="noopener noreferrer"
                         className="text-omega-stone hover:text-omega-orange"
@@ -385,7 +397,8 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );

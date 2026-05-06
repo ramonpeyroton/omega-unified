@@ -14,6 +14,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
+import { getAccessToken } from './_lib/docusignAuth.js';
 
 // Initialize once per warm instance
 const supabase = createClient(
@@ -21,6 +22,54 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   { auth: { persistSession: false } }
 );
+
+const DS_BASE_URL  = (process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi').replace(/\/$/, '');
+const DS_ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID || '';
+
+// After a contract is signed, download the PDF from DocuSign and save it
+// to Supabase Storage so it appears in Documents → Contracts automatically.
+// Non-fatal: any failure here is logged but does not affect the webhook response.
+async function downloadAndSaveSignedContract(contract) {
+  if (!contract?.docusign_envelope_id || !contract?.job_id) return;
+  try {
+    const token  = await getAccessToken();
+    const pdfRes = await fetch(
+      `${DS_BASE_URL}/v2.1/accounts/${DS_ACCOUNT_ID}/envelopes/${contract.docusign_envelope_id}/documents/combined`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!pdfRes.ok) {
+      console.warn('[webhook] DocuSign PDF download failed:', await pdfRes.text());
+      return;
+    }
+
+    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    const date      = new Date().toISOString().split('T')[0];
+    const path      = `${contract.job_id}/contracts/signed-contract-${contract.id}-${date}.pdf`;
+
+    const { error: upErr } = await supabase.storage
+      .from('job-documents')
+      .upload(path, pdfBuffer, { contentType: 'application/pdf', upsert: true });
+
+    if (upErr) {
+      console.warn('[webhook] Storage upload failed:', upErr.message);
+      return;
+    }
+
+    const { data: pub } = supabase.storage.from('job-documents').getPublicUrl(path);
+    const publicUrl = pub?.publicUrl || null;
+
+    const signedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    await supabase.from('job_documents').insert([{
+      job_id:      contract.job_id,
+      folder:      'contracts',
+      title:       `Signed Contract — ${signedDate}`,
+      photo_url:   publicUrl,
+      uploaded_by: 'DocuSign',
+    }]);
+  } catch (err) {
+    console.warn('[webhook] downloadAndSaveSignedContract failed (non-fatal):', err?.message);
+  }
+}
 
 function verifyHmac(req, rawBody) {
   const secret = process.env.DOCUSIGN_HMAC_SECRET;
@@ -112,10 +161,11 @@ export default async function handler(req, res) {
         try {
           await materializePaymentMilestones(contract);
         } catch (err) {
-          // Non-fatal — the contract is signed regardless. Finance UI has
-          // a defensive ensureMilestonesForContract() that re-runs on open.
           console.warn('[docusign-webhook] milestone materialization failed:', err?.message);
         }
+        // Download the signed PDF and save it to Documents → Contracts so
+        // the team can access it at any time without going through DocuSign.
+        await downloadAndSaveSignedContract({ ...contract, ...patch });
       }
 
       res.status(200).json({ ok: true, kind: 'contract' });
