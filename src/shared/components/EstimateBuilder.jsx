@@ -46,6 +46,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   // option_order. When there's 0 or 1 rows, the switcher hides.
   const [options, setOptions] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  // Inline delete confirmation — tracks which option/bundle id is pending
+  // a second-click confirm. Resets on any other interaction.
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   // Bundle state — different service estimates sent together.
   const [bundleLabel, setBundleLabel] = useState('');
@@ -305,6 +308,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
 
   async function switchToOption(id) {
     if (id === activeId || saving || sending) return;
+    setPendingDeleteId(null);
     setSaving(true);
     try {
       // Save current first so edits don't get lost.
@@ -320,7 +324,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
 
   async function removeAlternative(id) {
     if (options.length <= 1) return;
-    if (!confirm('Remove this alternative? The other options stay.')) return;
+    if (pendingDeleteId !== id) { setPendingDeleteId(id); return; }
+    setPendingDeleteId(null);
     try {
       await supabase.from('estimates').delete().eq('id', id);
       logAudit({ user, action: 'estimate.remove_alternative', entityType: 'estimate', entityId: id });
@@ -409,7 +414,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   }
 
   async function removeBundleMember(id) {
-    if (!confirm('Remove this service from the bundle? The estimate will remain as a standalone draft.')) return;
+    if (pendingDeleteId !== id) { setPendingDeleteId(id); return; }
+    setPendingDeleteId(null);
     try {
       await supabase.from('estimates').update({ bundle_id: null, bundle_label: null }).eq('id', id);
       logAudit({ user, action: 'estimate.bundle_remove_service', entityType: 'estimate', entityId: id });
@@ -555,14 +561,16 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
                     <button
                       onClick={() => removeBundleMember(m.id)}
                       disabled={saving || sending}
-                      className={`px-2 py-1.5 rounded-r-lg text-xs ${
-                        isActive
-                          ? 'bg-omega-orange/90 text-white hover:bg-red-500'
-                          : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
+                      className={`px-2 py-1.5 rounded-r-lg text-xs font-bold transition-colors ${
+                        pendingDeleteId === m.id
+                          ? 'bg-red-500 text-white'
+                          : isActive
+                            ? 'bg-omega-orange/90 text-white hover:bg-red-500'
+                            : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
                       }`}
-                      title="Remove from bundle"
+                      title={pendingDeleteId === m.id ? 'Click again to confirm removal' : 'Remove from bundle'}
                     >
-                      <X className="w-3 h-3" />
+                      {pendingDeleteId === m.id ? '?' : <X className="w-3 h-3" />}
                     </button>
                   )}
                 </div>
@@ -602,14 +610,16 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
                   <button
                     onClick={() => removeAlternative(opt.id)}
                     disabled={saving || sending}
-                    className={`px-2 py-1.5 rounded-r-lg text-xs font-bold ${
-                      isActive
-                        ? 'bg-omega-orange/90 text-white hover:bg-red-500'
-                        : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
+                    className={`px-2 py-1.5 rounded-r-lg text-xs font-bold transition-colors ${
+                      pendingDeleteId === opt.id
+                        ? 'bg-red-500 text-white'
+                        : isActive
+                          ? 'bg-omega-orange/90 text-white hover:bg-red-500'
+                          : 'bg-white border border-l-0 border-gray-200 text-omega-stone hover:text-red-600'
                     }`}
-                    title="Remove this alternative"
+                    title={pendingDeleteId === opt.id ? 'Click again to confirm removal' : 'Remove this alternative'}
                   >
-                    <X className="w-3 h-3" />
+                    {pendingDeleteId === opt.id ? '?' : <X className="w-3 h-3" />}
                   </button>
                 )}
               </div>
