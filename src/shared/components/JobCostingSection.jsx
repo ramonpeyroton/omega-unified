@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { DollarSign, Save, TrendingUp, TrendingDown } from 'lucide-react';
+import { DollarSign, Save, TrendingUp, TrendingDown, Banknote, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 
@@ -23,6 +23,7 @@ export default function JobCostingSection({ job, user }) {
     sub_cost: '',
     other_costs: '',
     other_costs_description: '',
+    amount_received: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -69,6 +70,7 @@ export default function JobCostingSection({ job, user }) {
         sub_cost: cost?.sub_cost ?? subs,
         other_costs: cost?.other_costs ?? '',
         other_costs_description: cost?.other_costs_description ?? '',
+        amount_received: cost?.amount_received ?? '',
       });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to load costing' });
@@ -86,7 +88,9 @@ export default function JobCostingSection({ job, user }) {
     const totalCost = mat + labor + sub + other;
     const profit = revenue - totalCost;
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-    return { revenue, totalCost, profit, margin };
+    const received = parseNum(form.amount_received);
+    const balanceDue = revenue - received;
+    return { revenue, totalCost, profit, margin, received, balanceDue };
   }, [form]);
 
   function update(k, v) {
@@ -106,6 +110,7 @@ export default function JobCostingSection({ job, user }) {
         sub_cost: parseNum(formToSave.sub_cost),
         other_costs: parseNum(formToSave.other_costs),
         other_costs_description: formToSave.other_costs_description || null,
+        amount_received: parseNum(formToSave.amount_received),
         gross_margin_percent: calc.margin,
         updated_at: new Date().toISOString(),
         updated_by: user?.name || null,
@@ -136,7 +141,7 @@ export default function JobCostingSection({ job, user }) {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <Card label="Revenue" value={money(calc.revenue)} />
         <Card label="Total Cost" value={money(calc.totalCost)} />
         <Card label="Gross Profit" value={money(calc.profit)} valueColor={calc.profit >= 0 ? 'text-omega-success' : 'text-red-600'} />
@@ -145,6 +150,18 @@ export default function JobCostingSection({ job, user }) {
           value={`${calc.margin.toFixed(1)}%`}
           icon={marginOk ? TrendingUp : TrendingDown}
           valueColor={marginOk ? 'text-omega-success' : 'text-amber-600'}
+        />
+        <Card
+          label="Received"
+          value={money(calc.received)}
+          icon={Banknote}
+          valueColor="text-emerald-600"
+        />
+        <Card
+          label="Balance Due"
+          value={money(calc.balanceDue)}
+          icon={Clock}
+          valueColor={calc.balanceDue <= 0 ? 'text-omega-success' : 'text-amber-600'}
         />
       </div>
 
@@ -161,6 +178,17 @@ export default function JobCostingSection({ job, user }) {
           onSync={subsTotal > 0 ? () => update('sub_cost', subsTotal) : null}
         />
         <Field label="Other Costs" value={form.other_costs} onChange={(v) => update('other_costs', v)} />
+
+        <div className="border-t border-gray-100 pt-3">
+          <Field
+            label="Amount Received from Client"
+            value={form.amount_received}
+            onChange={(v) => update('amount_received', v)}
+            helper={calc.revenue > 0 ? `Balance due: ${money(calc.balanceDue)}` : null}
+            highlight
+          />
+        </div>
+
         <div>
           <label className="text-xs font-semibold text-omega-stone uppercase">Other Costs Description</label>
           <input
@@ -200,18 +228,18 @@ function Card({ label, value, icon: Icon, valueColor = 'text-omega-charcoal' }) 
   );
 }
 
-function Field({ label, value, onChange, helper, onSync }) {
+function Field({ label, value, onChange, helper, onSync, highlight }) {
   return (
     <div>
-      <label className="text-xs font-semibold text-omega-stone uppercase">{label}</label>
+      <label className={`text-xs font-semibold uppercase ${highlight ? 'text-emerald-600' : 'text-omega-stone'}`}>{label}</label>
       <div className="relative mt-1">
-        <DollarSign className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone" />
+        <DollarSign className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${highlight ? 'text-emerald-500' : 'text-omega-stone'}`} />
         <input
           type="number"
           step="0.01"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full pl-9 pr-20 py-2.5 rounded-lg border border-gray-200 text-base"
+          className={`w-full pl-9 pr-20 py-2.5 rounded-lg border text-base ${highlight ? 'border-emerald-300 bg-emerald-50 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200' : 'border-gray-200'}`}
           placeholder="0.00"
           inputMode="decimal"
         />
