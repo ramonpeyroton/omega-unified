@@ -1,23 +1,20 @@
 // FinanceScreen — Brenda + Inácio + Admin only.
 //
-// Three tabs:
-//   * Company  — stub on v1; future home for QB-synced balances and
-//     aggregated health metrics.
-//   * Clients  — list of signed contracts with payment milestones.
-//                Drawer per contract: timeline, mark-received (full or
-//                partial), audit-logged.
-//   * Subs     — mirror for subcontractor_agreements / sub_payments.
+// Tabs:
+//   Company  — internal financial overview (no QuickBooks). Print report.
+//   Clients  — signed contracts + payment milestones. Full CRUD.
+//   Subs     — subcontractor agreements + payments. Full CRUD.
+//   Ghost    — private check ledger. Full CRUD (GhostAccountTab).
 //
-// Data model lives in payment_milestones / sub_payments tables (see
-// migration 026 + src/shared/lib/finance.js). The contract.payment_plan
-// JSONB stays the SPEC; milestones are materialized on signing or on
-// first open of a card whose plan never got materialized.
+// QuickBooks is NOT integrated here. Brenda manages everything inside
+// the app and prints a report to enter manually into QB.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
   DollarSign, Building2, Users, Wallet, X, Plus, Pencil, Save,
   Check, AlertTriangle, Clock, ArrowDownCircle, ArrowUpCircle, Loader2,
-  Trash2, ChevronRight, Banknote, FileText, Receipt,
+  Trash2, ChevronRight, Banknote, FileText, Receipt, Printer, RefreshCw,
+  TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
@@ -25,17 +22,16 @@ import {
   ensureSubPaymentsForAgreement, markMilestoneReceived, markSubPaymentPaid,
   loadFinanceTotals,
 } from '../../lib/finance';
+import { logAudit } from '../../lib/audit';
 import GhostAccountTab from './GhostAccountTab';
 
-// "Ghost Account" is a private check ledger Brenda + Inácio + admin
-// keep separate from QuickBooks. Hidden from every other role.
 const GHOST_TAB_ROLES = new Set(['owner', 'operations', 'admin']);
 
 const ALL_TABS = [
-  { id: 'company', label: 'Company',       icon: Building2,      roles: null },
-  { id: 'clients', label: 'Clients',       icon: Users,          roles: null },
-  { id: 'subs',    label: 'Subs',          icon: ArrowUpCircle,  roles: null },
-  { id: 'ghost',   label: 'Ghost Account', icon: Receipt,        roles: GHOST_TAB_ROLES },
+  { id: 'company', label: 'Company',       icon: Building2     },
+  { id: 'clients', label: 'Clients',       icon: Users         },
+  { id: 'subs',    label: 'Subs',          icon: ArrowUpCircle },
+  { id: 'ghost',   label: 'Ghost Account', icon: Receipt, ghostOnly: true },
 ];
 
 function money(n) {
@@ -48,17 +44,23 @@ function shortDate(s) {
   return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function todayISO() {
+  const d = new Date();
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ROOT
+// ─────────────────────────────────────────────────────────────────────
+
 export default function FinanceScreen({ user }) {
   const [tab, setTab] = useState('clients');
   const [accounts, setAccounts] = useState([]);
   const [accountsOpen, setAccountsOpen] = useState(false);
 
-  // Tabs visible to the current role. Ghost Account is owner/ops/admin
-  // only — other roles never see it (defense in depth: the data is
-  // also gated by the UI gate inside the tab itself).
   const TABS = useMemo(
-    () => ALL_TABS.filter((t) => !t.roles || t.roles.has(user?.role)),
-    [user?.role]
+    () => ALL_TABS.filter((t) => !t.ghostOnly || GHOST_TAB_ROLES.has(user?.role)),
+    [user?.role],
   );
 
   useEffect(() => { loadAccounts(); }, []);
@@ -81,7 +83,7 @@ export default function FinanceScreen({ user }) {
               <DollarSign className="w-6 h-6 text-omega-orange" /> Finance
             </h1>
             <p className="text-sm text-omega-stone mt-1">
-              Visão consolidada de contratos, recebimentos e pagamentos a subs.
+              Control receivables, sub payments and print your QB report.
             </p>
           </div>
           <button
@@ -111,9 +113,9 @@ export default function FinanceScreen({ user }) {
       </header>
 
       <div className="p-6 md:p-8">
-        {tab === 'company' && <CompanyTab />}
+        {tab === 'company' && <CompanyTab user={user} />}
         {tab === 'clients' && <ClientsTab user={user} accounts={accounts} />}
-        {tab === 'subs'    && <SubsTab user={user} accounts={accounts} />}
+        {tab === 'subs'    && <SubsTab    user={user} accounts={accounts} />}
         {tab === 'ghost'   && GHOST_TAB_ROLES.has(user?.role) && <GhostAccountTab user={user} />}
       </div>
 
@@ -129,93 +131,67 @@ export default function FinanceScreen({ user }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// COMPANY TAB — quick aggregates today; QB-synced balances later
-// ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// COMPANY TAB — internal overview, no QuickBooks
+// ─────────────────────────────────────────────────────────────────────
 
-function CompanyTab() {
+function CompanyTab({ user }) {
   const [loading, setLoading] = useState(true);
   const [totals, setTotals] = useState(null);
-  const [qb, setQb] = useState({ status: 'loading' });
-  const [pnl, setPnl] = useState(null);
-  const [overdueInvoices, setOverdueInvoices] = useState([]);
-  const [billsDue, setBillsDue] = useState([]);
-  // QB connect/disconnect feedback (set from URL query after callback).
-  const [qbToast, setQbToast] = useState(null);
+  const [jobCosts, setJobCosts] = useState([]);
+  const [ghostTotal, setGhostTotal] = useState(0);
+  const [printing, setPrinting] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [t, qbRes] = await Promise.all([
-          loadFinanceTotals(),
-          loadQbBalances(),
-        ]);
-        if (!cancelled) {
-          setTotals(t);
-          setQb(qbRes);
-        }
-        // Load extras only if connected — they all need the same token.
-        if (!cancelled && qbRes.status === 'connected') {
-          const [pnlData, invs, bills] = await Promise.all([
-            fetchJson('/api/quickbooks/pnl'),
-            fetchJson('/api/quickbooks/overdue-invoices'),
-            fetchJson('/api/quickbooks/bills-due'),
-          ]);
-          if (!cancelled) {
-            if (pnlData?.connected) setPnl(pnlData);
-            if (invs?.connected)    setOverdueInvoices(invs.invoices || []);
-            if (bills?.connected)   setBillsDue(bills.bills || []);
-          }
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  // Read ?qb=connected / ?qb=error from URL after OAuth bounce-back
-  // and surface a toast. Then strip the params so a refresh doesn't
-  // re-trigger.
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const qbParam = url.searchParams.get('qb');
-    if (!qbParam) return;
-    if (qbParam === 'connected') {
-      setQbToast({ type: 'success', message: 'QuickBooks conectado!' });
-    } else if (qbParam === 'error') {
-      const reason = url.searchParams.get('reason') || 'unknown';
-      setQbToast({ type: 'error', message: `Falha ao conectar: ${reason}` });
+  async function load() {
+    setLoading(true);
+    try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+      const [t, { data: costs }, { data: ghost }] = await Promise.all([
+        loadFinanceTotals(),
+        supabase.from('job_costs').select('estimated_revenue, material_cost, labor_cost, sub_cost, other_costs, amount_received, gross_margin_percent, job_id'),
+        supabase.from('ghost_payments').select('amount, paid_at').is('deleted_at', null).gte('paid_at', monthStart.slice(0, 10)),
+      ]);
+
+      setTotals(t);
+      setJobCosts(costs || []);
+      setGhostTotal((ghost || []).reduce((s, g) => s + Number(g.amount || 0), 0));
+    } finally {
+      setLoading(false);
     }
-    url.searchParams.delete('qb');
-    url.searchParams.delete('reason');
-    window.history.replaceState({}, '', url.toString());
-  }, []);
-
-  async function reloadBalances() {
-    setQb({ status: 'loading' });
-    const [qbRes, pnlData, invs, bills] = await Promise.all([
-      loadQbBalances(),
-      fetchJson('/api/quickbooks/pnl'),
-      fetchJson('/api/quickbooks/overdue-invoices'),
-      fetchJson('/api/quickbooks/bills-due'),
-    ]);
-    setQb(qbRes);
-    setPnl(pnlData?.connected ? pnlData : null);
-    setOverdueInvoices(invs?.connected ? (invs.invoices || []) : []);
-    setBillsDue(bills?.connected ? (bills.bills || []) : []);
   }
 
-  async function handleDisconnect() {
-    if (!window.confirm('Desconectar QuickBooks?')) return;
+  const costStats = useMemo(() => {
+    let totalRevenue = 0, totalCost = 0, totalReceived = 0;
+    let profitable = 0, atRisk = 0, loss = 0;
+
+    for (const c of jobCosts) {
+      const rev = Number(c.estimated_revenue || 0);
+      const cost = Number(c.material_cost || 0) + Number(c.labor_cost || 0) + Number(c.sub_cost || 0) + Number(c.other_costs || 0);
+      const rec = Number(c.amount_received || 0);
+      totalRevenue += rev;
+      totalCost += cost;
+      totalReceived += rec;
+
+      const margin = rev > 0 ? ((rev - cost) / rev) * 100 : null;
+      if (margin === null) { /* skip */ }
+      else if (margin >= 15) profitable++;
+      else if (margin >= 5) atRisk++;
+      else loss++;
+    }
+
+    return { totalRevenue, totalCost, totalReceived, profitable, atRisk, loss, jobCount: jobCosts.length };
+  }, [jobCosts]);
+
+  async function printReport() {
+    setPrinting(true);
     try {
-      const res = await fetch('/api/quickbooks/disconnect', { method: 'POST' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Falhou');
-      setQb({ status: 'disconnected' });
-      setQbToast({ type: 'success', message: 'QuickBooks desconectado.' });
-    } catch (err) {
-      setQbToast({ type: 'error', message: err.message });
+      await openPrintReport();
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -225,340 +201,354 @@ function CompanyTab() {
 
   return (
     <div className="space-y-6">
-      {qbToast && (
-        <div className={`rounded-xl px-4 py-3 text-sm font-semibold border ${
-          qbToast.type === 'success'
-            ? 'bg-green-50 text-green-800 border-green-200'
-            : 'bg-red-50 text-red-700 border-red-200'
-        }`}>
-          {qbToast.message}
-          <button
-            onClick={() => setQbToast(null)}
-            className="ml-3 text-xs opacity-60 hover:opacity-100"
-          >
-            dismiss
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <SummaryCard
-          icon={ArrowDownCircle} tone="green"
-          label="A receber (30d)"  value={money(totals.receivableNext30)}
+      {/* Summary row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <SummaryCard icon={ArrowDownCircle} tone="green"
+          label="Receivable (30d)" value={money(totals.receivableNext30)}
           sub={`Overdue: ${money(totals.receivableOverdue)}`}
         />
-        <SummaryCard
-          icon={Check} tone="charcoal"
-          label="Recebido no mês"  value={money(totals.receivedThisMonth)}
+        <SummaryCard icon={Check} tone="charcoal"
+          label="Received MTD" value={money(totals.receivedThisMonth)}
         />
-        <SummaryCard
-          icon={ArrowUpCircle} tone="orange"
-          label="A pagar subs (30d)" value={money(totals.payableNext30)}
-          sub={`Pago no mês: ${money(totals.paidThisMonth)} · Overdue: ${money(totals.payableOverdue)}`}
+        <SummaryCard icon={ArrowUpCircle} tone="orange"
+          label="Owed to Subs (30d)" value={money(totals.payableNext30)}
+          sub={`Paid MTD: ${money(totals.paidThisMonth)}`}
+        />
+        <SummaryCard icon={Receipt} tone="charcoal"
+          label="Ghost Checks MTD" value={money(ghostTotal)}
+        />
+        <SummaryCard icon={DollarSign} tone="green"
+          label="Net Cash MTD"
+          value={money(totals.receivedThisMonth - totals.paidThisMonth - ghostTotal)}
         />
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-          <div>
-            <h3 className="font-bold text-omega-charcoal flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-omega-orange" /> Saldos das contas (QuickBooks)
-            </h3>
-            {qb.status === 'connected' && (
-              <p className="text-[11px] text-omega-stone mt-1">
-                Atualizado{qb.fetchedAt ? ` em ${new Date(qb.fetchedAt).toLocaleString()}` : ''} · {qb.environment}
-              </p>
-            )}
-          </div>
-          {qb.status === 'connected' ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={reloadBalances}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 hover:border-omega-orange text-xs font-semibold"
-              >
-                <Loader2 className={`w-3.5 h-3.5 ${qb.status === 'loading' ? 'animate-spin' : ''}`} /> Atualizar
-              </button>
-              <button
-                onClick={handleDisconnect}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-red-50 hover:border-red-200 hover:text-red-700 text-xs font-semibold"
-              >
-                Desconectar
-              </button>
-            </div>
-          ) : qb.status === 'disconnected' ? (
-            <a
-              href="/api/quickbooks/auth"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#2CA01C] hover:bg-[#1f7714] text-white text-sm font-semibold"
-            >
-              <Banknote className="w-4 h-4" /> Conectar QuickBooks
-            </a>
-          ) : (
-            <span className="text-xs text-omega-stone">{qb.message || 'Não foi possível verificar status'}</span>
-          )}
+      {/* Job costing health */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h3 className="font-bold text-omega-charcoal flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-omega-orange" /> Job Costing Overview
+          </h3>
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 hover:border-omega-orange text-xs font-semibold"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
         </div>
 
-        {qb.status === 'connected' && qb.accounts?.length > 0 && (
-          <QbAccountsBreakdown accounts={qb.accounts} />
-        )}
-
-        {qb.status === 'connected' && qb.accounts?.length === 0 && (
-          <div className="rounded-xl bg-omega-cloud border border-dashed border-gray-300 p-4 text-sm text-omega-stone">
-            Conectado, mas nenhuma conta encontrada no QuickBooks.
-          </div>
-        )}
-
-        {qb.status === 'disconnected' && (
-          <div className="rounded-xl bg-omega-cloud border border-dashed border-gray-300 p-4 text-sm text-omega-stone">
-            Conecte o QuickBooks pra ver os saldos das contas em tempo real. Read-only — nenhum dado é alterado.
-          </div>
-        )}
-
-        {qb.status === 'error' && (
-          <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">
-            Erro ao buscar saldos: {qb.message}
-          </div>
-        )}
-      </div>
-
-      {/* P&L cards — only when connected */}
-      {qb.status === 'connected' && pnl && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <PnlCard label="P&L do mês"  data={pnl.month} />
-          <PnlCard label="P&L no ano"  data={pnl.ytd} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <MiniStat label="Total Revenue (est.)" value={money(costStats.totalRevenue)} />
+          <MiniStat label="Total Costs (est.)" value={money(costStats.totalCost)} color="text-red-600" />
+          <MiniStat label="Total Received" value={money(costStats.totalReceived)} color="text-green-700" />
+          <MiniStat label="Balance Outstanding"
+            value={money(costStats.totalRevenue - costStats.totalReceived)}
+            color={costStats.totalRevenue - costStats.totalReceived > 0 ? 'text-amber-600' : 'text-green-700'}
+          />
         </div>
-      )}
 
-      {/* Overdue invoices */}
-      {qb.status === 'connected' && overdueInvoices.length > 0 && (
-        <OverdueList
-          title="Invoices vencidas"
-          icon={ArrowDownCircle}
-          tone="red"
-          items={overdueInvoices.map((i) => ({
-            id: i.id,
-            primary: i.customer,
-            secondary: `Invoice #${i.docNumber || i.id} · venceu em ${new Date(i.dueDate).toLocaleDateString()} (${i.daysPastDue}d atrás)`,
-            amount: i.balance,
-            badge: `${i.daysPastDue}d`,
-          }))}
-          totalLabel="Total a receber"
-          totalAmount={overdueInvoices.reduce((s, i) => s + i.balance, 0)}
-        />
-      )}
-
-      {/* Bills due */}
-      {qb.status === 'connected' && billsDue.length > 0 && (
-        <OverdueList
-          title="Bills a pagar"
-          icon={ArrowUpCircle}
-          tone="orange"
-          items={billsDue.map((b) => ({
-            id: b.id,
-            primary: b.vendor,
-            secondary: `Bill #${b.docNumber || b.id} · ${b.dueDate ? `venc. ${new Date(b.dueDate).toLocaleDateString()}` : 'sem due date'}${b.daysPastDue > 0 ? ` (${b.daysPastDue}d atrás)` : ''}`,
-            amount: b.balance,
-            badge: b.daysPastDue > 0 ? `${b.daysPastDue}d` : null,
-          }))}
-          totalLabel="Total a pagar"
-          totalAmount={billsDue.reduce((s, b) => s + b.balance, 0)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Helper used by the Company tab loader. Returns parsed JSON or null.
-async function fetchJson(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-// Group QB accounts by type and render each category as its own block.
-// Computes a "patrimônio líquido aproximado" up top from the assets vs
-// liabilities split.
-function QbAccountsBreakdown({ accounts }) {
-  const groups = {};
-  for (const a of accounts) (groups[a.type] = groups[a.type] || []).push(a);
-
-  // Net worth approx: assets - liabilities. Bank/AR/Other Current Asset
-  // are positive contributions; Credit Card and AP are negative (their
-  // balances in QB come signed already).
-  const sumType = (type) => (groups[type] || []).reduce((s, a) => s + Number(a.currentBalance || 0), 0);
-  const assets = sumType('Bank') + sumType('Accounts Receivable') + sumType('Other Current Asset');
-  const liabilities = Math.abs(sumType('Credit Card')) + sumType('Accounts Payable');
-  const netWorth = assets - liabilities;
-
-  const SECTIONS = [
-    { key: 'Bank',                 title: '💰 Bank Accounts',        tone: 'green'  },
-    { key: 'Credit Card',          title: '💳 Credit Cards',         tone: 'red'    },
-    { key: 'Accounts Receivable',  title: '📥 Accounts Receivable',  tone: 'blue'   },
-    { key: 'Accounts Payable',     title: '📤 Accounts Payable',     tone: 'orange' },
-    { key: 'Other Current Asset',  title: '🏦 Other Current Assets', tone: 'gray'   },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-2xl bg-gradient-to-br from-omega-charcoal to-black text-white p-5">
-        <p className="text-[11px] uppercase tracking-wider text-white/60 font-semibold">
-          Patrimônio líquido (aproximado)
-        </p>
-        <p className={`text-3xl font-bold mt-1 ${netWorth < 0 ? 'text-red-300' : 'text-white'}`}>
-          {money(netWorth)}
-        </p>
-        <p className="text-[11px] text-white/50 mt-2">
-          Ativos {money(assets)} − Passivos {money(liabilities)}. Não é o patrimônio contábil completo —
-          ignora ativos fixos e equity.
+        <div className="grid grid-cols-3 gap-3">
+          <HealthBadge icon={TrendingUp} label="Profitable" count={costStats.profitable} color="text-green-700 bg-green-50 border-green-200" />
+          <HealthBadge icon={AlertTriangle} label="At Risk" count={costStats.atRisk} color="text-amber-700 bg-amber-50 border-amber-200" />
+          <HealthBadge icon={TrendingDown} label="Loss" count={costStats.loss} color="text-red-700 bg-red-50 border-red-200" />
+        </div>
+        <p className="text-[11px] text-omega-stone mt-3">
+          Based on {costStats.jobCount} jobs with costing data. Margin thresholds: ≥15% profitable · 5–14% at risk · &lt;5% loss.
         </p>
       </div>
 
-      {SECTIONS.map((s) => {
-        const items = groups[s.key] || [];
-        if (items.length === 0) return null;
-        const subtotal = items.reduce((sum, a) => sum + Number(a.currentBalance || 0), 0);
-        return (
-          <div key={s.key}>
-            <div className="flex items-center justify-between mb-2 px-1">
-              <p className="text-[11px] uppercase tracking-wider text-omega-stone font-semibold">{s.title}</p>
-              <p className="text-xs font-semibold text-omega-charcoal">
-                Subtotal: <span className={subtotal < 0 ? 'text-red-600' : ''}>{money(subtotal)}</span>
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {items.map((a) => (
-                <div key={a.id} className="rounded-xl border border-gray-200 p-4 bg-white">
-                  {a.subType && (
-                    <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{a.subType}</p>
-                  )}
-                  <p className="font-bold text-omega-charcoal text-sm mt-1">{a.name}</p>
-                  <p className={`text-xl font-bold mt-2 ${a.currentBalance < 0 ? 'text-red-600' : 'text-omega-charcoal'}`}>
-                    {money(a.currentBalance)} <span className="text-[10px] font-normal text-omega-stone">{a.currency}</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function PnlCard({ label, data }) {
-  if (!data) return null;
-  const positive = data.netIncome >= 0;
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <p className="text-[11px] uppercase tracking-wider text-omega-stone font-semibold">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${positive ? 'text-green-700' : 'text-red-600'}`}>
-        {money(data.netIncome)}
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+      {/* Print report */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-[10px] text-omega-stone uppercase">Receita</p>
-          <p className="font-semibold text-omega-charcoal">{money(data.totalIncome)}</p>
+          <p className="font-bold text-omega-charcoal">QuickBooks Report</p>
+          <p className="text-sm text-omega-stone mt-0.5">
+            Generate a full financial report to print and enter manually into QuickBooks.
+          </p>
         </div>
-        <div>
-          <p className="text-[10px] text-omega-stone uppercase">Despesa</p>
-          <p className="font-semibold text-omega-charcoal">{money(data.totalExpense)}</p>
-        </div>
+        <button
+          onClick={printReport}
+          disabled={printing}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold disabled:opacity-60"
+        >
+          {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+          Print Report
+        </button>
       </div>
     </div>
   );
 }
 
-function OverdueList({ title, icon: Icon, tone, items, totalLabel, totalAmount }) {
-  const toneStyles = {
-    red:    'bg-red-50  text-red-700  border-red-200',
-    orange: 'bg-omega-pale text-omega-orange border-omega-orange/30',
-  };
+function MiniStat({ label, value, color = 'text-omega-charcoal' }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="font-bold text-omega-charcoal flex items-center gap-2">
-          <Icon className="w-4 h-4" /> {title}
-        </p>
-        <p className="text-xs text-omega-stone">
-          {totalLabel}: <span className="font-bold text-omega-charcoal">{money(totalAmount)}</span>
-        </p>
-      </div>
-      <ul className="divide-y divide-gray-100">
-        {items.slice(0, 10).map((it) => (
-          <li key={it.id} className="py-2 flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-omega-charcoal text-sm truncate">{it.primary}</p>
-              <p className="text-[11px] text-omega-stone truncate">{it.secondary}</p>
-            </div>
-            {it.badge && (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${toneStyles[tone] || toneStyles.red}`}>
-                {it.badge}
-              </span>
-            )}
-            <p className="font-bold text-omega-charcoal text-sm w-24 text-right">{money(it.amount)}</p>
-          </li>
-        ))}
-      </ul>
-      {items.length > 10 && (
-        <p className="text-[11px] text-omega-stone mt-2 text-right">
-          +{items.length - 10} a mais — detalhes no QuickBooks.
-        </p>
-      )}
+    <div className="bg-omega-cloud rounded-xl p-3">
+      <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{label}</p>
+      <p className={`text-base font-bold mt-0.5 tabular-nums ${color}`}>{value}</p>
     </div>
   );
 }
 
-// Loads QB connection status + balances in one call. Returns one of:
-//   { status: 'connected', accounts, environment, fetchedAt }
-//   { status: 'disconnected' }
-//   { status: 'error', message }
-async function loadQbBalances() {
-  try {
-    const res = await fetch('/api/quickbooks/balances');
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { status: 'error', message: body.error || `HTTP ${res.status}` };
-    }
-    const data = await res.json();
-    if (!data.connected) return { status: 'disconnected' };
-    return {
-      status: 'connected',
-      accounts: data.accounts || [],
-      environment: data.environment,
-      fetchedAt: data.fetchedAt,
-    };
-  } catch (err) {
-    return { status: 'error', message: err?.message || 'Network error' };
-  }
-}
-
-function SummaryCard({ icon: Icon, label, value, sub, tone }) {
-  const tones = {
-    green:    'bg-green-50 border-green-200 text-green-800',
-    charcoal: 'bg-white border-gray-200 text-omega-charcoal',
-    orange:   'bg-omega-pale border-omega-orange/20 text-omega-orange',
-  };
+function HealthBadge({ icon: Icon, label, count, color }) {
   return (
-    <div className={`rounded-2xl border p-4 ${tones[tone] || tones.charcoal}`}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider opacity-80">
-        <Icon className="w-3.5 h-3.5" /> {label}
+    <div className={`rounded-xl border p-3 flex items-center gap-2 ${color}`}>
+      <Icon className="w-4 h-4 flex-shrink-0" />
+      <div>
+        <p className="text-lg font-black leading-none">{count}</p>
+        <p className="text-[11px] font-semibold">{label}</p>
       </div>
-      <p className="text-2xl font-bold mt-1.5">{value}</p>
-      {sub && <p className="text-[11px] opacity-70 mt-1">{sub}</p>}
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// CLIENTS TAB — list of signed contracts + drawer with milestones
-// ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// PRINT REPORT — opens new window, formatted for printing
+// ─────────────────────────────────────────────────────────────────────
+
+async function openPrintReport() {
+  // Fetch all data needed for the report
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  const [
+    { data: contracts },
+    { data: milestones },
+    { data: agreements },
+    { data: subPayments },
+    { data: ghost },
+    { data: jobs },
+    { data: subs },
+  ] = await Promise.all([
+    supabase.from('contracts').select('id, job_id, total_amount, signed_at').not('signed_at', 'is', null),
+    supabase.from('payment_milestones').select('*').order('order_idx'),
+    supabase.from('subcontractor_agreements').select('*').not('signed_at', 'is', null),
+    supabase.from('sub_payments').select('*').order('order_idx'),
+    supabase.from('ghost_payments').select('*').is('deleted_at', null).order('paid_at', { ascending: false }),
+    supabase.from('jobs').select('id, client_name, address, city, service'),
+    supabase.from('subcontractors').select('id, name, contact_name'),
+  ]);
+
+  const jobsById = Object.fromEntries((jobs || []).map((j) => [j.id, j]));
+  const subsById = Object.fromEntries((subs || []).map((s) => [s.id, s]));
+  const milestonesByContract = {};
+  (milestones || []).forEach((m) => {
+    (milestonesByContract[m.contract_id] = milestonesByContract[m.contract_id] || []).push(m);
+  });
+  const paysByAgreement = {};
+  (subPayments || []).forEach((p) => {
+    (paysByAgreement[p.agreement_id] = paysByAgreement[p.agreement_id] || []).push(p);
+  });
+
+  const fmt = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+
+  let totalReceived = 0, totalOwed = 0, totalSubsPaid = 0, totalSubsOwed = 0, totalGhost = 0;
+  (milestones || []).forEach((m) => {
+    totalReceived += Number(m.received_amount || 0);
+    totalOwed += Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0));
+  });
+  (subPayments || []).forEach((p) => {
+    totalSubsPaid += Number(p.paid_amount || 0);
+    totalSubsOwed += Math.max(0, Number(p.due_amount || 0) - Number(p.paid_amount || 0));
+  });
+  (ghost || []).forEach((g) => { totalGhost += Number(g.amount || 0); });
+
+  const contractRows = (contracts || []).map((c) => {
+    const job = jobsById[c.job_id] || {};
+    const ms = milestonesByContract[c.id] || [];
+    const received = ms.reduce((s, m) => s + Number(m.received_amount || 0), 0);
+    const due = ms.reduce((s, m) => s + Number(m.due_amount || 0), 0);
+    return { contract: c, job, milestones: ms, received, due };
+  });
+
+  const agreementRows = (agreements || []).map((a) => {
+    const job = jobsById[a.job_id] || {};
+    const sub = subsById[a.subcontractor_id] || {};
+    const ps = paysByAgreement[a.id] || [];
+    const paid = ps.reduce((s, p) => s + Number(p.paid_amount || 0), 0);
+    const due = ps.reduce((s, p) => s + Number(p.due_amount || 0), 0);
+    return { agreement: a, job, sub, payments: ps, paid, due };
+  });
+
+  const ghostThisMonth = (ghost || []).filter((g) => g.paid_at >= monthStart);
+
+  const statusLabel = (m, isPay = false) => {
+    const eff = effectiveStatus({ due_date: m.due_date, status: m.status });
+    return eff.charAt(0).toUpperCase() + eff.slice(1);
+  };
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Financial Report — Omega Development LLC</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; padding: 32px; }
+  h1 { font-size: 22px; color: #E8732A; margin-bottom: 4px; }
+  h2 { font-size: 15px; border-bottom: 2px solid #E8732A; padding-bottom: 4px; margin: 24px 0 12px; color: #1a1a1a; }
+  h3 { font-size: 12px; font-weight: 700; margin: 12px 0 4px; color: #374151; }
+  .meta { font-size: 11px; color: #6b7280; margin-bottom: 20px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+  .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+  .summary-card .label { font-size: 10px; text-transform: uppercase; color: #6b7280; font-weight: 700; letter-spacing: 0.05em; }
+  .summary-card .value { font-size: 20px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .green { color: #16a34a; }
+  .red { color: #dc2626; }
+  .orange { color: #E8732A; }
+  .gray { color: #6b7280; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
+  th { background: #f9fafb; text-align: left; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  .client-block { margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+  .client-header { background: #f9fafb; padding: 8px 12px; font-weight: 700; display: flex; justify-content: space-between; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .pill-paid { background: #dcfce7; color: #15803d; }
+  .pill-partial { background: #fef3c7; color: #92400e; }
+  .pill-overdue { background: #fee2e2; color: #dc2626; }
+  .pill-pending { background: #f3f4f6; color: #6b7280; }
+  .pill-due_soon { background: #fef3c7; color: #92400e; }
+  .net-box { margin-top: 24px; background: #1a1a1a; color: white; padding: 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .net-box .net-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+  .net-box .net-value { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between; }
+  @media print { body { padding: 16px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+
+<h1>Omega Development LLC</h1>
+<p class="meta">Financial Report · Generated ${new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}</p>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="label">Total Received (Clients)</div>
+    <div class="value green">${fmt(totalReceived)}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Outstanding A/R</div>
+    <div class="value orange">${fmt(totalOwed)}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Sub Payments Made</div>
+    <div class="value red">${fmt(totalSubsPaid)}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Still Owed to Subs</div>
+    <div class="value orange">${fmt(totalSubsOwed)}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Ghost Checks (All)</div>
+    <div class="value red">${fmt(totalGhost)}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Net (Received − Sub − Ghost)</div>
+    <div class="value ${totalReceived - totalSubsPaid - totalGhost >= 0 ? 'green' : 'red'}">${fmt(totalReceived - totalSubsPaid - totalGhost)}</div>
+  </div>
+</div>
+
+<h2>Client Receivables</h2>
+${contractRows.length === 0 ? '<p class="gray">No signed contracts.</p>' : contractRows.map(({ contract, job, milestones: ms, received, due }) => `
+<div class="client-block">
+  <div class="client-header">
+    <span>${job.client_name || '—'} · ${job.service || ''} · ${[job.address, job.city].filter(Boolean).join(', ') || '—'}</span>
+    <span>Contract: ${fmt(contract.total_amount || due)} · Received: ${fmt(received)} · Balance: ${fmt(due - received)}</span>
+  </div>
+  <table>
+    <thead><tr><th>Installment</th><th>Due Date</th><th>Due Amount</th><th>Received</th><th>Balance</th><th>Status</th></tr></thead>
+    <tbody>
+      ${ms.length === 0 ? '<tr><td colspan="6" style="color:#9ca3af;font-style:italic">No installments defined.</td></tr>' : ms.map((m) => {
+        const eff = effectiveStatus({ due_date: m.due_date, status: m.status });
+        const bal = Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0));
+        return `<tr>
+          <td>${m.label || `Installment ${(m.order_idx || 0) + 1}`}</td>
+          <td>${dt(m.due_date)}</td>
+          <td>${fmt(m.due_amount)}</td>
+          <td>${fmt(m.received_amount)}</td>
+          <td>${fmt(bal)}</td>
+          <td><span class="pill pill-${eff}">${eff}</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+</div>`).join('')}
+
+<h2>Subcontractor Payments</h2>
+${agreementRows.length === 0 ? '<p class="gray">No signed agreements.</p>' : agreementRows.map(({ agreement, job, sub, payments: ps, paid, due }) => `
+<div class="client-block">
+  <div class="client-header">
+    <span>${sub.contact_name || sub.name || '—'} · ${job.client_name || '—'} (${job.service || ''})</span>
+    <span>Total: ${fmt(agreement.their_estimate || due)} · Paid: ${fmt(paid)} · Remaining: ${fmt(due - paid)}</span>
+  </div>
+  <table>
+    <thead><tr><th>Installment</th><th>Due Date</th><th>Due Amount</th><th>Paid</th><th>Remaining</th><th>Status</th></tr></thead>
+    <tbody>
+      ${ps.length === 0 ? '<tr><td colspan="6" style="color:#9ca3af;font-style:italic">No installments defined.</td></tr>' : ps.map((p) => {
+        const eff = effectiveStatus({ due_date: p.due_date, status: p.status });
+        const rem = Math.max(0, Number(p.due_amount || 0) - Number(p.paid_amount || 0));
+        return `<tr>
+          <td>${p.label || `Installment ${(p.order_idx || 0) + 1}`}</td>
+          <td>${dt(p.due_date)}</td>
+          <td>${fmt(p.due_amount)}</td>
+          <td>${fmt(p.paid_amount)}</td>
+          <td>${fmt(rem)}</td>
+          <td><span class="pill pill-${eff}">${eff}</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+</div>`).join('')}
+
+<h2>Ghost Account Checks</h2>
+${ghost.length === 0 ? '<p class="gray">No ghost payments recorded.</p>' : `
+<table>
+  <thead><tr><th>Date</th><th>Subcontractor</th><th>Project</th><th>Check #</th><th style="text-align:right">Amount</th><th>Notes</th></tr></thead>
+  <tbody>
+    ${ghost.map((g) => `<tr>
+      <td>${dt(g.paid_at)}</td>
+      <td>${g.subcontractor_id ? '—' : '—'}</td>
+      <td>—</td>
+      <td>${g.check_number || '—'}</td>
+      <td style="text-align:right;font-weight:700">${fmt(g.amount)}</td>
+      <td>${g.notes || '—'}</td>
+    </tr>`).join('')}
+    <tr style="font-weight:800;background:#f9fafb">
+      <td colspan="4">Total Ghost Payments</td>
+      <td style="text-align:right">${fmt(totalGhost)}</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>`}
+
+<div class="net-box">
+  <div>
+    <div class="net-label">Net Cash Flow</div>
+    <div class="net-label" style="margin-top:4px">Received − Sub Payments − Ghost Checks</div>
+  </div>
+  <div class="net-value">${fmt(totalReceived - totalSubsPaid - totalGhost)}</div>
+</div>
+
+<div class="footer">
+  <span>Omega Development LLC · Internal Financial Report</span>
+  <span>Generated ${new Date().toLocaleString()}</span>
+</div>
+
+<script>window.onload = function() { window.print(); };<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CLIENTS TAB
+// ─────────────────────────────────────────────────────────────────────
 
 function ClientsTab({ user, accounts }) {
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState([]); // {contract, job, milestones, totals}
+  const [rows, setRows] = useState([]);
   const [drawerContractId, setDrawerContractId] = useState(null);
 
   useEffect(() => { load(); }, []);
@@ -566,7 +556,6 @@ function ClientsTab({ user, accounts }) {
   async function load() {
     setLoading(true);
     try {
-      // 1. All signed contracts.
       const { data: contracts } = await supabase
         .from('contracts')
         .select('*')
@@ -591,45 +580,39 @@ function ClientsTab({ user, accounts }) {
         (milestonesByContract[m.contract_id] = milestonesByContract[m.contract_id] || []).push(m);
       });
 
-      // 2. For contracts that have a payment_plan but NO milestones yet,
-      //    materialize. Done in parallel; ignore individual failures.
-      const toMaterialize = (contracts || []).filter((c) => {
+      // Materialize for contracts with plan but no milestones yet
+      const toMat = (contracts || []).filter((c) => {
         const has = (milestonesByContract[c.id] || []).length > 0;
         const hasPlan = Array.isArray(c.payment_plan) && c.payment_plan.length > 0;
         return !has && hasPlan;
       });
-      if (toMaterialize.length > 0) {
-        await Promise.all(toMaterialize.map((c) => ensureMilestonesForContract(c).catch(() => null)));
-        // Refetch milestones for those.
+      if (toMat.length > 0) {
+        await Promise.all(toMat.map((c) => ensureMilestonesForContract(c).catch(() => null)));
         const { data: refetch } = await supabase
-          .from('payment_milestones')
-          .select('*')
-          .in('contract_id', toMaterialize.map((c) => c.id))
-          .order('order_idx');
+          .from('payment_milestones').select('*')
+          .in('contract_id', toMat.map((c) => c.id)).order('order_idx');
         (refetch || []).forEach((m) => {
           (milestonesByContract[m.contract_id] = milestonesByContract[m.contract_id] || []).push(m);
         });
       }
 
-      const built = (contracts || []).map((c) => {
+      setRows((contracts || []).map((c) => {
         const ms = milestonesByContract[c.id] || [];
-        const totals = computeContractTotals(ms, c.total_amount);
-        return { contract: c, job: jobsById[c.job_id] || {}, milestones: ms, totals };
-      });
-      setRows(built);
+        return { contract: c, job: jobsById[c.job_id] || {}, milestones: ms, totals: contractTotals(ms, c.total_amount) };
+      }));
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <div className="flex items-center gap-2 text-omega-stone"><Loader2 className="w-4 h-4 animate-spin" /> Loading contracts…</div>;
+  if (loading) return <Spinner />;
 
   if (rows.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
         <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-        <p className="text-sm">Nenhum contrato assinado ainda.</p>
-        <p className="text-[11px] mt-1">Quando o cliente assinar via DocuSign, aparece aqui.</p>
+        <p className="text-sm font-semibold">No signed contracts yet.</p>
+        <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
       </div>
     );
   }
@@ -639,11 +622,7 @@ function ClientsTab({ user, accounts }) {
   return (
     <div className="space-y-3">
       {rows.map((r) => (
-        <ContractCard
-          key={r.contract.id}
-          row={r}
-          onOpen={() => setDrawerContractId(r.contract.id)}
-        />
+        <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
       ))}
       {drawerRow && (
         <PaymentDrawer
@@ -658,7 +637,7 @@ function ClientsTab({ user, accounts }) {
   );
 }
 
-function computeContractTotals(milestones, contractTotal) {
+function contractTotals(milestones, contractTotal) {
   const total = Number(contractTotal || 0);
   const due = milestones.reduce((s, m) => s + Number(m.due_amount || 0), 0);
   const received = milestones.reduce((s, m) => s + Number(m.received_amount || 0), 0);
@@ -667,11 +646,7 @@ function computeContractTotals(milestones, contractTotal) {
   const overdueCount = milestones.filter((m) => effectiveStatus(m) === 'overdue').length;
   const next = milestones
     .filter((m) => effectiveStatus(m) !== 'paid')
-    .sort((a, b) => {
-      if (!a.due_date) return 1;
-      if (!b.due_date) return -1;
-      return new Date(a.due_date) - new Date(b.due_date);
-    })[0] || null;
+    .sort((a, b) => (!a.due_date ? 1 : !b.due_date ? -1 : new Date(a.due_date) - new Date(b.due_date)))[0] || null;
   return { total, due, received, remaining, paidCount, overdueCount, next, count: milestones.length };
 }
 
@@ -701,68 +676,92 @@ function ContractCard({ row, onOpen }) {
           </p>
           <div className="mt-3 flex items-center gap-2">
             <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
-              <div
-                className={`h-full transition-all ${hasOverdue ? 'bg-red-500' : 'bg-omega-success'}`}
-                style={{ width: `${progressPct}%` }}
-              />
+              <div className={`h-full transition-all ${hasOverdue ? 'bg-red-500' : 'bg-omega-success'}`} style={{ width: `${progressPct}%` }} />
             </div>
             <span className="text-[11px] font-semibold text-omega-stone w-16 text-right">
-              {totals.paidCount}/{totals.count} parcelas
+              {totals.paidCount}/{totals.count} paid
             </span>
           </div>
         </div>
-
         <div className="flex-shrink-0 text-right min-w-[140px]">
-          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Total contract</p>
+          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Contract total</p>
           <p className="text-base font-bold text-omega-charcoal">{money(totals.total || totals.due)}</p>
-          <p className="text-[11px] text-omega-stone mt-0.5">Recebido: {money(totals.received)}</p>
+          <p className="text-[11px] text-green-700 mt-0.5">Received: {money(totals.received)}</p>
           {totals.next && (
             <p className="text-[11px] text-omega-charcoal mt-1">
-              Próxima: <span className="font-semibold">{shortDate(totals.next.due_date)}</span> · {money(totals.next.due_amount - (totals.next.received_amount || 0))}
+              Next: <span className="font-semibold">{shortDate(totals.next.due_date)}</span> · {money(Math.max(0, Number(totals.next.due_amount) - Number(totals.next.received_amount || 0)))}
             </p>
           )}
         </div>
-
         <ChevronRight className="w-5 h-5 text-omega-stone group-hover:text-omega-orange flex-shrink-0 mt-1" />
       </div>
     </button>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// PAYMENT DRAWER — timeline + mark received
-// ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// PAYMENT DRAWER — milestones + full CRUD
+// ─────────────────────────────────────────────────────────────────────
 
 function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
   const { contract, job, milestones, totals } = row;
-  const [markFor, setMarkFor] = useState(null);
-  const accountById = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a])),
-    [accounts]
-  );
+  const [markFor, setMarkFor]   = useState(null);
+  const [editFor, setEditFor]   = useState(null); // milestone or null
+  const [addingNew, setAddingNew] = useState(false);
+
+  async function deleteMilestone(m) {
+    if (!confirm(`Delete "${m.label || 'this installment'}" (${money(m.due_amount)})? This cannot be undone.`)) return;
+    const { error } = await supabase.from('payment_milestones').delete().eq('id', m.id);
+    if (error) { alert(error.message); return; }
+    logAudit({ user, action: 'milestone.delete', entityType: 'payment_milestone', entityId: m.id, details: { label: m.label, amount: m.due_amount } });
+    onChanged();
+  }
+
+  async function saveMilestone(form) {
+    if (form.__new) {
+      const maxIdx = milestones.reduce((max, m) => Math.max(max, m.order_idx || 0), -1);
+      const { error } = await supabase.from('payment_milestones').insert([{
+        contract_id: contract.id,
+        job_id: contract.job_id || null,
+        order_idx: maxIdx + 1,
+        label: form.label || `Installment ${maxIdx + 2}`,
+        due_amount: Number(form.due_amount) || 0,
+        due_date: form.due_date || null,
+        received_amount: 0,
+        status: 'pending',
+      }]);
+      if (error) throw error;
+      logAudit({ user, action: 'milestone.create', entityType: 'payment_milestone', entityId: contract.id, details: form });
+    } else {
+      const { error } = await supabase.from('payment_milestones').update({
+        label: form.label,
+        due_amount: Number(form.due_amount) || 0,
+        due_date: form.due_date || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', form.id);
+      if (error) throw error;
+      logAudit({ user, action: 'milestone.update', entityType: 'payment_milestone', entityId: form.id, details: form });
+    }
+    setAddingNew(false);
+    setEditFor(null);
+    onChanged();
+  }
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div
-        className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="min-w-0">
             <p className="font-bold text-omega-charcoal truncate">{job.client_name || '—'}</p>
-            <p className="text-xs text-omega-stone truncate">
-              {[job.address, job.city].filter(Boolean).join(', ') || '—'}
-            </p>
+            <p className="text-xs text-omega-stone truncate">{[job.address, job.city].filter(Boolean).join(', ') || '—'}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="px-5 py-4 grid grid-cols-3 gap-3 border-b border-gray-100 flex-shrink-0 bg-omega-cloud">
-          <SmallStat label="Total" value={money(totals.total || totals.due)} />
-          <SmallStat label="Recebido" value={money(totals.received)} />
-          <SmallStat label="Restante" value={money(totals.remaining)} />
+        <div className="px-5 py-3 grid grid-cols-3 gap-3 border-b border-gray-100 flex-shrink-0 bg-omega-cloud">
+          <SmallStat label="Contract" value={money(totals.total || totals.due)} />
+          <SmallStat label="Received" value={money(totals.received)} />
+          <SmallStat label="Balance" value={money(totals.remaining)} />
         </div>
 
         <div className="overflow-y-auto p-5 space-y-2 flex-1">
@@ -773,48 +772,65 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
               <div key={m.id} className="border border-gray-200 rounded-xl p-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <StatusPill status={status} />
-                      <p className="font-semibold text-omega-charcoal text-sm">{m.label || `Parcela ${m.order_idx + 1}`}</p>
+                      <p className="font-semibold text-omega-charcoal text-sm">{m.label || `Installment ${(m.order_idx || 0) + 1}`}</p>
                     </div>
                     <p className="text-[11px] text-omega-stone mt-1">
                       Due: {shortDate(m.due_date)}
-                      {Number(m.received_amount) > 0 && (
-                        <> · Última entrada: {shortDate(m.received_at)}</>
-                      )}
-                      {m.received_to_account_id && accountById[m.received_to_account_id] && (
-                        <> · {accountById[m.received_to_account_id].name}</>
-                      )}
+                      {Number(m.received_amount) > 0 && <> · Received: {shortDate(m.received_at)}</>}
                     </p>
                   </div>
-                  <div className="text-right flex-shrink-0">
+                  <div className="text-right flex-shrink-0 space-y-1">
                     <p className="text-sm font-bold text-omega-charcoal">{money(m.due_amount)}</p>
                     {Number(m.received_amount) > 0 && (
-                      <p className="text-[11px] text-green-700">Pago: {money(m.received_amount)}</p>
+                      <p className="text-[11px] text-green-700">Received: {money(m.received_amount)}</p>
                     )}
-                    {status !== 'paid' && (
+                    <div className="flex items-center gap-1 justify-end flex-wrap">
+                      {status !== 'paid' && (
+                        <button
+                          onClick={() => setMarkFor({ milestone: m, suggestedAmount: remaining })}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-omega-success hover:bg-green-700 text-white text-[11px] font-semibold"
+                        >
+                          <Check className="w-3 h-3" /> Mark received
+                        </button>
+                      )}
                       <button
-                        onClick={() => setMarkFor({ milestone: m, suggestedAmount: remaining })}
-                        className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-omega-success hover:bg-green-700 text-white text-[11px] font-semibold"
+                        onClick={() => setEditFor(m)}
+                        className="p-1 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal"
+                        title="Edit"
                       >
-                        <Check className="w-3 h-3" /> Mark received
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
-                    )}
+                      {status === 'pending' && (
+                        <button
+                          onClick={() => deleteMilestone(m)}
+                          className="p-1 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {m.notes && (
-                  <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">
-                    {m.notes}
-                  </p>
+                  <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">{m.notes}</p>
                 )}
               </div>
             );
           })}
+
           {milestones.length === 0 && (
-            <p className="text-sm text-omega-stone p-4 text-center">
-              Esse contrato não tem payment plan definido. Edite o estimate primeiro.
-            </p>
+            <p className="text-sm text-omega-stone p-4 text-center">No installments yet. Add one below.</p>
           )}
+
+          <button
+            onClick={() => setAddingNew(true)}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-gray-300 text-sm font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
+          >
+            <Plus className="w-4 h-4" /> Add Installment
+          </button>
         </div>
       </div>
 
@@ -829,62 +845,39 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
           onSaved={() => { setMarkFor(null); onChanged(); }}
         />
       )}
+
+      {(editFor || addingNew) && (
+        <MilestoneFormModal
+          initial={addingNew ? { __new: true } : editFor}
+          onClose={() => { setEditFor(null); setAddingNew(false); }}
+          onSave={saveMilestone}
+        />
+      )}
     </div>
   );
 }
 
-function SmallStat({ label, value }) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{label}</p>
-      <p className="text-sm font-bold text-omega-charcoal">{value}</p>
-    </div>
-  );
-}
-
-function StatusPill({ status }) {
-  const map = {
-    paid:     { label: 'Paid',     cls: 'bg-green-50 text-green-700 border-green-200', icon: Check },
-    partial:  { label: 'Partial',  cls: 'bg-amber-50 text-amber-800 border-amber-200', icon: Clock },
-    overdue:  { label: 'Overdue',  cls: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
-    due_soon: { label: 'Due',      cls: 'bg-amber-50 text-amber-800 border-amber-200', icon: Clock },
-    pending:  { label: 'Pending',  cls: 'bg-gray-100 text-gray-700 border-gray-200', icon: Clock },
-  };
-  const m = map[status] || map.pending;
-  const Icon = m.icon;
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${m.cls}`}>
-      <Icon className="w-3 h-3" /> {m.label}
-    </span>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────
-// MARK RECEIVED MODAL — works for both contract and sub payments
-// ────────────────────────────────────────────────────────────────────
-
-function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, onClose, onSaved }) {
-  const [amount, setAmount] = useState(String(Number(suggestedAmount || 0).toFixed(2)));
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [accountId, setAccountId] = useState(milestone.received_to_account_id || milestone.paid_from_account_id || (accounts[0]?.id || ''));
-  const [notes, setNotes] = useState('');
+function MilestoneFormModal({ initial, onClose, onSave }) {
+  const [form, setForm] = useState({
+    id: initial?.id || null,
+    __new: !!initial?.__new,
+    label: initial?.label || '',
+    due_amount: initial?.due_amount || '',
+    due_date: initial?.due_date || '',
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSave() {
-    setError('');
-    const amt = Number(amount);
-    if (!(amt > 0)) { setError('Valor deve ser maior que 0'); return; }
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!(Number(form.due_amount) > 0)) { setError('Amount must be greater than 0'); return; }
     setSaving(true);
     try {
-      if (kind === 'sub') {
-        await markSubPaymentPaid(milestone.id, { amount: amt, date, accountId, notes, user });
-      } else {
-        await markMilestoneReceived(milestone.id, { amount: amt, date, accountId, notes, user });
-      }
-      onSaved();
+      await onSave(form);
     } catch (err) {
-      setError(err?.message || 'Erro ao salvar');
+      setError(err.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
@@ -892,91 +885,43 @@ function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, o
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+      <form className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <p className="font-bold text-omega-charcoal">
-            {kind === 'sub' ? 'Registrar pagamento ao sub' : 'Registrar recebimento'}
-          </p>
-          <button onClick={onClose}><X className="w-5 h-5 text-omega-stone" /></button>
+          <p className="font-bold text-omega-charcoal">{form.__new ? 'Add Installment' : 'Edit Installment'}</p>
+          <button type="button" onClick={onClose}><X className="w-5 h-5 text-omega-stone" /></button>
         </div>
         <div className="p-4 space-y-3">
-          <Field label="Valor (USD)">
-            <input
-              type="number" step="0.01" min="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono"
-            />
-            <p className="text-[10px] text-omega-stone mt-1">
-              Sugestão: {money(suggestedAmount)} (valor restante). Pode ser parcial.
-            </p>
-          </Field>
-          <Field label="Data">
-            <input
-              type="date" value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
-            />
-          </Field>
-          <Field label={kind === 'sub' ? 'Conta de origem' : 'Conta destino'}>
-            {accounts.length === 0 ? (
-              <p className="text-[11px] text-omega-stone">Nenhuma conta cadastrada. Adicione em <strong>Bank Accounts</strong>.</p>
-            ) : (
-              <select
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
-              >
-                <option value="">—</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}{a.last4 ? ` ··${a.last4}` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Notas (opcional)">
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Cheque #, transferência, observação…"
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none"
-            />
-          </Field>
+          <FormField label="Label">
+            <input value={form.label} onChange={(e) => set('label', e.target.value)}
+              placeholder="e.g. Deposit, Final Payment…"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+          </FormField>
+          <FormField label="Amount ($) *">
+            <input type="number" min="0.01" step="0.01" required value={form.due_amount}
+              onChange={(e) => set('due_amount', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm tabular-nums" placeholder="0.00" />
+          </FormField>
+          <FormField label="Due Date">
+            <input type="date" value={form.due_date} onChange={(e) => set('due_date', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+          </FormField>
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
         <div className="flex justify-end gap-2 p-4 border-t border-gray-100">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancelar</button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Salvar
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
+          <button type="submit" disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
 
-function Field({ label, children }) {
-  return (
-    <div>
-      <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider block mb-1">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────
-// SUBS TAB — same shape, reverse direction
-// ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// SUBS TAB
+// ─────────────────────────────────────────────────────────────────────
 
 function SubsTab({ user, accounts }) {
   const [loading, setLoading] = useState(true);
@@ -989,21 +934,14 @@ function SubsTab({ user, accounts }) {
     setLoading(true);
     try {
       const { data: agreements } = await supabase
-        .from('subcontractor_agreements')
-        .select('*')
-        .not('signed_at', 'is', null)
-        .order('signed_at', { ascending: false });
+        .from('subcontractor_agreements').select('*')
+        .not('signed_at', 'is', null).order('signed_at', { ascending: false });
 
-      // subcontractor_agreements doesn't necessarily carry payment_plan
-      // (different schema from contracts). Fall back to subcontractor_offers
-      // if needed for the spec.
       const { data: offers } = await supabase
-        .from('subcontractor_offers')
-        .select('id, payment_plan, their_estimate, subcontractor_id, job_id');
+        .from('subcontractor_offers').select('id, payment_plan, their_estimate, subcontractor_id, job_id');
       const offersById = Object.fromEntries((offers || []).map((o) => [o.id, o]));
 
       const enriched = (agreements || []).map((a) => {
-        // Try to attach payment_plan/estimate from the originating offer
         const offer = a.offer_id ? offersById[a.offer_id] : null;
         return {
           ...a,
@@ -1014,85 +952,69 @@ function SubsTab({ user, accounts }) {
         };
       });
 
-      const ids = enriched.map((a) => a.id);
+      const ids    = enriched.map((a) => a.id);
       const subIds = [...new Set(enriched.map((a) => a.subcontractor_id).filter(Boolean))];
       const jobIds = [...new Set(enriched.map((a) => a.job_id).filter(Boolean))];
 
       const [{ data: payments }, { data: subs }, { data: jobs }] = await Promise.all([
-        ids.length
-          ? supabase.from('sub_payments').select('*').in('agreement_id', ids).order('order_idx')
-          : Promise.resolve({ data: [] }),
-        subIds.length
-          ? supabase.from('subcontractors').select('id, name, contact_name').in('id', subIds)
-          : Promise.resolve({ data: [] }),
-        jobIds.length
-          ? supabase.from('jobs').select('id, client_name, address, city, service').in('id', jobIds)
-          : Promise.resolve({ data: [] }),
+        ids.length    ? supabase.from('sub_payments').select('*').in('agreement_id', ids).order('order_idx')    : Promise.resolve({ data: [] }),
+        subIds.length ? supabase.from('subcontractors').select('id, name, contact_name').in('id', subIds)       : Promise.resolve({ data: [] }),
+        jobIds.length ? supabase.from('jobs').select('id, client_name, address, city, service').in('id', jobIds): Promise.resolve({ data: [] }),
       ]);
 
       const subsById = Object.fromEntries((subs || []).map((s) => [s.id, s]));
       const jobsById = Object.fromEntries((jobs || []).map((j) => [j.id, j]));
-      const paymentsByAgreement = {};
+      const paysByAgreement = {};
       (payments || []).forEach((p) => {
-        (paymentsByAgreement[p.agreement_id] = paymentsByAgreement[p.agreement_id] || []).push(p);
+        (paysByAgreement[p.agreement_id] = paysByAgreement[p.agreement_id] || []).push(p);
       });
 
-      // Materialize for agreements with plan but no payments yet.
-      const toMaterialize = enriched.filter((a) => {
-        const has = (paymentsByAgreement[a.id] || []).length > 0;
+      const toMat = enriched.filter((a) => {
+        const has = (paysByAgreement[a.id] || []).length > 0;
         const hasPlan = Array.isArray(a.payment_plan) && a.payment_plan.length > 0;
         return !has && hasPlan;
       });
-      if (toMaterialize.length > 0) {
-        await Promise.all(toMaterialize.map((a) => ensureSubPaymentsForAgreement(a).catch(() => null)));
-        const { data: refetch } = await supabase
-          .from('sub_payments')
-          .select('*')
-          .in('agreement_id', toMaterialize.map((a) => a.id))
-          .order('order_idx');
+      if (toMat.length > 0) {
+        await Promise.all(toMat.map((a) => ensureSubPaymentsForAgreement(a).catch(() => null)));
+        const { data: refetch } = await supabase.from('sub_payments').select('*')
+          .in('agreement_id', toMat.map((a) => a.id)).order('order_idx');
         (refetch || []).forEach((p) => {
-          (paymentsByAgreement[p.agreement_id] = paymentsByAgreement[p.agreement_id] || []).push(p);
+          (paysByAgreement[p.agreement_id] = paysByAgreement[p.agreement_id] || []).push(p);
         });
       }
 
-      const built = enriched.map((a) => {
-        const ms = paymentsByAgreement[a.id] || [];
-        const due = ms.reduce((s, m) => s + Number(m.due_amount || 0), 0);
-        const paid = ms.reduce((s, m) => s + Number(m.paid_amount || 0), 0);
-        const total = Number(a.their_estimate || 0);
+      setRows(enriched.map((a) => {
+        const ps = paysByAgreement[a.id] || [];
+        const due  = ps.reduce((s, p) => s + Number(p.due_amount  || 0), 0);
+        const paid = ps.reduce((s, p) => s + Number(p.paid_amount || 0), 0);
         return {
           agreement: a,
           sub: subsById[a.subcontractor_id] || {},
           job: jobsById[a.job_id] || {},
-          payments: ms,
+          payments: ps,
           totals: {
-            total, due, paid,
+            total: Number(a.their_estimate || 0),
+            due, paid,
             remaining: Math.max(0, due - paid),
-            paidCount: ms.filter((p) => p.status === 'paid').length,
-            count: ms.length,
-            overdueCount: ms.filter((p) => effectiveStatus(toMilestoneShape(p)) === 'overdue').length,
-            next: ms.filter((p) => p.status !== 'paid')
-              .sort((a, b) => {
-                if (!a.due_date) return 1;
-                if (!b.due_date) return -1;
-                return new Date(a.due_date) - new Date(b.due_date);
-              })[0] || null,
+            paidCount: ps.filter((p) => p.status === 'paid').length,
+            count: ps.length,
+            overdueCount: ps.filter((p) => effectiveStatus({ due_date: p.due_date, status: p.status }) === 'overdue').length,
+            next: ps.filter((p) => p.status !== 'paid').sort((a, b) => (!a.due_date ? 1 : !b.due_date ? -1 : new Date(a.due_date) - new Date(b.due_date)))[0] || null,
           },
         };
-      });
-      setRows(built);
+      }));
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <div className="flex items-center gap-2 text-omega-stone"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
+  if (loading) return <Spinner />;
 
   if (rows.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
         <Users className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-        <p className="text-sm">Nenhum agreement assinado com sub ainda.</p>
+        <p className="text-sm font-semibold">No signed agreements yet.</p>
       </div>
     );
   }
@@ -1102,11 +1024,7 @@ function SubsTab({ user, accounts }) {
   return (
     <div className="space-y-3">
       {rows.map((r) => (
-        <SubAgreementCard
-          key={r.agreement.id}
-          row={r}
-          onOpen={() => setDrawerAgreementId(r.agreement.id)}
-        />
+        <SubAgreementCard key={r.agreement.id} row={r} onOpen={() => setDrawerAgreementId(r.agreement.id)} />
       ))}
       {drawerRow && (
         <SubPaymentDrawer
@@ -1119,12 +1037,6 @@ function SubsTab({ user, accounts }) {
       )}
     </div>
   );
-}
-
-// Adapt sub_payment row shape so effectiveStatus() works on it (reads
-// `due_date` and `status`; we never read `received_amount`/`paid_amount`).
-function toMilestoneShape(p) {
-  return { due_date: p.due_date, status: p.status };
 }
 
 function SubAgreementCard({ row, onOpen }) {
@@ -1140,12 +1052,8 @@ function SubAgreementCard({ row, onOpen }) {
       <div className="flex items-start gap-4 flex-wrap md:flex-nowrap">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-bold text-omega-charcoal truncate">
-              {sub.contact_name || sub.name || '—'}
-            </p>
-            {sub.contact_name && sub.name && (
-              <span className="text-xs text-omega-stone">· {sub.name}</span>
-            )}
+            <p className="font-bold text-omega-charcoal truncate">{sub.contact_name || sub.name || '—'}</p>
+            {sub.contact_name && sub.name && <span className="text-xs text-omega-stone">· {sub.name}</span>}
             {hasOverdue && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold uppercase">
                 <AlertTriangle className="w-3 h-3" /> {totals.overdueCount} overdue
@@ -1157,71 +1065,96 @@ function SubAgreementCard({ row, onOpen }) {
           </p>
           <div className="mt-3 flex items-center gap-2">
             <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
-              <div
-                className={`h-full transition-all ${hasOverdue ? 'bg-red-500' : 'bg-omega-orange'}`}
-                style={{ width: `${progressPct}%` }}
-              />
+              <div className={`h-full transition-all ${hasOverdue ? 'bg-red-500' : 'bg-omega-orange'}`} style={{ width: `${progressPct}%` }} />
             </div>
-            <span className="text-[11px] font-semibold text-omega-stone w-16 text-right">
-              {totals.paidCount}/{totals.count} parcelas
-            </span>
+            <span className="text-[11px] font-semibold text-omega-stone w-16 text-right">{totals.paidCount}/{totals.count} paid</span>
           </div>
         </div>
-
         <div className="flex-shrink-0 text-right min-w-[140px]">
-          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Total agreement</p>
+          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Total agreed</p>
           <p className="text-base font-bold text-omega-charcoal">{money(totals.total || totals.due)}</p>
-          <p className="text-[11px] text-omega-stone mt-0.5">Pago: {money(totals.paid)}</p>
+          <p className="text-[11px] text-omega-stone mt-0.5">Paid: {money(totals.paid)}</p>
           {totals.next && (
             <p className="text-[11px] text-omega-charcoal mt-1">
-              Próxima: <span className="font-semibold">{shortDate(totals.next.due_date)}</span> · {money(totals.next.due_amount - (totals.next.paid_amount || 0))}
+              Next: <span className="font-semibold">{shortDate(totals.next.due_date)}</span> · {money(Math.max(0, Number(totals.next.due_amount) - Number(totals.next.paid_amount || 0)))}
             </p>
           )}
         </div>
-
         <ChevronRight className="w-5 h-5 text-omega-stone group-hover:text-omega-orange flex-shrink-0 mt-1" />
       </div>
     </button>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// SUB PAYMENT DRAWER — payments + full CRUD
+// ─────────────────────────────────────────────────────────────────────
+
 function SubPaymentDrawer({ row, accounts, user, onClose, onChanged }) {
   const { agreement, sub, job, payments, totals } = row;
-  const [markFor, setMarkFor] = useState(null);
-  const accountById = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a])),
-    [accounts]
-  );
+  const [markFor, setMarkFor]   = useState(null);
+  const [editFor, setEditFor]   = useState(null);
+  const [addingNew, setAddingNew] = useState(false);
+
+  async function deletePayment(p) {
+    if (!confirm(`Delete "${p.label || 'this installment'}" (${money(p.due_amount)})? Cannot be undone.`)) return;
+    const { error } = await supabase.from('sub_payments').delete().eq('id', p.id);
+    if (error) { alert(error.message); return; }
+    logAudit({ user, action: 'sub_payment.delete', entityType: 'sub_payment', entityId: p.id, details: { label: p.label, amount: p.due_amount } });
+    onChanged();
+  }
+
+  async function savePayment(form) {
+    if (form.__new) {
+      const maxIdx = payments.reduce((max, p) => Math.max(max, p.order_idx || 0), -1);
+      const { error } = await supabase.from('sub_payments').insert([{
+        agreement_id: agreement.id,
+        subcontractor_id: agreement.subcontractor_id || null,
+        job_id: agreement.job_id || null,
+        order_idx: maxIdx + 1,
+        label: form.label || `Installment ${maxIdx + 2}`,
+        due_amount: Number(form.due_amount) || 0,
+        due_date: form.due_date || null,
+        paid_amount: 0,
+        status: 'pending',
+      }]);
+      if (error) throw error;
+      logAudit({ user, action: 'sub_payment.create', entityType: 'sub_payment', entityId: agreement.id, details: form });
+    } else {
+      const { error } = await supabase.from('sub_payments').update({
+        label: form.label,
+        due_amount: Number(form.due_amount) || 0,
+        due_date: form.due_date || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', form.id);
+      if (error) throw error;
+      logAudit({ user, action: 'sub_payment.update', entityType: 'sub_payment', entityId: form.id, details: form });
+    }
+    setAddingNew(false);
+    setEditFor(null);
+    onChanged();
+  }
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div
-        className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="min-w-0">
-            <p className="font-bold text-omega-charcoal truncate">
-              {sub.contact_name || sub.name || '—'}
-            </p>
-            <p className="text-xs text-omega-stone truncate">
-              {job.client_name} · {[job.address, job.city].filter(Boolean).join(', ')}
-            </p>
+            <p className="font-bold text-omega-charcoal truncate">{sub.contact_name || sub.name || '—'}</p>
+            <p className="text-xs text-omega-stone truncate">{job.client_name} · {[job.address, job.city].filter(Boolean).join(', ')}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="px-5 py-4 grid grid-cols-3 gap-3 border-b border-gray-100 bg-omega-cloud">
-          <SmallStat label="Total"    value={money(totals.total || totals.due)} />
-          <SmallStat label="Pago"     value={money(totals.paid)} />
-          <SmallStat label="Restante" value={money(totals.remaining)} />
+        <div className="px-5 py-3 grid grid-cols-3 gap-3 border-b border-gray-100 flex-shrink-0 bg-omega-cloud">
+          <SmallStat label="Total"     value={money(totals.total || totals.due)} />
+          <SmallStat label="Paid"      value={money(totals.paid)} />
+          <SmallStat label="Remaining" value={money(totals.remaining)} />
         </div>
 
         <div className="overflow-y-auto p-5 space-y-2 flex-1">
           {payments.map((p) => {
-            const status = effectiveStatus(toMilestoneShape(p));
+            const status = effectiveStatus({ due_date: p.due_date, status: p.status });
             const remaining = Math.max(0, Number(p.due_amount || 0) - Number(p.paid_amount || 0));
             return (
               <div key={p.id} className="border border-gray-200 rounded-xl p-3">
@@ -1229,46 +1162,51 @@ function SubPaymentDrawer({ row, accounts, user, onClose, onChanged }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <StatusPill status={status} />
-                      <p className="font-semibold text-omega-charcoal text-sm">
-                        {p.label || `Parcela ${p.order_idx + 1}`}
-                      </p>
+                      <p className="font-semibold text-omega-charcoal text-sm">{p.label || `Installment ${(p.order_idx || 0) + 1}`}</p>
                     </div>
                     <p className="text-[11px] text-omega-stone mt-1">
                       Due: {shortDate(p.due_date)}
-                      {Number(p.paid_amount) > 0 && <> · Última saída: {shortDate(p.paid_at)}</>}
-                      {p.paid_from_account_id && accountById[p.paid_from_account_id] && (
-                        <> · {accountById[p.paid_from_account_id].name}</>
-                      )}
+                      {Number(p.paid_amount) > 0 && <> · Paid: {shortDate(p.paid_at)}</>}
                     </p>
                   </div>
-                  <div className="text-right flex-shrink-0">
+                  <div className="text-right flex-shrink-0 space-y-1">
                     <p className="text-sm font-bold text-omega-charcoal">{money(p.due_amount)}</p>
                     {Number(p.paid_amount) > 0 && (
-                      <p className="text-[11px] text-omega-orange">Pago: {money(p.paid_amount)}</p>
+                      <p className="text-[11px] text-omega-orange">Paid: {money(p.paid_amount)}</p>
                     )}
-                    {status !== 'paid' && (
-                      <button
-                        onClick={() => setMarkFor({ milestone: p, suggestedAmount: remaining })}
-                        className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-[11px] font-semibold"
-                      >
-                        <Check className="w-3 h-3" /> Marcar pago
+                    <div className="flex items-center gap-1 justify-end flex-wrap">
+                      {status !== 'paid' && (
+                        <button
+                          onClick={() => setMarkFor({ milestone: p, suggestedAmount: remaining })}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-[11px] font-semibold"
+                        >
+                          <Check className="w-3 h-3" /> Mark paid
+                        </button>
+                      )}
+                      <button onClick={() => setEditFor(p)} className="p-1 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal" title="Edit">
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
-                    )}
+                      {status === 'pending' && (
+                        <button onClick={() => deletePayment(p)} className="p-1 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600" title="Delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {p.notes && (
-                  <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">
-                    {p.notes}
-                  </p>
-                )}
+                {p.notes && <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">{p.notes}</p>}
               </div>
             );
           })}
-          {payments.length === 0 && (
-            <p className="text-sm text-omega-stone p-4 text-center">
-              Esse agreement não tem payment plan definido.
-            </p>
-          )}
+
+          {payments.length === 0 && <p className="text-sm text-omega-stone p-4 text-center">No installments yet. Add one below.</p>}
+
+          <button
+            onClick={() => setAddingNew(true)}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-gray-300 text-sm font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
+          >
+            <Plus className="w-4 h-4" /> Add Installment
+          </button>
         </div>
       </div>
 
@@ -1283,21 +1221,171 @@ function SubPaymentDrawer({ row, accounts, user, onClose, onChanged }) {
           onSaved={() => { setMarkFor(null); onChanged(); }}
         />
       )}
+
+      {(editFor || addingNew) && (
+        <MilestoneFormModal
+          initial={addingNew ? { __new: true } : editFor}
+          onClose={() => { setEditFor(null); setAddingNew(false); }}
+          onSave={savePayment}
+        />
+      )}
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// BANK ACCOUNTS — inline CRUD modal
-// ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// SHARED COMPONENTS
+// ─────────────────────────────────────────────────────────────────────
+
+function Spinner() {
+  return <div className="flex items-center gap-2 text-omega-stone"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
+}
+
+function SmallStat({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{label}</p>
+      <p className="text-sm font-bold text-omega-charcoal">{value}</p>
+    </div>
+  );
+}
+
+function StatusPill({ status }) {
+  const map = {
+    paid:     { label: 'Paid',     cls: 'bg-green-50 text-green-700 border-green-200',   icon: Check },
+    partial:  { label: 'Partial',  cls: 'bg-amber-50 text-amber-800 border-amber-200',   icon: Clock },
+    overdue:  { label: 'Overdue',  cls: 'bg-red-50 text-red-700 border-red-200',          icon: AlertTriangle },
+    due_soon: { label: 'Due',      cls: 'bg-amber-50 text-amber-800 border-amber-200',   icon: Clock },
+    pending:  { label: 'Pending',  cls: 'bg-gray-100 text-gray-700 border-gray-200',     icon: Clock },
+  };
+  const m = map[status] || map.pending;
+  const Icon = m.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${m.cls}`}>
+      <Icon className="w-3 h-3" /> {m.label}
+    </span>
+  );
+}
+
+function SummaryCard({ icon: Icon, label, value, sub, tone }) {
+  const tones = {
+    green:    'bg-green-50 border-green-200 text-green-800',
+    charcoal: 'bg-white border-gray-200 text-omega-charcoal',
+    orange:   'bg-omega-pale border-omega-orange/20 text-omega-orange',
+  };
+  return (
+    <div className={`rounded-2xl border p-4 ${tones[tone] || tones.charcoal}`}>
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider opacity-80">
+        <Icon className="w-3.5 h-3.5" /> {label}
+      </div>
+      <p className="text-2xl font-bold mt-1.5 tabular-nums">{value}</p>
+      {sub && <p className="text-[11px] opacity-70 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function FormField({ label, children }) {
+  return (
+    <div>
+      <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider block mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// MARK RECEIVED / PAID MODAL
+// ─────────────────────────────────────────────────────────────────────
+
+function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, onClose, onSaved }) {
+  const [amount, setAmount]    = useState(String(Number(suggestedAmount || 0).toFixed(2)));
+  const [date, setDate]        = useState(todayISO());
+  const [accountId, setAccountId] = useState(milestone.received_to_account_id || milestone.paid_from_account_id || (accounts[0]?.id || ''));
+  const [notes, setNotes]      = useState('');
+  const [saving, setSaving]    = useState(false);
+  const [error, setError]      = useState('');
+
+  async function handleSave() {
+    setError('');
+    const amt = Number(amount);
+    if (!(amt > 0)) { setError('Amount must be greater than 0'); return; }
+    setSaving(true);
+    try {
+      if (kind === 'sub') {
+        await markSubPaymentPaid(milestone.id, { amount: amt, date, accountId, notes, user });
+      } else {
+        await markMilestoneReceived(milestone.id, { amount: amt, date, accountId, notes, user });
+      }
+      onSaved();
+    } catch (err) {
+      setError(err?.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100">
+          <p className="font-bold text-omega-charcoal">
+            {kind === 'sub' ? 'Register payment to sub' : 'Register received payment'}
+          </p>
+          <button onClick={onClose}><X className="w-5 h-5 text-omega-stone" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <FormField label="Amount (USD)">
+            <input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono" />
+            <p className="text-[10px] text-omega-stone mt-1">Suggested: {money(suggestedAmount)}. Can be partial.</p>
+          </FormField>
+          <FormField label="Date">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+          </FormField>
+          <FormField label={kind === 'sub' ? 'From account' : 'To account'}>
+            {accounts.length === 0 ? (
+              <p className="text-[11px] text-omega-stone">No accounts yet. Add them via Bank Accounts.</p>
+            ) : (
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                <option value="">—</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}{a.last4 ? ` ··${a.last4}` : ''}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          <FormField label="Notes (optional)">
+            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+              placeholder="Check #, wire transfer, note…"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none" />
+          </FormField>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BANK ACCOUNTS MODAL
+// ─────────────────────────────────────────────────────────────────────
 
 function BankAccountsModal({ user, accounts, onClose, onChanged }) {
-  const [editing, setEditing] = useState(null); // row or 'new'
-  const [form, setForm] = useState({ name: '', last4: '' });
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm]       = useState({ name: '', last4: '' });
+  const [saving, setSaving]   = useState(false);
 
-  function openNew() { setEditing('new'); setForm({ name: '', last4: '' }); }
-  function openEdit(a) { setEditing(a); setForm({ name: a.name || '', last4: a.last4 || '' }); }
+  function openNew()  { setEditing('new'); setForm({ name: '', last4: '' }); }
+  function openEdit(a){ setEditing(a);    setForm({ name: a.name || '', last4: a.last4 || '' }); }
 
   async function save() {
     if (!form.name.trim()) return;
@@ -1309,17 +1397,12 @@ function BankAccountsModal({ user, accounts, onClose, onChanged }) {
       };
       if (editing === 'new') {
         const sortOrder = accounts.length > 0 ? Math.max(...accounts.map((a) => a.sort_order || 0)) + 1 : 0;
-        const { data, error } = await supabase
-          .from('bank_accounts')
-          .insert([{ ...payload, sort_order: sortOrder }])
-          .select().single();
+        const { data, error } = await supabase.from('bank_accounts').insert([{ ...payload, sort_order: sortOrder }]).select().single();
         if (error) throw error;
-        const { logAudit } = await import('../../lib/audit');
         logAudit({ user, action: 'bank_account.create', entityType: 'bank_account', entityId: data.id, details: payload });
       } else {
         const { error } = await supabase.from('bank_accounts').update(payload).eq('id', editing.id);
         if (error) throw error;
-        const { logAudit } = await import('../../lib/audit');
         logAudit({ user, action: 'bank_account.update', entityType: 'bank_account', entityId: editing.id, details: payload });
       }
       setEditing(null);
@@ -1331,11 +1414,14 @@ function BankAccountsModal({ user, accounts, onClose, onChanged }) {
 
   async function toggleActive(a) {
     await supabase.from('bank_accounts').update({ active: !a.active }).eq('id', a.id);
-    const { logAudit } = await import('../../lib/audit');
-    logAudit({
-      user, action: a.active ? 'bank_account.deactivate' : 'bank_account.activate',
-      entityType: 'bank_account', entityId: a.id, details: { name: a.name },
-    });
+    logAudit({ user, action: a.active ? 'bank_account.deactivate' : 'bank_account.activate', entityType: 'bank_account', entityId: a.id, details: { name: a.name } });
+    onChanged();
+  }
+
+  async function deleteAccount(a) {
+    if (!confirm(`Delete bank account "${a.name}"? This cannot be undone.`)) return;
+    await supabase.from('bank_accounts').delete().eq('id', a.id);
+    logAudit({ user, action: 'bank_account.delete', entityType: 'bank_account', entityId: a.id, details: { name: a.name } });
     onChanged();
   }
 
@@ -1343,42 +1429,22 @@ function BankAccountsModal({ user, accounts, onClose, onChanged }) {
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <p className="font-bold text-omega-charcoal flex items-center gap-2">
-            <Banknote className="w-4 h-4 text-omega-orange" /> Bank Accounts
-          </p>
+          <p className="font-bold text-omega-charcoal flex items-center gap-2"><Banknote className="w-4 h-4 text-omega-orange" /> Bank Accounts</p>
           <button onClick={onClose}><X className="w-5 h-5 text-omega-stone" /></button>
         </div>
-
-        <div className="p-4 space-y-3">
-          {accounts.length === 0 && (
-            <p className="text-sm text-omega-stone text-center py-2">
-              Nenhuma conta cadastrada.
-            </p>
-          )}
+        <div className="p-4 space-y-2">
+          {accounts.length === 0 && <p className="text-sm text-omega-stone text-center py-2">No accounts yet.</p>}
           {accounts.map((a) => (
             <div key={a.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${a.active ? 'bg-white border-gray-200' : 'bg-omega-cloud border-gray-200 opacity-60'}`}>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-omega-charcoal text-sm truncate">{a.name}</p>
-                <p className="text-[11px] text-omega-stone font-mono">
-                  {a.last4 ? `··${a.last4}` : '—'} {!a.active && '· inactive'}
-                </p>
+                <p className="text-[11px] text-omega-stone font-mono">{a.last4 ? `··${a.last4}` : '—'} {!a.active && '· inactive'}</p>
               </div>
-              <button
-                onClick={() => openEdit(a)}
-                className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud"
-                title="Editar"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => toggleActive(a)}
-                className="text-[11px] font-semibold text-omega-stone hover:text-omega-charcoal px-2"
-              >
-                {a.active ? 'Disable' : 'Enable'}
-              </button>
+              <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+              <button onClick={() => toggleActive(a)} className="text-[11px] font-semibold text-omega-stone hover:text-omega-charcoal px-2">{a.active ? 'Disable' : 'Enable'}</button>
+              <button onClick={() => deleteAccount(a)} className="p-1.5 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
-
           <button
             onClick={openNew}
             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-gray-300 text-sm font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
@@ -1392,44 +1458,25 @@ function BankAccountsModal({ user, accounts, onClose, onChanged }) {
         <div className="fixed inset-0 z-[55] bg-black/60 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
           <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
-              <p className="font-bold text-omega-charcoal">
-                {editing === 'new' ? 'Nova conta' : 'Editar conta'}
-              </p>
+              <p className="font-bold text-omega-charcoal">{editing === 'new' ? 'New account' : 'Edit account'}</p>
               <button onClick={() => setEditing(null)}><X className="w-5 h-5 text-omega-stone" /></button>
             </div>
             <div className="p-4 space-y-3">
-              <Field label="Nome">
-                <input
-                  autoFocus
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+              <FormField label="Name">
+                <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Wells Fargo Operations"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
-                />
-              </Field>
-              <Field label="Últimos 4 dígitos">
-                <input
-                  value={form.last4}
-                  onChange={(e) => setForm({ ...form, last4: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                  placeholder="9842"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono"
-                />
-              </Field>
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+              </FormField>
+              <FormField label="Last 4 digits">
+                <input value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                  placeholder="9842" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono" />
+              </FormField>
             </div>
             <div className="flex justify-end gap-2 p-4 border-t border-gray-100">
-              <button
-                onClick={() => setEditing(null)}
-                className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={save}
-                disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Salvar
+              <button onClick={() => setEditing(null)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
+              <button onClick={save} disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
               </button>
             </div>
           </div>
