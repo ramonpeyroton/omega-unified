@@ -46,6 +46,8 @@ const FOLDERS = [
   { id: 'daily_logs',     label: 'Daily Logs Media', icon: ImageIcon     },
 ];
 
+const CAN_DELETE_ESTIMATE = new Set(['owner', 'operations', 'admin']);
+
 export default function DocumentsSection({ job, user, onJobUpdated }) {
   const [docs, setDocs]           = useState([]);
   const [estimates, setEstimates] = useState([]);   // all estimates for this job (any group)
@@ -56,6 +58,7 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
   const [savingNote, setSavingNote] = useState(false);
   const [noteError, setNoteError] = useState('');
   const [viewer, setViewer]       = useState(null);
+  const [pendingDeleteEstId, setPendingDeleteEstId] = useState(null);
 
   useEffect(() => {
     if (!job?.id) return;
@@ -138,6 +141,16 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
       await supabase.from('job_notes').delete().eq('id', note.id);
       setNotes((prev) => prev.filter((n) => n.id !== note.id));
       logAudit({ user, action: 'job.note.delete', entityType: 'job_note', entityId: note.id });
+    } catch { /* ignore */ }
+  }
+
+  async function deleteEstimate(est) {
+    if (pendingDeleteEstId !== est.id) { setPendingDeleteEstId(est.id); return; }
+    setPendingDeleteEstId(null);
+    try {
+      await supabase.from('estimates').delete().eq('id', est.id);
+      setEstimates((prev) => prev.filter((e) => e.id !== est.id));
+      logAudit({ user, action: 'estimate.delete', entityType: 'estimate', entityId: est.id, details: { estimate_number: est.estimate_number } });
     } catch { /* ignore */ }
   }
 
@@ -263,6 +276,22 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
                   >
                     <ExternalLink className="w-4 h-4" />
                   </a>
+                  {CAN_DELETE_ESTIMATE.has(user?.role) && !est.signed_at && (
+                    <button
+                      onClick={() => deleteEstimate(est)}
+                      className={`flex-shrink-0 transition-colors ${
+                        pendingDeleteEstId === est.id
+                          ? 'text-red-600'
+                          : 'text-omega-stone hover:text-red-600 opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={pendingDeleteEstId === est.id ? 'Click again to confirm deletion' : 'Delete estimate'}
+                    >
+                      {pendingDeleteEstId === est.id
+                        ? <span className="text-[11px] font-bold">Sure?</span>
+                        : <Trash2 className="w-4 h-4" />
+                      }
+                    </button>
+                  )}
                 </div>
               );
             })}
