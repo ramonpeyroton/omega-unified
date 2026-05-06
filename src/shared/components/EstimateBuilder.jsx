@@ -417,6 +417,25 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     }
   }
 
+  async function handleDeleteEstimate() {
+    if (!estimate?.id) return;
+    const label = estimate.estimate_number ? `OM-${estimate.estimate_number}` : 'this estimate';
+    if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    try {
+      await supabase.from('estimates').delete().eq('id', estimate.id);
+      logAudit({ user, action: 'estimate.delete', entityType: 'estimate', entityId: estimate.id, details: { estimate_number: estimate.estimate_number } });
+      // Reset form to blank state
+      setEstimate(null); setOptions([]); setActiveId(null);
+      setBundleMembers([]); setBundleLabel('');
+      setHeaderDescription(''); setSections([emptySection()]);
+      setCustomerMessage(DEFAULT_PAYMENT); setOptionLabel('');
+      setDisclaimers(DEFAULT_ESTIMATE_DISCLAIMERS);
+      setToast({ type: 'success', message: `${label} deleted.` });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to delete estimate' });
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     setToast(null);
@@ -925,7 +944,19 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
           edits again. */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <SaveStatus saving={saving} estimate={estimate} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <SaveStatus saving={saving} estimate={estimate} />
+            {estimate?.id && ['owner', 'operations', 'admin'].includes(user?.role) && (
+              <button
+                onClick={handleDeleteEstimate}
+                disabled={saving || sending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold disabled:opacity-50"
+                title="Delete this estimate permanently"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Estimate
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             {estimate?.id && (
               <button
