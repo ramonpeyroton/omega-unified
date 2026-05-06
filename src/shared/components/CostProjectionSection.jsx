@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Sparkles, RefreshCw, DollarSign, Package, Hammer, Clock, AlertTriangle } from 'lucide-react';
+import { Sparkles, RefreshCw, DollarSign, Package, Hammer, Clock, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { callAnthropicShared } from '../lib/anthropic';
 import Toast from './Toast';
@@ -111,6 +111,9 @@ export default function CostProjectionSection({ job, user, onJobUpdated }) {
   const [generatedAt, setGeneratedAt] = useState(() => job?.cost_projection_at || null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  // Start collapsed when a projection already exists — user sees the range
+  // summary and clicks to expand the full breakdown only when needed.
+  const [collapsed, setCollapsed] = useState(() => !!(job?.cost_projection));
 
   useEffect(() => {
     setProjection(job?.cost_projection || null);
@@ -150,6 +153,7 @@ export default function CostProjectionSection({ job, user, onJobUpdated }) {
       if (error) throw error;
       setProjection(parsed);
       setGeneratedAt(payload.cost_projection_at);
+      setCollapsed(false); // always expand after generation so the result is visible
       onJobUpdated?.(data);
       setToast({ type: 'success', message: isRegen ? 'Projection regenerated' : 'Projection generated' });
     } catch (err) {
@@ -198,12 +202,37 @@ export default function CostProjectionSection({ job, user, onJobUpdated }) {
     <div className="space-y-4">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Header bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="text-[11px] text-omega-stone inline-flex items-center gap-1.5">
-          <Clock className="w-3 h-3" />
-          Saved {generatedAt ? new Date(generatedAt).toLocaleString() : '—'}
+      {/* Collapsed summary bar — click to expand */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-omega-orange/50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="text-[11px] text-omega-stone inline-flex items-center gap-1.5">
+            <Clock className="w-3 h-3" />
+            {generatedAt ? new Date(generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Low</span>
+            <span className="text-sm font-bold text-green-700">{money(projection.total_min)}</span>
+            <span className="text-omega-fog">·</span>
+            <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Mid</span>
+            <span className="text-sm font-bold text-omega-orange">{money(projection.total_mid)}</span>
+            <span className="text-omega-fog">·</span>
+            <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">High</span>
+            <span className="text-sm font-bold text-red-700">{money(projection.total_max)}</span>
+          </div>
         </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[11px] text-omega-stone font-medium">{collapsed ? 'View breakdown' : 'Hide'}</span>
+          {collapsed ? <ChevronDown className="w-4 h-4 text-omega-stone" /> : <ChevronUp className="w-4 h-4 text-omega-stone" />}
+        </div>
+      </button>
+
+      {collapsed ? null : (<>
+
+      {/* Regenerate row */}
+      <div className="flex items-center justify-end">
         <button
           onClick={() => generate(true)}
           disabled={loading}
@@ -332,6 +361,8 @@ export default function CostProjectionSection({ job, user, onJobUpdated }) {
       <p className="text-[10px] text-omega-stone italic text-center">
         AI estimate for planning. Confirm with suppliers before purchasing. Material prices reflect Home Depot CT typical retail.
       </p>
+
+      </>)}
     </div>
   );
 }
