@@ -817,8 +817,27 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       {/* Customer message / payment schedule — kept in its own card so
           it doesn't fight the action footer for visual weight. */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <label className="block">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
           <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Customer Message / Payment Schedule</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[
+              { label: '30/30/30/10%', value: 'Payment Schedule:\nDeposit - 30%\nUpon Start 30%\nAfter Painting Completion 30%\nUpon Completion 10%' },
+              { label: '50/50%',       value: 'Payment Schedule:\nDeposit - 50%\nUpon Completion 50%' },
+              { label: '33/33/34%',    value: 'Payment Schedule:\nDeposit - 33%\nMidway 33%\nUpon Completion 34%' },
+              { label: '25/50/25%',    value: 'Payment Schedule:\nDeposit - 25%\nUpon Start 50%\nUpon Completion 25%' },
+            ].map(({ label, value }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setCustomerMessage(value)}
+                className="px-2 py-1 rounded-md bg-omega-cloud border border-gray-200 text-[10px] font-bold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block">
           <textarea
             rows={6}
             value={customerMessage}
@@ -826,6 +845,50 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
             className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none font-mono"
           />
         </label>
+      </div>
+
+      {/* Quick Actions — visible from the bottom without scrolling up */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
+        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider mb-3">Quick Actions</p>
+        <div className="flex flex-wrap gap-2">
+          {/* Add price alternative — same service, different scope/price */}
+          {!isInBundle && (
+            <button
+              onClick={addAlternative}
+              disabled={saving || sending || !estimate?.id}
+              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
+              title="Create a 2nd or 3rd price option for the same service — client picks one"
+            >
+              <Copy className="w-4 h-4" /> Add Price Alternative
+              <span className="text-[10px] text-omega-stone font-normal">client picks one</span>
+            </button>
+          )}
+
+          {/* Bundle with another service */}
+          {!isMultiOption && (
+            <button
+              onClick={addServiceToBundle}
+              disabled={saving || sending || !estimate?.id}
+              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
+              title="Add a 2nd or 3rd estimate for a different service — client approves each one"
+            >
+              <Package className="w-4 h-4" />
+              {isInBundle ? `Add Service to Bundle (${bundleMembers.length} now)` : 'Bundle with Another Service'}
+              <span className="text-[10px] text-omega-stone font-normal">client approves each</span>
+            </button>
+          )}
+
+          {/* Preview shortcut */}
+          {estimate?.id && (
+            <button
+              onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
+              disabled={saving || sending}
+              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
+            >
+              <Eye className="w-4 h-4" /> Preview Client View
+            </button>
+          )}
+        </div>
       </div>
 
       {toast && (
