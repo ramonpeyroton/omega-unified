@@ -543,12 +543,13 @@ ${ghost.length === 0 ? '<p class="gray">No ghost payments recorded.</p>' : `
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// CLIENTS TAB
+// CLIENTS TAB — flat list of received payments, newest first
 // ─────────────────────────────────────────────────────────────────────
 
 function ClientsTab({ user, accounts }) {
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState([]);
+  const [receivedRows, setReceivedRows] = useState([]);  // flat, paid milestones
+  const [contractRows, setContractRows] = useState([]);  // full contract rows for drawer
   const [drawerContractId, setDrawerContractId] = useState(null);
 
   useEffect(() => { load(); }, []);
@@ -580,7 +581,6 @@ function ClientsTab({ user, accounts }) {
         (milestonesByContract[m.contract_id] = milestonesByContract[m.contract_id] || []).push(m);
       });
 
-      // Materialize for contracts with plan but no milestones yet
       const toMat = (contracts || []).filter((c) => {
         const has = (milestonesByContract[c.id] || []).length > 0;
         const hasPlan = Array.isArray(c.payment_plan) && c.payment_plan.length > 0;
@@ -596,10 +596,27 @@ function ClientsTab({ user, accounts }) {
         });
       }
 
-      setRows((contracts || []).map((c) => {
+      const built = (contracts || []).map((c) => {
         const ms = milestonesByContract[c.id] || [];
         return { contract: c, job: jobsById[c.job_id] || {}, milestones: ms, totals: contractTotals(ms, c.total_amount) };
-      }));
+      });
+      setContractRows(built);
+
+      // Flat list: milestones with received amount, newest first
+      const flat = [];
+      built.forEach(({ contract, job, milestones: ms }) => {
+        ms.forEach((m) => {
+          if (Number(m.received_amount) > 0) {
+            flat.push({ milestone: m, contract, job });
+          }
+        });
+      });
+      flat.sort((a, b) => {
+        const ta = a.milestone.received_at ? new Date(a.milestone.received_at).getTime() : 0;
+        const tb = b.milestone.received_at ? new Date(b.milestone.received_at).getTime() : 0;
+        return tb - ta;
+      });
+      setReceivedRows(flat);
     } finally {
       setLoading(false);
     }
@@ -607,23 +624,71 @@ function ClientsTab({ user, accounts }) {
 
   if (loading) return <Spinner />;
 
-  if (rows.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
-        <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-        <p className="text-sm font-semibold">No signed contracts yet.</p>
-        <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
-      </div>
-    );
-  }
-
-  const drawerRow = rows.find((r) => r.contract.id === drawerContractId);
+  const drawerRow = contractRows.find((r) => r.contract.id === drawerContractId);
+  const totalReceived = receivedRows.reduce((s, r) => s + Number(r.milestone.received_amount || 0), 0);
 
   return (
-    <div className="space-y-3">
-      {rows.map((r) => (
-        <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
-      ))}
+    <div className="space-y-5">
+      {/* Received payments flat list */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <p className="font-bold text-omega-charcoal flex items-center gap-2">
+            <ArrowDownCircle className="w-4 h-4 text-green-600" /> Received Payments
+          </p>
+          <span className="text-sm font-bold text-green-700">{money(totalReceived)}</span>
+        </div>
+
+        {receivedRows.length === 0 ? (
+          <div className="p-8 text-center text-omega-stone">
+            <ArrowDownCircle className="w-8 h-8 mx-auto mb-2 text-omega-fog" />
+            <p className="text-sm font-semibold">No payments received yet.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {receivedRows.map(({ milestone: m, contract, job }) => (
+              <button
+                key={m.id}
+                onClick={() => setDrawerContractId(contract.id)}
+                className="w-full text-left px-4 py-3 hover:bg-omega-cloud transition flex items-center gap-4 flex-wrap sm:flex-nowrap"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-omega-charcoal text-sm truncate">{job.client_name || '—'}</p>
+                  <p className="text-[11px] text-omega-stone truncate">
+                    {m.label || `Installment ${(m.order_idx || 0) + 1}`}
+                    {job.service && <> · <span className="text-omega-orange font-semibold uppercase">{job.service}</span></>}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold text-green-700">{money(m.received_amount)}</p>
+                  <p className="text-[11px] text-omega-stone">{shortDate(m.received_at)}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-omega-stone flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Contracts section — for managing milestones */}
+      <div>
+        <p className="text-[11px] font-semibold text-omega-stone uppercase tracking-wider mb-3 px-1">
+          All Contracts ({contractRows.length})
+        </p>
+        {contractRows.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
+            <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
+            <p className="text-sm font-semibold">No signed contracts yet.</p>
+            <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {contractRows.map((r) => (
+              <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+
       {drawerRow && (
         <PaymentDrawer
           row={drawerRow}
@@ -1010,22 +1075,66 @@ function SubsTab({ user, accounts }) {
 
   if (loading) return <Spinner />;
 
-  if (rows.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
-        <Users className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-        <p className="text-sm font-semibold">No signed agreements yet.</p>
-      </div>
-    );
-  }
-
   const drawerRow = rows.find((r) => r.agreement.id === drawerAgreementId);
 
+  // Split: to pay = remaining > 0 or no installments defined yet; paid = fully paid
+  const toPay = rows.filter((r) => r.totals.remaining > 0 || r.totals.count === 0);
+  const paid  = rows.filter((r) => r.totals.remaining === 0 && r.totals.count > 0);
+
+  const totalOwed = toPay.reduce((s, r) => s + r.totals.remaining, 0);
+  const totalPaid = paid.reduce((s, r) => s + r.totals.paid, 0);
+
   return (
-    <div className="space-y-3">
-      {rows.map((r) => (
-        <SubAgreementCard key={r.agreement.id} row={r} onOpen={() => setDrawerAgreementId(r.agreement.id)} />
-      ))}
+    <div className="space-y-6">
+      {/* Subs to pay */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <p className="font-bold text-omega-charcoal flex items-center gap-2">
+            <ArrowUpCircle className="w-4 h-4 text-omega-orange" /> To Pay
+            <span className="text-[11px] font-semibold text-omega-stone bg-omega-cloud px-2 py-0.5 rounded-full">{toPay.length}</span>
+          </p>
+          {toPay.length > 0 && (
+            <span className="text-sm font-bold text-omega-orange">{money(totalOwed)} remaining</span>
+          )}
+        </div>
+        {toPay.length === 0 ? (
+          <div className="p-8 text-center text-omega-stone">
+            <Check className="w-8 h-8 mx-auto mb-2 text-green-500" />
+            <p className="text-sm font-semibold">All subs are paid up.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {toPay.map((r) => (
+              <SubAgreementCard key={r.agreement.id} row={r} onOpen={() => setDrawerAgreementId(r.agreement.id)} inline />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Subs paid */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <p className="font-bold text-omega-charcoal flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-600" /> Paid
+            <span className="text-[11px] font-semibold text-omega-stone bg-omega-cloud px-2 py-0.5 rounded-full">{paid.length}</span>
+          </p>
+          {paid.length > 0 && (
+            <span className="text-sm font-bold text-green-700">{money(totalPaid)} paid</span>
+          )}
+        </div>
+        {paid.length === 0 ? (
+          <div className="p-6 text-center text-omega-stone">
+            <p className="text-sm">No completed sub payments yet.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {paid.map((r) => (
+              <SubAgreementCard key={r.agreement.id} row={r} onOpen={() => setDrawerAgreementId(r.agreement.id)} inline />
+            ))}
+          </div>
+        )}
+      </div>
+
       {drawerRow && (
         <SubPaymentDrawer
           row={drawerRow}
@@ -1039,7 +1148,7 @@ function SubsTab({ user, accounts }) {
   );
 }
 
-function SubAgreementCard({ row, onOpen }) {
+function SubAgreementCard({ row, onOpen, inline = false }) {
   const { agreement, sub, job, totals } = row;
   const progressPct = totals.due > 0 ? Math.round((totals.paid / totals.due) * 100) : 0;
   const hasOverdue = totals.overdueCount > 0;
@@ -1047,7 +1156,11 @@ function SubAgreementCard({ row, onOpen }) {
   return (
     <button
       onClick={onOpen}
-      className="w-full text-left bg-white border border-gray-200 rounded-2xl p-4 hover:border-omega-orange hover:shadow-card transition group"
+      className={
+        inline
+          ? 'w-full text-left px-4 py-3 hover:bg-omega-cloud transition group flex items-center gap-4 flex-wrap sm:flex-nowrap'
+          : 'w-full text-left bg-white border border-gray-200 rounded-2xl p-4 hover:border-omega-orange hover:shadow-card transition group'
+      }
     >
       <div className="flex items-start gap-4 flex-wrap md:flex-nowrap">
         <div className="flex-1 min-w-0">
