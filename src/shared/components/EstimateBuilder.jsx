@@ -51,6 +51,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   const [bundleLabel, setBundleLabel] = useState('');
   const [bundleMembers, setBundleMembers] = useState([]);
 
+  // Price display mode — must be chosen before the form unlocks for new estimates.
+  // 'breakdown': client sees each line item with price (default)
+  // 'single':    client sees only the grand total, no per-item prices
+  const [displayMode, setDisplayMode] = useState(null); // null = not yet chosen
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
 
   async function load(preferredActiveId) {
@@ -115,6 +120,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     // saved before migration 019 will have `disclaimers === undefined`.
     setDisclaimers(row?.disclaimers || DEFAULT_ESTIMATE_DISCLAIMERS);
     setBundleLabel(row?.bundle_label || '');
+    setDisplayMode(row?.display_mode || 'breakdown');
   }
 
   // ─── Section / item helpers ───────────────────────────────────────
@@ -168,6 +174,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       total_amount: total,
       option_label: optionLabel || null,
       bundle_label: bundleLabel || null,
+      display_mode: displayMode || 'breakdown',
       // Persist whatever disclaimer text the seller has on screen, so
       // the customer always sees the latest version when they open the
       // signing page. Migration 019 adds the column; row-level fallback
@@ -618,6 +625,100 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
         </div>
       )}
 
+      {/* ── Configure Estimate ─────────────────────────────────────────
+          Shown at the top so Attila picks the estimate type BEFORE he
+          starts filling in sections. The form below is locked until a
+          price display mode is chosen. */}
+      <div className={`bg-white rounded-xl border-2 p-4 sm:p-5 ${displayMode ? 'border-omega-orange/20' : 'border-omega-orange'}`}>
+        <p className="text-[11px] font-bold text-omega-charcoal uppercase tracking-wider mb-3 inline-flex items-center gap-1.5">
+          <span className="w-5 h-5 rounded-full bg-omega-orange text-white text-[10px] font-black inline-flex items-center justify-center">✦</span>
+          Configure Estimate
+          {!displayMode && <span className="text-omega-orange font-semibold normal-case tracking-normal text-[11px]">— pick a format to unlock the form</span>}
+        </p>
+
+        {/* Price display mode */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => setDisplayMode('breakdown')}
+            className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+              displayMode === 'breakdown'
+                ? 'border-omega-orange bg-omega-pale'
+                : 'border-gray-200 hover:border-omega-orange/50 bg-white'
+            }`}
+          >
+            <span className={`mt-0.5 text-lg leading-none ${displayMode === 'breakdown' ? 'opacity-100' : 'opacity-40'}`}>📋</span>
+            <span>
+              <span className="block text-sm font-bold text-omega-charcoal">Breakdown Price</span>
+              <span className="block text-[11px] text-omega-stone mt-0.5">Client sees each line item with its price</span>
+            </span>
+            {displayMode === 'breakdown' && (
+              <span className="ml-auto mt-0.5 w-4 h-4 rounded-full bg-omega-orange flex-shrink-0 inline-flex items-center justify-center text-white text-[10px] font-black">✓</span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setDisplayMode('single')}
+            className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+              displayMode === 'single'
+                ? 'border-omega-orange bg-omega-pale'
+                : 'border-gray-200 hover:border-omega-orange/50 bg-white'
+            }`}
+          >
+            <span className={`mt-0.5 text-lg leading-none ${displayMode === 'single' ? 'opacity-100' : 'opacity-40'}`}>💰</span>
+            <span>
+              <span className="block text-sm font-bold text-omega-charcoal">Single Price</span>
+              <span className="block text-[11px] text-omega-stone mt-0.5">Client sees only the grand total — no itemized list</span>
+            </span>
+            {displayMode === 'single' && (
+              <span className="ml-auto mt-0.5 w-4 h-4 rounded-full bg-omega-orange flex-shrink-0 inline-flex items-center justify-center text-white text-[10px] font-black">✓</span>
+            )}
+          </button>
+        </div>
+
+        {/* Other quick actions — shown once form is usable */}
+        {displayMode && (
+          <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
+            {!isInBundle && (
+              <button
+                onClick={addAlternative}
+                disabled={saving || sending || !estimate?.id}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-xs font-semibold text-omega-charcoal disabled:opacity-50"
+                title="Create a 2nd or 3rd price option — client picks one"
+              >
+                <Copy className="w-3.5 h-3.5" /> Add Price Alternative
+                <span className="text-[10px] text-omega-stone font-normal">client picks one</span>
+              </button>
+            )}
+            {!isMultiOption && (
+              <button
+                onClick={addServiceToBundle}
+                disabled={saving || sending || !estimate?.id}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-xs font-semibold text-omega-charcoal disabled:opacity-50"
+              >
+                <Package className="w-3.5 h-3.5" />
+                {isInBundle ? `Add Service to Bundle (${bundleMembers.length} now)` : 'Bundle with Another Service'}
+                <span className="text-[10px] text-omega-stone font-normal">client approves each</span>
+              </button>
+            )}
+            {estimate?.id && (
+              <button
+                onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
+                disabled={saving || sending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-xs font-semibold text-omega-charcoal disabled:opacity-50"
+              >
+                <Eye className="w-3.5 h-3.5" /> Preview Client View
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Lock overlay wrapper — dims everything below until format is chosen */}
+      <div className={displayMode ? '' : 'opacity-40 pointer-events-none select-none'}>
+      <div className="space-y-5">
+
       {/* Step (2): Estimate Details. Two-column layout — description
           textarea on the left, a small "Estimate status" card on the
           right that shows draft/sent/signed plus the estimate number. */}
@@ -878,49 +979,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
         </label>
       </div>
 
-      {/* Quick Actions — visible from the bottom without scrolling up */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
-        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider mb-3">Quick Actions</p>
-        <div className="flex flex-wrap gap-2">
-          {/* Add price alternative — same service, different scope/price */}
-          {!isInBundle && (
-            <button
-              onClick={addAlternative}
-              disabled={saving || sending || !estimate?.id}
-              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
-              title="Create a 2nd or 3rd price option for the same service — client picks one"
-            >
-              <Copy className="w-4 h-4" /> Add Price Alternative
-              <span className="text-[10px] text-omega-stone font-normal">client picks one</span>
-            </button>
-          )}
-
-          {/* Bundle with another service */}
-          {!isMultiOption && (
-            <button
-              onClick={addServiceToBundle}
-              disabled={saving || sending || !estimate?.id}
-              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
-              title="Add a 2nd or 3rd estimate for a different service — client approves each one"
-            >
-              <Package className="w-4 h-4" />
-              {isInBundle ? `Add Service to Bundle (${bundleMembers.length} now)` : 'Bundle with Another Service'}
-              <span className="text-[10px] text-omega-stone font-normal">client approves each</span>
-            </button>
-          )}
-
-          {/* Preview shortcut */}
-          {estimate?.id && (
-            <button
-              onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
-              disabled={saving || sending}
-              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50"
-            >
-              <Eye className="w-4 h-4" /> Preview Client View
-            </button>
-          )}
-        </div>
-      </div>
+      </div>{/* end inner space-y-5 */}
+      </div>{/* end lock overlay wrapper */}
 
       {toast && (
         <div className={`flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm ${

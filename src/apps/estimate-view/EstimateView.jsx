@@ -140,7 +140,9 @@ export default function EstimateView() {
             </div>
           )}
 
-          {sections.map((sec, i) => (
+          {sections.map((sec, i) => {
+            const singlePrice = estimate.display_mode === 'single';
+            return (
             <div key={i} style={{ marginTop: 24 }}>
               <div style={{ background: '#2C2C2A', color: 'white', padding: '10px 16px', fontSize: 14, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', textAlign: 'center' }}>
                 {sec.title}
@@ -149,7 +151,7 @@ export default function EstimateView() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e5e5e5', background: '#fafafa' }}>
                     <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b' }}>Description</th>
-                    <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Total</th>
+                    {!singlePrice && <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Price</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -159,13 +161,14 @@ export default function EstimateView() {
                         <div style={{ fontWeight: 700, marginBottom: 4 }}>{it.description}</div>
                         <div style={{ color: '#555', fontSize: 12, whiteSpace: 'pre-line', lineHeight: 1.6 }}>{it.scope}</div>
                       </td>
-                      <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(it.price)}</td>
+                      {!singlePrice && <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(it.price)}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ))}
+            );
+          })}
 
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 28 }}>
             <tbody>

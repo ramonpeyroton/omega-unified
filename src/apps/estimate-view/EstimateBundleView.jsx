@@ -172,14 +172,16 @@ export default function EstimateBundleView() {
               {/* Line items */}
               {sections.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid #f3f4f6' }}>
-                  {sections.map((sec, sIdx) => (
+                  {sections.map((sec, sIdx) => {
+                    const singlePrice = est.display_mode === 'single';
+                    return (
                     <div key={sIdx} style={{ marginBottom: sIdx < sections.length - 1 ? 16 : 0 }}>
                       <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', fontWeight: 700, marginBottom: 8 }}>{sec.title}</div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                             <th style={{ textAlign: 'left', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11 }}>Item</th>
-                            <th style={{ textAlign: 'right', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Price</th>
+                            {!singlePrice && <th style={{ textAlign: 'right', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Price</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -189,15 +191,18 @@ export default function EstimateBundleView() {
                                 <div style={{ fontWeight: 600 }}>{item.description || '—'}</div>
                                 {item.scope && <div style={{ color: '#6b6b6b', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>{item.scope}</div>}
                               </td>
-                              <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                                {money(item.price)}
-                              </td>
+                              {!singlePrice && (
+                                <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                                  {money(item.price)}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  ))}
+                    );
+                  })}
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '2px solid #2C2C2A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>Total</span>
                     <span style={{ fontSize: 20, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{money(total)}</span>
