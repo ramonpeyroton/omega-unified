@@ -48,7 +48,7 @@ const FOLDERS = [
 
 const CAN_DELETE_ESTIMATE = new Set(['owner', 'operations', 'admin']);
 
-export default function DocumentsSection({ job, user, onJobUpdated }) {
+export default function DocumentsSection({ job, user, onJobUpdated, onEditEstimate }) {
   const [docs, setDocs]           = useState([]);
   const [estimates, setEstimates] = useState([]);   // all estimates for this job (any group)
   const [notes, setNotes]         = useState([]);   // growing list (job_notes rows)
@@ -267,6 +267,15 @@ export default function DocumentsSection({ job, user, onJobUpdated }) {
                   <p className="text-sm font-black text-omega-charcoal tabular-nums flex-shrink-0">
                     {money(est.total_amount)}
                   </p>
+                  {!est.signed_at && onEditEstimate && (
+                    <button
+                      onClick={onEditEstimate}
+                      className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-omega-pale border border-omega-orange/30 text-omega-orange hover:bg-omega-orange hover:text-white text-[11px] font-bold transition-colors"
+                      title="Continue editing this estimate"
+                    >
+                      Edit
+                    </button>
+                  )}
                   <a
                     href={link}
                     target="_blank"

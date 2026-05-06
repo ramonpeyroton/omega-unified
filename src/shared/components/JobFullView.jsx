@@ -680,6 +680,7 @@ export default function JobFullView({
               job={job}
               user={user}
               onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+              onEditEstimate={() => setTab('estimate')}
             />
           )}
 
