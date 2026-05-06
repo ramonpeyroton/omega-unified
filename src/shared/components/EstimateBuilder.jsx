@@ -937,7 +937,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
               disabled={saving || sending || total <= 0}
               title={
                 total <= 0 ? 'Add at least one priced item before sending'
-                : isBundle ? `All ${bundleMembers.length} service proposals will be sent in one email`
+                : isInBundle ? `All ${bundleMembers.length} service proposals will be sent in one email`
                 : isMultiOption ? `All ${options.length} options will be sent in one email`
                 : ''
               }
@@ -945,7 +945,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
             >
               {sending
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
-                : isBundle
+                : isInBundle
                   ? <><Package className="w-4 h-4" /> Send Bundle ({bundleMembers.length} proposals)</>
                   : isMultiOption
                     ? <><Mail className="w-4 h-4" /> Save & Send {options.length} Options</>
