@@ -712,15 +712,6 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
                 <span className="text-[10px] text-omega-stone font-normal">client approves each</span>
               </button>
             )}
-            {estimate?.id && (
-              <button
-                onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
-                disabled={saving || sending}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-xs font-semibold text-omega-charcoal disabled:opacity-50"
-              >
-                <Eye className="w-3.5 h-3.5" /> Preview Client View
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -729,12 +720,12 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       <div className={displayMode ? '' : 'opacity-40 pointer-events-none select-none'}>
       <div className="space-y-5">
 
-      {/* Step (2): Estimate Details. Two-column layout — description
+      {/* Step (1): Estimate Details. Two-column layout — description
           textarea on the left, a small "Estimate status" card on the
           right that shows draft/sent/signed plus the estimate number. */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-start gap-3 mb-4 flex-wrap">
-          <StepBadge n={2} />
+          <StepBadge n={1} />
           <div>
             <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
               Estimate Details
@@ -850,14 +841,14 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
         </div>
       </div>
 
-      {/* Step (3): Sections + line items. Wrapper card matches the
+      {/* Step (2): Sections + line items. Wrapper card matches the
           redesign — header on top with the running Estimated Total
           to the right, then the section cards stacked, then the
           two-button row (Add Section / Generate). */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div className="inline-flex items-start gap-3">
-            <StepBadge n={3} />
+            <StepBadge n={2} />
             <div>
               <h2 className="text-lg font-bold text-omega-charcoal">Estimate Sections &amp; Line Items</h2>
               <p className="text-xs text-omega-stone mt-0.5">Organize the work into sections. Add items, scope and pricing.</p>
@@ -923,7 +914,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <div className="flex items-start justify-between gap-2 flex-wrap mb-3">
           <div className="inline-flex items-start gap-3">
-            <StepBadge n={4} />
+            <StepBadge n={3} />
             <div>
               <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
                 <Shield className="w-4 h-4 text-omega-orange" /> Project Disclaimers

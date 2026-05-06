@@ -539,12 +539,65 @@ export default function JobFullView({
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-4 sm:p-6">
           {tab === 'report' && (
-            <ProjectReportSection
-              job={job}
-              user={user}
-              onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-              onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
-            />
+            <div className="space-y-5">
+              <ProjectReportSection
+                job={job}
+                user={user}
+                onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+                onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
+              />
+
+              {/* Cost Projection — at the bottom of the Report tab so the
+                  team can reference AI numbers alongside the project report. */}
+              {canSeeFinancials && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+                  <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                    <div className="inline-flex items-start gap-3">
+                      <StepBadge n="AI" />
+                      <div>
+                        <h2 className="text-lg font-bold text-omega-charcoal">Cost Projection</h2>
+                        <p className="text-xs text-omega-stone mt-0.5 max-w-xl">
+                          AI-generated cost breakdown from the questionnaire — use it as a reference while composing the estimate.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase tracking-wider self-start">AI · one-time</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px] gap-5">
+                    <div>
+                      <CostProjectionSection
+                        job={job}
+                        user={user}
+                        onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
+                      />
+                    </div>
+                    <aside className="bg-omega-cloud border border-gray-100 rounded-lg p-4 self-start">
+                      <p className="text-[11px] font-bold text-omega-charcoal uppercase tracking-wider mb-3">How it works</p>
+                      <ul className="space-y-3 text-xs text-omega-slate">
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">1</span>
+                          <span><strong className="block text-omega-charcoal">AI analyzes questionnaire</strong><span className="text-omega-stone">We review the client's answers</span></span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">2</span>
+                          <span><strong className="block text-omega-charcoal">Connects live pricing</strong><span className="text-omega-stone">Labor rates + Home Depot materials</span></span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">3</span>
+                          <span><strong className="block text-omega-charcoal">Generates estimate</strong><span className="text-omega-stone">Review and adjust as needed</span></span>
+                        </li>
+                      </ul>
+                    </aside>
+                  </div>
+
+                  <div className="mt-4 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-900 inline-flex items-start gap-2">
+                    <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <span><strong>Tip:</strong> Generate a projection to get a starting point. You can customize all sections before sending.</span>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {tab === 'phases' && (
@@ -643,76 +696,6 @@ export default function JobFullView({
               {/* The Open Estimate Flow shortcut moved back to the header
                   bar (top-right) so it's reachable from any tab without
                   scrolling. */}
-
-              {/* Cost Projection — internal reference, hidden from sellers
-                  (cost/margin data stays in Finance roles only). */}
-              {canSeeFinancials && (
-                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-                  {/* Step header with the numbered badge — matches the
-                      seller-facing redesign so each section reads as a
-                      checklist (1 → 2 → 3 → 4) instead of a flat scroll. */}
-                  <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-                    <div className="inline-flex items-start gap-3">
-                      <StepBadge n={1} />
-                      <div>
-                        <h2 className="text-lg font-bold text-omega-charcoal">Cost Projection</h2>
-                        <p className="text-xs text-omega-stone mt-0.5 max-w-xl">
-                          AI-generated cost breakdown from the questionnaire — use it as a reference while composing the estimate below.
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold uppercase tracking-wider self-start">AI · one-time</span>
-                  </div>
-
-                  {/* Two-column layout: the projection / empty state on
-                      the left, a small "How it works" sidebar on the
-                      right that explains where the numbers come from.
-                      Stacks on small viewports. */}
-                  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px] gap-5">
-                    <div>
-                      <CostProjectionSection
-                        job={job}
-                        user={user}
-                        onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-                      />
-                    </div>
-                    <aside className="bg-omega-cloud border border-gray-100 rounded-lg p-4 self-start">
-                      <p className="text-[11px] font-bold text-omega-charcoal uppercase tracking-wider mb-3">How it works</p>
-                      <ul className="space-y-3 text-xs text-omega-slate">
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">1</span>
-                          <span>
-                            <strong className="block text-omega-charcoal">AI analyzes questionnaire</strong>
-                            <span className="text-omega-stone">We review the client's answers</span>
-                          </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">2</span>
-                          <span>
-                            <strong className="block text-omega-charcoal">Connects live pricing</strong>
-                            <span className="text-omega-stone">Labor rates + Home Depot materials</span>
-                          </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 w-5 h-5 rounded-full bg-omega-pale text-omega-orange text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">3</span>
-                          <span>
-                            <strong className="block text-omega-charcoal">Generates estimate</strong>
-                            <span className="text-omega-stone">Review and adjust as needed</span>
-                          </span>
-                        </li>
-                      </ul>
-                    </aside>
-                  </div>
-
-                  {/* Quick tip callout — a soft blue strip at the bottom
-                      of the card that nudges the user toward generating
-                      a projection before they hand-type the estimate. */}
-                  <div className="mt-4 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-900 inline-flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span><strong>Tip:</strong> Generate a projection to get a starting point. You can customize all sections before sending.</span>
-                  </div>
-                </div>
-              )}
 
               {/* Estimate builder — the thing the client actually sees */}
               <EstimateBuilder
@@ -1289,8 +1272,8 @@ function PickerPinModal({ targetLabel, onCancel, onSubmit }) {
 }
 
 // Small numbered circle used as the leading badge for each step on
-// the Estimate tab redesign (Cost Projection = 1, Estimate Details =
-// 2, Sections = 3, Disclaimers = 4). Matches the seller-facing
+// the Estimate tab redesign (Estimate Details = 1, Sections = 2,
+// Disclaimers = 3). Cost Projection moved to Report tab. Matches the seller-facing
 // mockup. Exported because EstimateBuilder uses it for steps 2-4.
 export function StepBadge({ n }) {
   return (
