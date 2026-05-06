@@ -382,8 +382,20 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     try {
       if (estimate?.id) { try { await persist(); } catch { /* ignore */ } }
       const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
-      if (data) loadIntoForm(data);
-      await load(id);
+      if (data) {
+        loadIntoForm(data);
+        // Refresh bundle member chips (totals/status may have changed after persist).
+        // Do NOT call load() here — load() re-fetches by created_at DESC and would
+        // overwrite the form with the newest bundle member instead of the one selected.
+        if (data.bundle_id) {
+          const { data: bm } = await supabase
+            .from('estimates')
+            .select('id, bundle_label, total_amount, status, estimate_number, job_id')
+            .eq('bundle_id', data.bundle_id)
+            .order('created_at', { ascending: true });
+          setBundleMembers(bm || []);
+        }
+      }
     } finally {
       setSaving(false);
     }
