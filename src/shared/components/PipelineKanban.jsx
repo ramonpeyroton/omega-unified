@@ -565,7 +565,7 @@ export default function PipelineKanban({
       const key = COLUMN_BY_ID[j.pipeline_status] ? j.pipeline_status : 'new_lead';
       grouped[key].push(j);
       const est = estByJob[j.id];
-      const amount = Number(est?.total) || 0;
+      const amount = Number(est?.total_amount) || 0;
       totals[key] += amount;
     });
     return { jobsByColumn: grouped, totalsByColumn: totals };
