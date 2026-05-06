@@ -146,6 +146,10 @@ export default function ContractTemplate({
     if (!docRef.current) return;
     setPdfDownloading(true);
     setPdfError('');
+    // Remove yellow highlight before capturing — inputs get transparent bg so
+    // the PDF looks clean. Restored in finally so the screen still shows yellow.
+    const highlighted = Array.from(docRef.current.querySelectorAll('input, textarea'));
+    highlighted.forEach((el) => (el.style.backgroundColor = 'transparent'));
     try {
       // Dynamic import keeps html2pdf out of the main bundle until
       // someone actually clicks the button.
@@ -166,6 +170,7 @@ export default function ContractTemplate({
     } catch (err) {
       setPdfError(err?.message || 'Could not generate the PDF.');
     } finally {
+      highlighted.forEach((el) => (el.style.backgroundColor = ''));
       setPdfDownloading(false);
     }
   }
@@ -336,7 +341,13 @@ export default function ContractTemplate({
             <p className="text-xs mt-1">DATE</p>
           </div>
           <div>
-            <div className="border-b border-omega-charcoal h-10" />
+            <div className="relative border-b border-omega-charcoal h-10">
+              <img
+                src="/inacio-signature.png"
+                alt="Inácio Oliveira signature"
+                className="absolute bottom-1 left-0 h-9 w-auto object-contain"
+              />
+            </div>
             <p className="text-xs mt-1">Agent on behalf of Omega Development LLC</p>
             <div className="border-b border-omega-charcoal h-10 mt-8" />
             <p className="text-xs mt-1">DATE</p>
@@ -387,9 +398,7 @@ export default function ContractTemplate({
         <div className="contract-pagebreak" />
         <h2 className="text-center font-bold underline my-4">NOTICE OF CANCELLATION</h2>
         <p className="text-center mb-4">
-          (Date of Transaction:{' '}
-          <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
-          {' '})
+          (Date of Transaction: _________________________________ )
         </p>
         <p className="font-bold whitespace-pre-line mb-4">{CLAUSES.cancel_full}</p>
         <p className="text-center italic mb-2">I HEREBY CANCEL THIS TRANSACTION.</p>
@@ -436,6 +445,7 @@ export default function ContractTemplate({
         .contract-doc textarea {
           font: inherit;
           color: inherit;
+          background-color: #fef08a;
         }
         .contract-doc .contract-pagebreak {
           break-before: page;

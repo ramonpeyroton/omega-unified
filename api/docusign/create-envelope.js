@@ -6,6 +6,7 @@
 
 import { json, readJson } from '../_lib/http.js';
 import { getAccessToken } from '../_lib/docusignAuth.js';
+import { INACIO_SIG } from '../_lib/inacioSignature.js';
 
 const ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID || '';
 const BASE_URL   = (process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi').replace(/\/$/, '');
@@ -202,7 +203,10 @@ or by email prior to midnight of the third business day.</p>
 <table>
   <tr>
     <td style="width:50%;vertical-align:bottom;padding-right:32px;">
-      <div style="font-weight:bold;margin-bottom:48px;">CONTRACTOR: Omega Development LLC</div>
+      <div style="font-weight:bold;margin-bottom:8px;">CONTRACTOR: Omega Development LLC</div>
+      <div style="position:relative;height:52px;">
+        <img src="${INACIO_SIG}" alt="Authorized signature" style="height:48px;max-width:220px;object-fit:contain;display:block;" />
+      </div>
       <div style="border-top:1px solid #333;padding-top:6px;font-size:11px;color:#555;">
         Authorized Representative &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date
       </div>
