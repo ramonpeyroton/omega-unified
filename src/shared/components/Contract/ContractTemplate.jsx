@@ -244,10 +244,14 @@ export default function ContractTemplate({
             <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
             {' '}(the "Effective Date") by and between{' '}
             <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name" className={inputCls} />
-            {' '}of address{' '}
-            <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Owner address"
-              className={inputCls} style={{ minWidth: '260px', height: 'auto' }} />
-            {' '}(hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
+            {' '}of address:
+          </p>
+          <p className="mb-1 -mt-2">
+            <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Street address, City, State ZIP"
+              className={inputCls} style={{ width: '100%', height: 'auto', display: 'block' }} />
+          </p>
+          <p className="mb-4">
+            (hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
             Registration numbers: HIC.0670573 and NHC.0017262.
           </p>
           <p className="mb-7">
