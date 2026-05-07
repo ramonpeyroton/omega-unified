@@ -357,11 +357,11 @@ export default function ContractTemplate({
           </div>
           {/* Contractor side */}
           <div>
-            <div className="relative border-b border-omega-charcoal h-10">
+            <div className="relative border-b border-omega-charcoal h-16">
               <img
                 src="/inacio-signature.png"
                 alt="Inácio Oliveira signature"
-                className="absolute bottom-1 left-0 h-9 w-auto object-contain"
+                className="absolute bottom-1 left-0 h-14 w-auto object-contain"
               />
             </div>
             <p className="text-xs mt-1">Agent on behalf of Omega Development LLC</p>
