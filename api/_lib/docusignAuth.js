@@ -43,14 +43,22 @@ export async function getAccessToken() {
 
   const jwt = `${signingInput}.${sig}`;
 
-  const res = await fetch(`${oauthBase}/oauth/token`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion:  jwt,
-    }),
-  });
+  const tokenUrl = `${oauthBase}/oauth/token`;
+  console.log('[docusignAuth] fetching token from:', tokenUrl, '| integrationKey set:', !!integrationKey, '| userId set:', !!userId, '| privateKey length:', privateKey.length);
+
+  let res;
+  try {
+    res = await fetch(tokenUrl, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion:  jwt,
+      }),
+    });
+  } catch (fetchErr) {
+    throw new Error(`DocuSign OAuth fetch failed — URL: ${tokenUrl} — cause: ${fetchErr?.cause?.code || fetchErr?.cause?.message || fetchErr?.message}`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
