@@ -177,9 +177,10 @@ export default function ContractTemplate({
 
   const [contractorSignDate, setContractorSignDate] = useState(todayIso());
 
-  // Editable input style — flat, underlined, blends with the printed
-  // contract so PDF output looks like a typed form.
-  const inputCls = 'inline-block min-w-[120px] px-1 py-0.5 border-b border-omega-charcoal/60 bg-transparent focus:outline-none focus:border-omega-orange print:border-b-black';
+  // Inline editable field — underlined, blends with printed contract.
+  // align-bottom + pb-px ensures the text baseline sits on the underline
+  // rather than floating below it.
+  const inputCls = 'inline-block min-w-[110px] px-1 pb-px pt-0 border-b-[1.5px] border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange align-bottom leading-none text-[13px] print:border-b-black';
   const numCls   = `${inputCls} text-right tabular-nums`;
   const blockCls = 'w-full px-2 py-1 mt-1 border border-gray-200 rounded bg-white focus:outline-none focus:border-omega-orange print:border-0';
 
@@ -196,246 +197,320 @@ export default function ContractTemplate({
       {/* ───────────────────── DOCUMENT BODY ───────────────────── */}
       <div
         ref={docRef}
-        className="bg-white border border-gray-200 rounded-xl p-8 sm:p-10 shadow-card text-[13px] leading-relaxed text-omega-charcoal contract-doc"
-        style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
+        className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm contract-doc"
+        style={{ fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" }}
       >
-        {/* Title */}
-        <h1 className="text-center font-bold text-base underline mb-6">
-          CONSTRUCTION CONTRACT
-        </h1>
+        {/* Brand accent bar */}
+        <div style={{ height: '3px', background: 'linear-gradient(90deg, #E8500A 0%, #2C2C2C 100%)' }} />
 
-        {/* Opening paragraph */}
-        <p className="mb-3">
-          This Construction Contract (the "Contract" or "Agreement") is made as of{' '}
-          <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
-          {' '}(the "Effective Date") by and between{' '}
-          <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name" className={inputCls} />
-          {' '}of address{' '}
-          <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Owner address" className={inputCls} />
-          {' '}(hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
-          Registration numbers: HIC.0670573 and NHC.0017262.
-        </p>
-        <p className="mb-4">
-          In consideration of the mutual promises set forth below, the parties agree to the following terms and conditions:
-        </p>
+        <div className="px-12 py-10 text-[13px] leading-[1.75] text-gray-800">
 
-        {/* §1 */}
-        <Section number="1" title="DESCRIPTION OF SERVICES.">
-          Beginning on{' '}
-          <input type="date" value={beginningDate} onChange={(e) => setBeginningDate(e.target.value)} className={inputCls} />
-          , Contractor will provide to owner the services described in the attached SCHEDULE A
-          (collectively, the "Work" Estimate.)
-        </Section>
+          {/* ── Header ── */}
+          <div className="text-center mb-10 pb-8 border-b border-gray-100">
+            <p className="text-[9px] tracking-[0.4em] text-omega-orange uppercase font-semibold mb-3">
+              Omega Development LLC &nbsp;·&nbsp; Westport, CT
+            </p>
+            <h1 className="text-[22px] font-black tracking-[0.14em] uppercase text-gray-900 mb-2">
+              Construction Contract
+            </h1>
+            <p className="text-[9px] tracking-[0.25em] text-gray-400 uppercase">
+              HIC.0670573 &nbsp;·&nbsp; NHC.0017262
+            </p>
+          </div>
 
-        {/* §2 */}
-        <Section number="2" title="SCOPE OF WORK.">
-          {CLAUSES.s2_scope.replace('__ADDRESS__', propertyAddress || '___')}
-        </Section>
-
-        {/* §3-5 */}
-        <Section number="3" title="PLANS, SPECIFICATIONS AND CONSTRUCTION DOCUMENTS.">
-          {CLAUSES.s3_plans}
-        </Section>
-        <Section number="4" title="WORK SITE.">
-          {CLAUSES.s4_site}
-        </Section>
-        <Section number="5" title="PERMITS.">
-          {CLAUSES.s5_permits}
-        </Section>
-        <Section number="6" title="MATERIALS AND/OR LABOR">
-          Refer to Schedule A.
-        </Section>
-
-        {/* Page break before the payment schedule so the PDF page 2 lines up
-            with the original layout. */}
-        <div className="contract-pagebreak" />
-
-        {/* §7 — Payment Schedule */}
-        <Section number="7" title="PAYMENT SCHEDULE.">
-          <p className="mb-2">
-            Owner agrees to pay Contractor the total sum of{' '}
-            <span className="font-bold">{fmtMoney(totalAmount)}</span>.
+          {/* ── Opening paragraph ── */}
+          <p className="mb-4">
+            This Construction Contract (the "Contract" or "Agreement") is made as of{' '}
+            <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
+            {' '}(the "Effective Date") by and between{' '}
+            <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name" className={inputCls} />
+            {' '}of address{' '}
+            <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Owner address" className={inputCls} />
+            {' '}(hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
+            Registration numbers: HIC.0670573 and NHC.0017262.
           </p>
-          <p className="mb-3">{CLAUSES.s7_payment_intro}</p>
-          <p className="mb-2 font-semibold">Payments shall be made as follows:</p>
-          <p className="mb-2">
-            Initial deposit shall be due on{' '}
-            <input type="date" value={initialDepositDate} onChange={(e) => setInitialDepositDate(e.target.value)} className={inputCls} />
-            {' '}in the amount of{' '}
-            <span className="font-bold">
-              {planRows[0] ? fmtMoney(planRows[0].amount) : fmtMoney(0)}
-            </span>.
+          <p className="mb-7">
+            In consideration of the mutual promises set forth below, the parties agree to the following terms and conditions:
           </p>
-          <ol className="list-decimal pl-5 my-3 space-y-1">
-            {planRows.map((p, i) => (
-              <li key={i}>
-                <span className="font-semibold">{p.label}</span>{' '}
-                — {p.percent}% ({fmtMoney(p.amount)})
-                {p.due_date ? ` — ${p.due_date}` : ''}
-              </li>
-            ))}
-          </ol>
-          <p className="mb-3">
-            All invoices shall be sent to Owner via e-mail at:{' '}
-            <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@example.com" className={inputCls} />
-          </p>
-          <p className="mb-3 whitespace-pre-line">{CLAUSES.s7_payment_late}</p>
-        </Section>
 
-        {/* §8 — Term */}
-        <Section number="8" title="TERM.">
-          <p className="mb-2">
-            Contractor shall commence the Work on{' '}
+          {/* ── §1 ── */}
+          <Section number="1" title="DESCRIPTION OF SERVICES.">
+            Beginning on{' '}
             <input type="date" value={beginningDate} onChange={(e) => setBeginningDate(e.target.value)} className={inputCls} />
-            {' '}and shall complete the work on or before{' '}
-            <input type="date" value={completionDate} onChange={(e) => setCompletionDate(e.target.value)} className={inputCls} />
-            .
-          </p>
-          <p className="whitespace-pre-line">{CLAUSES.s8_term}</p>
-        </Section>
+            , Contractor will provide to owner the services described in the attached SCHEDULE A
+            (collectively, the "Work" Estimate.)
+          </Section>
 
-        {/* §9-25 — fixed legal text */}
-        <Section number="9" title="UNAVOIDABLE DELAYS.">{CLAUSES.s9_unavoidable}</Section>
+          {/* ── §2 ── */}
+          <Section number="2" title="SCOPE OF WORK.">
+            {CLAUSES.s2_scope.replace('__ADDRESS__', propertyAddress || '___')}
+          </Section>
 
-        <div className="contract-pagebreak" />
+          {/* ── §3–5 ── */}
+          <Section number="3" title="PLANS, SPECIFICATIONS AND CONSTRUCTION DOCUMENTS.">
+            {CLAUSES.s3_plans}
+          </Section>
+          <Section number="4" title="WORK SITE.">
+            {CLAUSES.s4_site}
+          </Section>
+          <Section number="5" title="PERMITS.">
+            {CLAUSES.s5_permits}
+          </Section>
+          <Section number="6" title="MATERIALS AND/OR LABOR">
+            Refer to Schedule A.
+          </Section>
 
-        <Section number="10" title="INSURANCE.">{CLAUSES.s10_insurance}</Section>
-        <Section number="11" title="FREE ACCESS TO WORKSITE.">{CLAUSES.s11_access}</Section>
-        <Section number="12" title="PHOTOGRAPHS AND MARKETING.">{CLAUSES.s12_photos}</Section>
-        <Section number="13" title="UTILITIES.">{CLAUSES.s13_utilities}</Section>
-        <Section number="14" title="INSPECTION.">{CLAUSES.s14_inspection}</Section>
-        <Section number="15" title="DEFAULT.">{CLAUSES.s15_default}</Section>
+          <div className="contract-pagebreak" />
 
-        <div className="contract-pagebreak" />
+          {/* ── §7 — Payment Schedule ── */}
+          <Section number="7" title="PAYMENT SCHEDULE.">
+            <p className="mb-2">
+              Owner agrees to pay Contractor the total sum of{' '}
+              <span className="font-bold">{fmtMoney(totalAmount)}</span>.
+            </p>
+            <p className="mb-3">{CLAUSES.s7_payment_intro}</p>
+            <p className="mb-2 font-semibold">Payments shall be made as follows:</p>
+            <p className="mb-2">
+              Initial deposit shall be due on{' '}
+              <input type="date" value={initialDepositDate} onChange={(e) => setInitialDepositDate(e.target.value)} className={inputCls} />
+              {' '}in the amount of{' '}
+              <span className="font-bold">
+                {planRows[0] ? fmtMoney(planRows[0].amount) : fmtMoney(0)}
+              </span>.
+            </p>
+            <ol className="list-decimal pl-5 my-3 space-y-1">
+              {planRows.map((p, i) => (
+                <li key={i}>
+                  <span className="font-semibold">{p.label}</span>{' '}
+                  — {p.percent}% ({fmtMoney(p.amount)})
+                  {p.due_date ? ` — ${p.due_date}` : ''}
+                </li>
+              ))}
+            </ol>
+            <p className="mb-3">
+              All invoices shall be sent to Owner via e-mail at:{' '}
+              <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@example.com" className={inputCls} />
+            </p>
+            <p className="mb-3 whitespace-pre-line">{CLAUSES.s7_payment_late}</p>
+          </Section>
 
-        <Section number="16" title="REMEDIES.">{CLAUSES.s16_remedies}</Section>
-        <Section number="17" title="FORCE MAJEURE.">{CLAUSES.s17_force}</Section>
-        <Section number="18" title="INDEMNIFICATION and EXCLUSION OF CONSEQUENTIAL DAMAGES.">{CLAUSES.s18_indemnity}</Section>
-        <Section number="19" title="SEVERABILITY.">{CLAUSES.s19_severability}</Section>
+          {/* ── §8 — Term ── */}
+          <Section number="8" title="TERM.">
+            <p className="mb-2">
+              Contractor shall commence the Work on{' '}
+              <input type="date" value={beginningDate} onChange={(e) => setBeginningDate(e.target.value)} className={inputCls} />
+              {' '}and shall complete the work on or before{' '}
+              <input type="date" value={completionDate} onChange={(e) => setCompletionDate(e.target.value)} className={inputCls} />
+              .
+            </p>
+            <p className="whitespace-pre-line">{CLAUSES.s8_term}</p>
+          </Section>
 
-        <div className="contract-pagebreak" />
+          {/* ── §9 ── */}
+          <Section number="9" title="UNAVOIDABLE DELAYS.">{CLAUSES.s9_unavoidable}</Section>
 
-        <Section number="20" title="AMENDMENT.">{CLAUSES.s20_amendment}</Section>
-        <Section number="21" title="GOVERNING LAW.">{CLAUSES.s21_governing}</Section>
-        <Section number="22" title="NOTICE.">{CLAUSES.s22_notice}</Section>
-        <Section number="23" title="NO WAIVER OF CONTRACTUAL RIGHT.">{CLAUSES.s23_no_waiver}</Section>
-        <Section number="24" title="LEGAL FEES and COSTS.">{CLAUSES.s24_legal}</Section>
-        <Section number="25" title="ENTIRE AGREEMENT.">{CLAUSES.s25_entire}</Section>
+          <div className="contract-pagebreak" />
 
-        {/* Cancellation notice + signatures */}
-        <div className="contract-pagebreak" />
+          <Section number="10" title="INSURANCE.">{CLAUSES.s10_insurance}</Section>
+          <Section number="11" title="FREE ACCESS TO WORKSITE.">{CLAUSES.s11_access}</Section>
+          <Section number="12" title="PHOTOGRAPHS AND MARKETING.">{CLAUSES.s12_photos}</Section>
+          <Section number="13" title="UTILITIES.">{CLAUSES.s13_utilities}</Section>
+          <Section number="14" title="INSPECTION.">{CLAUSES.s14_inspection}</Section>
+          <Section number="15" title="DEFAULT.">{CLAUSES.s15_default}</Section>
 
-        <h2 className="text-center font-bold underline my-4">
-          NOTICE OF THE CUSTOMER'S RIGHT TO CANCEL
-        </h2>
-        <p className="text-center italic mb-6">
-          {CLAUSES.cancel_short}
-        </p>
-        <p className="mb-8">
-          IN WITNESS WHEREOF, the parties hereto have executed this Agreement as of the date first written above.
-        </p>
+          <div className="contract-pagebreak" />
 
-        <div className="grid grid-cols-2 gap-12 mt-12">
-          {/* Owner / Client side */}
-          <div>
-            <div className="border-b border-omega-charcoal h-10 flex items-end pb-1">
-              {ownerName && (
-                <span className="text-[13px] font-semibold uppercase tracking-wide">
-                  {ownerName}
-                </span>
-              )}
-            </div>
-            <p className="text-xs mt-1">OWNER</p>
-            <div className="border-b border-omega-charcoal mt-8 flex items-end pb-0.5">
-              <input
-                type="date"
-                className={`${inputCls} w-full`}
-                placeholder="mm/dd/yyyy"
-              />
-            </div>
-            <p className="text-xs mt-1">DATE</p>
+          <Section number="16" title="REMEDIES.">{CLAUSES.s16_remedies}</Section>
+          <Section number="17" title="FORCE MAJEURE.">{CLAUSES.s17_force}</Section>
+          <Section number="18" title="INDEMNIFICATION and EXCLUSION OF CONSEQUENTIAL DAMAGES.">{CLAUSES.s18_indemnity}</Section>
+          <Section number="19" title="SEVERABILITY.">{CLAUSES.s19_severability}</Section>
+
+          <div className="contract-pagebreak" />
+
+          <Section number="20" title="AMENDMENT.">{CLAUSES.s20_amendment}</Section>
+          <Section number="21" title="GOVERNING LAW.">{CLAUSES.s21_governing}</Section>
+          <Section number="22" title="NOTICE.">{CLAUSES.s22_notice}</Section>
+          <Section number="23" title="NO WAIVER OF CONTRACTUAL RIGHT.">{CLAUSES.s23_no_waiver}</Section>
+          <Section number="24" title="LEGAL FEES and COSTS.">{CLAUSES.s24_legal}</Section>
+          <Section number="25" title="ENTIRE AGREEMENT.">{CLAUSES.s25_entire}</Section>
+
+          {/* ── Cancellation notice + signatures ── */}
+          <div className="contract-pagebreak" />
+
+          <div className="text-center mt-4 mb-7">
+            <h2 className="text-[13px] font-black tracking-[0.12em] uppercase text-gray-900 mb-2">
+              Notice of the Customer's Right to Cancel
+            </h2>
+            <div style={{ width: '40px', height: '2px', background: '#E8500A', margin: '0 auto 16px' }} />
+            <p className="italic text-[12px] text-gray-600 max-w-xl mx-auto leading-relaxed">
+              {CLAUSES.cancel_short}
+            </p>
           </div>
-          {/* Contractor side */}
-          <div>
-            <div className="relative border-b border-omega-charcoal h-16">
-              <img
-                src="/inacio-signature.png"
-                alt="Inácio Oliveira signature"
-                className="absolute bottom-1 left-0 h-14 w-auto object-contain"
-              />
-            </div>
-            <p className="text-xs mt-1">Agent on behalf of Omega Development LLC</p>
-            <div className="border-b border-omega-charcoal mt-8 flex items-end pb-0.5">
-              <input
-                type="date"
-                value={contractorSignDate}
-                onChange={(e) => setContractorSignDate(e.target.value)}
-                className={`${inputCls} w-full`}
-              />
-            </div>
-            <p className="text-xs mt-1">DATE</p>
-          </div>
-        </div>
 
-        {/* SCHEDULE A */}
-        <div className="contract-pagebreak" />
-        <h2 className="text-center font-bold underline my-4">
-          SCHEDULE A — DESCRIPTION OF WORK
-        </h2>
-        {schedule.length === 0 ? (
-          <p className="italic text-omega-stone">
-            No line items on the accepted estimate yet. Add items to the estimate and they will appear here.
+          <p className="mb-10 text-[12.5px] text-gray-700">
+            IN WITNESS WHEREOF, the parties hereto have executed this Agreement as of the date first written above.
           </p>
-        ) : (
-          <div className="space-y-5">
-            {schedule.map((sec, si) => (
-              <div key={si}>
-                <h3 className="font-bold uppercase text-[12px] tracking-wide border-b border-gray-300 pb-1 mb-2">
-                  {sec.title}
-                </h3>
-                <ul className="space-y-3">
-                  {sec.items.map((it, ii) => (
-                    <li key={ii} className="grid grid-cols-[1fr_auto] gap-4">
-                      <div>
-                        <p className="font-semibold">{it.description || '—'}</p>
-                        {it.scope && (
-                          <p className="text-omega-stone whitespace-pre-line text-[12px]">{it.scope}</p>
-                        )}
-                      </div>
-                      <div className="text-right tabular-nums font-semibold">
-                        {fmtMoney(it.price)}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+
+          {/* ── Signature block ── */}
+          <div className="grid grid-cols-2 gap-16 mt-2">
+
+            {/* Owner / Client side */}
+            <div>
+              <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 font-semibold mb-4">
+                Owner / Client
+              </p>
+
+              {/* Signature line */}
+              <div className="h-14 border-b-2 border-gray-300 flex items-end pb-1.5">
+                {ownerName && (
+                  <span className="text-[13px] font-semibold tracking-wide text-gray-700">
+                    {ownerName}
+                  </span>
+                )}
               </div>
-            ))}
-            <div className="grid grid-cols-[1fr_auto] gap-4 pt-3 border-t-2 border-omega-charcoal">
-              <p className="font-bold uppercase text-sm">Total</p>
-              <p className="font-bold tabular-nums text-sm">{fmtMoney(totalAmount)}</p>
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
+
+              {/* Date */}
+              <div className="mt-8">
+                <div className="border-b-2 border-gray-300 pb-1">
+                  <input
+                    type="date"
+                    className="w-full bg-transparent focus:outline-none text-[13px] text-gray-700"
+                    placeholder="mm/dd/yyyy"
+                  />
+                </div>
+                <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
+              </div>
+            </div>
+
+            {/* Contractor side */}
+            <div>
+              <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 font-semibold mb-4">
+                Omega Development LLC
+              </p>
+
+              {/* Pre-signed signature */}
+              <div className="relative h-14 border-b-2 border-gray-300">
+                <img
+                  src="/inacio-signature.png"
+                  alt="Inácio Oliveira signature"
+                  className="absolute bottom-1 left-0 h-12 w-auto object-contain"
+                />
+              </div>
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">
+                Agent on behalf of Omega Development LLC
+              </p>
+
+              {/* Date */}
+              <div className="mt-8">
+                <div className="border-b-2 border-gray-300 pb-1">
+                  <input
+                    type="date"
+                    value={contractorSignDate}
+                    onChange={(e) => setContractorSignDate(e.target.value)}
+                    className="w-full bg-transparent focus:outline-none text-[13px] text-gray-700"
+                  />
+                </div>
+                <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Notice of Cancellation — final standalone page */}
-        <div className="contract-pagebreak" />
-        <h2 className="text-center font-bold underline my-4">NOTICE OF CANCELLATION</h2>
-        <p className="text-center mb-4">
-          (Date of Transaction: _________________________________ )
-        </p>
-        <p className="font-bold whitespace-pre-line mb-4">{CLAUSES.cancel_full}</p>
-        <p className="text-center italic mb-2">I HEREBY CANCEL THIS TRANSACTION.</p>
-        <div className="grid grid-cols-[3fr_1fr] gap-6 mt-12">
-          <div>
-            <div className="border-b border-omega-charcoal h-10" />
-            <p className="text-xs mt-1 text-center">Signed</p>
+          {/* ── Schedule A ── */}
+          <div className="contract-pagebreak" />
+
+          <div className="text-center mb-8">
+            <p className="text-[9px] tracking-[0.4em] text-omega-orange uppercase font-semibold mb-2">Exhibit</p>
+            <h2 className="text-[20px] font-black tracking-[0.12em] uppercase text-gray-900 mb-1">
+              Schedule A
+            </h2>
+            <p className="text-[9px] tracking-[0.25em] text-gray-400 uppercase mb-3">Description of Work</p>
+            <div style={{ width: '40px', height: '2px', background: '#E8500A', margin: '0 auto' }} />
           </div>
-          <div>
-            <div className="border-b border-omega-charcoal h-10" />
-            <p className="text-xs mt-1 text-center">Date</p>
+
+          {schedule.length === 0 ? (
+            <p className="italic text-gray-400 text-center py-8">
+              No line items on the accepted estimate yet. Add items to the estimate and they will appear here.
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {schedule.map((sec, si) => (
+                <div key={si} className="border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-2.5 border-b border-gray-100">
+                    <h3 className="font-bold uppercase text-[10px] tracking-[0.15em] text-gray-500">
+                      {sec.title}
+                    </h3>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {sec.items.map((it, ii) => (
+                      <div key={ii} className="px-5 py-3 grid grid-cols-[1fr_auto] gap-6 items-start">
+                        <div>
+                          <p className="font-semibold text-gray-900 text-[13px] leading-snug">
+                            {it.description || '—'}
+                          </p>
+                          {it.scope && (
+                            <p className="text-gray-500 text-[12px] whitespace-pre-line mt-1 leading-snug">
+                              {it.scope}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right tabular-nums font-semibold text-[13px] text-gray-900 min-w-[90px] pt-px">
+                          {fmtMoney(it.price)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Total row */}
+              <div className="flex items-center justify-between px-5 py-4 rounded-xl mt-2"
+                style={{ background: '#1a1a1a' }}>
+                <p className="font-bold uppercase text-[10px] tracking-[0.18em] text-white">
+                  Total Contract Value
+                </p>
+                <p className="font-black tabular-nums text-[15px] text-white">
+                  {fmtMoney(totalAmount)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Notice of Cancellation ── */}
+          <div className="contract-pagebreak" />
+
+          <div className="text-center mt-4 mb-6">
+            <h2 className="text-[13px] font-black tracking-[0.12em] uppercase text-gray-900 mb-2">
+              Notice of Cancellation
+            </h2>
+            <div style={{ width: '40px', height: '2px', background: '#E8500A', margin: '0 auto' }} />
           </div>
-        </div>
-      </div>
+
+          <p className="text-center text-[12px] text-gray-600 mb-6">
+            (Date of Transaction: _________________________________ )
+          </p>
+
+          <p className="font-bold whitespace-pre-line mb-6 text-[12px] leading-relaxed">
+            {CLAUSES.cancel_full}
+          </p>
+
+          <p className="text-center italic text-[12px] text-gray-600 mb-2">
+            I HEREBY CANCEL THIS TRANSACTION.
+          </p>
+
+          <div className="grid grid-cols-[3fr_1fr] gap-6 mt-12">
+            <div>
+              <div className="border-b-2 border-gray-300 h-10" />
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2 text-center">Signed</p>
+            </div>
+            <div>
+              <div className="border-b-2 border-gray-300 h-10" />
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2 text-center">Date</p>
+            </div>
+          </div>
+
+        </div>{/* /inner padding */}
+      </div>{/* /document */}
 
       {/* ───────────────────── ACTION BAR ───────────────────── */}
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
@@ -481,21 +556,25 @@ export default function ContractTemplate({
 }
 
 // ─── Section helper ──────────────────────────────────────────────────
-// Numbered, bold-headed clause block. children can be plain text or any
-// React node (we sometimes inline inputs inside the body).
+// Premium numbered clause block. Number in orange, title uppercase with
+// tracking, body text in a separate block below (not inline) so inputs
+// inside the body align correctly against their underlines.
 function Section({ number, title, children }) {
   return (
-    <div className="mb-4">
-      <p className="mb-1">
-        <span className="font-bold">{number}.</span>{' '}
-        <span className="font-bold">{title}</span>
-        {typeof children === 'string' && children.startsWith(' ')
-          ? children
-          : <> </>}
+    <div className="mb-5">
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <span className="text-omega-orange font-black text-[11px] leading-none tabular-nums flex-shrink-0">
+          {String(number).padStart(2, '0')}.
+        </span>
+        <span className="font-bold text-[11px] uppercase tracking-[0.08em] text-gray-900 leading-tight">
+          {title}
+        </span>
+      </div>
+      <div className="pl-7 text-[12.5px] leading-relaxed text-gray-700">
         {typeof children === 'string'
           ? <span className="whitespace-pre-line">{children}</span>
           : children}
-      </p>
+      </div>
     </div>
   );
 }
