@@ -260,7 +260,7 @@ export default function ContractTemplate({
             <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
             {' '}(the "Effective Date") by and between{' '}
             <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name"
-              className={inputCls} style={autoWidth(ownerName, 'Owner full name', 18)} />
+              className={inputCls} style={autoWidth(ownerName, 'Owner full name', 23)} />
             {' '}of address:
           </p>
           <p className="mb-1 -mt-2">
