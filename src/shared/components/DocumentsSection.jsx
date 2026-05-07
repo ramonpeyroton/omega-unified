@@ -2,11 +2,17 @@ import { useEffect, useState } from 'react';
 import {
   FileText, FileSignature, FileBadge, Home, CheckSquare, Receipt,
   Plus, X, Save, Loader2, AlertCircle, ImageIcon, ExternalLink, Trash2, Mic,
-  DollarSign, Layers,
+  DollarSign, Layers, FolderClosed,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import VoiceNoteRecorder from './VoiceNoteRecorder';
+import BulkDocumentUpload from './BulkDocumentUpload';
+
+// Roles allowed to use the bulk legacy importer at the bottom of the
+// page. Scoped tight on purpose — Brenda + Rafaela only, since this
+// is a one-week migration tool that Ramon will retire afterwards.
+const BULK_UPLOAD_ROLES = new Set(['operations', 'receptionist']);
 
 // Status chip palette shared with the Sales Estimates screen — keeps the
 // same verb the customer and sellers see in the lifecycle.
@@ -44,6 +50,9 @@ const FOLDERS = [
   // Auto-populated from NativeProjectChat uploads (sprint 5). Users
   // typically don't add to this folder manually — they just chat.
   { id: 'daily_logs',     label: 'Daily Logs Media', icon: ImageIcon     },
+  // Catch-all for the legacy bulk importer — anything the AI couldn't
+  // confidently place lands here so nothing gets lost.
+  { id: 'other',          label: 'Other',            icon: FolderClosed  },
 ];
 
 const CAN_DELETE_ESTIMATE = new Set(['owner', 'operations', 'admin']);
@@ -481,6 +490,18 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
           </div>
         )}
       </div>
+
+      {/* Bulk legacy importer — only surfaced for Brenda + Rafaela
+          during the one-week migration of old client folders. Ramon
+          will retire this block once the backlog is loaded. */}
+      {BULK_UPLOAD_ROLES.has(user?.role) && (
+        <BulkDocumentUpload
+          job={job}
+          user={user}
+          existingDocs={docs}
+          onUploaded={(rows) => setDocs((prev) => [...rows, ...prev])}
+        />
+      )}
 
       {/* Photo viewer */}
       {viewer && (
