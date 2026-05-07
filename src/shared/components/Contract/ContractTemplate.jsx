@@ -198,11 +198,20 @@ export default function ContractTemplate({
   const [ownerInitials, setOwnerInitials] = useState('');
 
   // Inline editable field — underlined, blends with printed contract.
-  // align-bottom + pb-px ensures the text baseline sits on the underline
-  // rather than floating below it.
-  const inputCls = 'inline-block min-w-[110px] px-1 pb-px pt-0 border-b-[1.5px] border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange align-bottom leading-none text-[13px] print:border-b-black';
+  // Heights/alignment handled via the <style> block at the bottom so all
+  // inputs can grow with their content (no clipping of long values).
+  const inputCls = 'inline-block px-1 border-b-[1.5px] border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange text-[13px] print:border-b-black';
   const numCls   = `${inputCls} text-right tabular-nums`;
   const blockCls = 'w-full px-2 py-1 mt-1 border border-gray-200 rounded bg-white focus:outline-none focus:border-omega-orange print:border-0';
+
+  // Auto-size text inputs based on their value/placeholder. Returns a width
+  // in `ch` units that grows with the content so values like long addresses
+  // or emails are never clipped on screen or in the PDF.
+  function autoWidth(value, placeholder = '', minChars = 14) {
+    const text = (value || placeholder || '').toString();
+    const ch   = Math.max(text.length + 2, minChars);
+    return { width: `${ch}ch`, maxWidth: '100%' };
+  }
 
   // Derived display
   const planRows = (paymentPlan || []).map((p, i) => ({
@@ -243,12 +252,13 @@ export default function ContractTemplate({
             This Construction Contract (the "Contract" or "Agreement") is made as of{' '}
             <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputCls} />
             {' '}(the "Effective Date") by and between{' '}
-            <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name" className={inputCls} />
+            <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name"
+              className={inputCls} style={autoWidth(ownerName, 'Owner full name', 18)} />
             {' '}of address:
           </p>
           <p className="mb-1 -mt-2">
             <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Street address, City, State ZIP"
-              className={inputCls} style={{ width: '100%', height: 'auto', display: 'block' }} />
+              className={inputCls} style={{ width: '100%', display: 'block' }} />
           </p>
           <p className="mb-4">
             (hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
@@ -314,7 +324,8 @@ export default function ContractTemplate({
             </ol>
             <p className="mb-3">
               All invoices shall be sent to Owner via e-mail at:{' '}
-              <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@example.com" className={inputCls} />
+              <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@example.com"
+                className={inputCls} style={autoWidth(ownerEmail, 'owner@example.com', 22)} />
             </p>
             <p className="mb-3 whitespace-pre-line">{CLAUSES.s7_payment_late}</p>
           </Section>
@@ -381,7 +392,8 @@ export default function ContractTemplate({
           </p>
 
           {/* ── Signature block ── */}
-          <div className="grid grid-cols-2 gap-16 mt-2">
+          <div className="grid grid-cols-2 gap-16 mt-2"
+            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
 
             {/* Owner / Client side */}
             <div>
@@ -566,20 +578,30 @@ export default function ContractTemplate({
         </button>
       </div>
 
-      {/* Style overrides — inputs use yellow highlight on screen (removed during
-          PDF export). Page-break CSS is applied dynamically only during export
-          so the browser never renders the dark page-separator on screen. */}
+      {/* Style overrides:
+          • inputs grow with content (no fixed height) — long addresses/emails
+            are never clipped, on screen or in the PDF
+          • paragraphs get orphans/widows so a single line is never stranded
+            at a page boundary
+          • contract-pagebreak markers are invisible on screen; their
+            page-break CSS is applied dynamically only during PDF export */}
       <style>{`
         .contract-doc input,
         .contract-doc textarea {
           font: inherit;
           color: inherit;
           background-color: #fef08a;
-          height: 1.5em;
-          vertical-align: text-bottom;
-          padding-top: 0;
+          vertical-align: baseline;
+          padding-top: 1px;
           padding-bottom: 1px;
-          box-sizing: content-box;
+          line-height: 1.4;
+        }
+        .contract-doc input[type="date"] {
+          line-height: 1;
+        }
+        .contract-doc p {
+          orphans: 3;
+          widows: 3;
         }
         .contract-doc .contract-pagebreak {
           height: 0;
@@ -600,7 +622,8 @@ export default function ContractTemplate({
 // the client to initial each one separately.
 function InitialsBox({ label, value, onChange }) {
   return (
-    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
+    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100"
+      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
       <span className="text-[9px] tracking-[0.25em] uppercase text-gray-400 font-semibold">
         {label}
       </span>
@@ -621,7 +644,8 @@ function InitialsBox({ label, value, onChange }) {
 // inside the body align correctly against their underlines.
 function Section({ number, title, children }) {
   return (
-    <div className="mb-5">
+    <div className="mb-5"
+      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
       {/* break-after:avoid keeps the title glued to the first line of its body
           so a page break can never orphan the heading at the bottom of a page. */}
       <div className="flex items-baseline gap-2 mb-1.5"
