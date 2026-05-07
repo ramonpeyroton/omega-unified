@@ -236,7 +236,7 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
           obvious: what was sent, what the customer rejected, what was
           signed. */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-omega-pale flex items-center justify-center">
             <DollarSign className="w-4 h-4 text-omega-orange" />
           </div>
@@ -354,7 +354,7 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
           const isAdding = addingTo === f.id;
           return (
             <div key={f.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-omega-pale flex items-center justify-center">
                   <Icon className="w-4 h-4 text-omega-orange" />
                 </div>
