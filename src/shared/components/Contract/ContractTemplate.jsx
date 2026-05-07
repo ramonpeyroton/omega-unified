@@ -245,7 +245,8 @@ export default function ContractTemplate({
             {' '}(the "Effective Date") by and between{' '}
             <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Owner full name" className={inputCls} />
             {' '}of address{' '}
-            <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Owner address" className={inputCls} />
+            <input value={ownerAddress} onChange={(e) => setOwnerAddress(e.target.value)} placeholder="Owner address"
+              className={inputCls} style={{ minWidth: '260px', height: 'auto' }} />
             {' '}(hereinafter referred to "Owner") and OMEGA DEVELOPMENT LLC (hereinafter referred to as "Contractor")
             Registration numbers: HIC.0670573 and NHC.0017262.
           </p>
@@ -617,7 +618,10 @@ function InitialsBox({ label, value, onChange }) {
 function Section({ number, title, children }) {
   return (
     <div className="mb-5">
-      <div className="flex items-baseline gap-2 mb-1.5">
+      {/* break-after:avoid keeps the title glued to the first line of its body
+          so a page break can never orphan the heading at the bottom of a page. */}
+      <div className="flex items-baseline gap-2 mb-1.5"
+        style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
         <span className="text-omega-orange font-black text-[11px] leading-none tabular-nums flex-shrink-0">
           {String(number).padStart(2, '0')}.
         </span>
