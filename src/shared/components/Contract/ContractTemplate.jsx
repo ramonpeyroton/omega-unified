@@ -174,7 +174,14 @@ export default function ContractTemplate({
           image: { type: 'jpeg', quality: 0.95 },
           html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
           jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-          pagebreak: { mode: ['css', 'legacy'], before: '.contract-pagebreak' },
+          // 'avoid-all' tells html2pdf to scan all common block elements (p, h*,
+          // li, etc.) and never slice them across page boundaries — combined
+          // with our explicit selectors, no text line is ever cut in half.
+          pagebreak: {
+            mode: ['avoid-all', 'css', 'legacy'],
+            before: '.contract-pagebreak',
+            avoid: ['.contract-section', '.contract-initials', '.contract-signature', 'p', 'li', 'h1', 'h2', 'h3'],
+          },
         })
         .from(docRef.current)
         .save();
@@ -392,8 +399,8 @@ export default function ContractTemplate({
           </p>
 
           {/* ── Signature block ── */}
-          <div className="grid grid-cols-2 gap-16 mt-2"
-            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div className="grid grid-cols-2 gap-16 mt-2 contract-signature">
+
 
             {/* Owner / Client side */}
             <div>
@@ -622,8 +629,7 @@ export default function ContractTemplate({
 // the client to initial each one separately.
 function InitialsBox({ label, value, onChange }) {
   return (
-    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100"
-      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100 contract-initials">
       <span className="text-[9px] tracking-[0.25em] uppercase text-gray-400 font-semibold">
         {label}
       </span>
@@ -644,12 +650,9 @@ function InitialsBox({ label, value, onChange }) {
 // inside the body align correctly against their underlines.
 function Section({ number, title, children }) {
   return (
-    <div className="mb-5"
-      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-      {/* break-after:avoid keeps the title glued to the first line of its body
-          so a page break can never orphan the heading at the bottom of a page. */}
-      <div className="flex items-baseline gap-2 mb-1.5"
-        style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
+    <div className="mb-5 contract-section">
+      <div className="flex items-baseline gap-2 mb-1.5 contract-section-title">
+
         <span className="text-omega-orange font-black text-[11px] leading-none tabular-nums flex-shrink-0">
           {String(number).padStart(2, '0')}.
         </span>
