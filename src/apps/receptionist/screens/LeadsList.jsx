@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock, Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Edit3, Save, Lock, Eye, EyeOff, ExternalLink, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
@@ -98,6 +98,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
   // PIN gate when toggling OFF a lead that's currently in the pipeline.
   // Free in the other direction (promoting cold → pipeline).
   const [pinGate, setPinGate] = useState(null); // { lead } | null
+  const [deletingLead, setDeletingLead] = useState(null); // lead | null
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
 
@@ -274,6 +275,19 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
       setEditingLead(null);
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to save lead' });
+    }
+  }
+
+  async function deleteLead(lead) {
+    try {
+      const { error } = await supabase.from('jobs').delete().eq('id', lead.id);
+      if (error) throw error;
+      setRows((prev) => prev.filter((r) => r.id !== lead.id));
+      setDeletingLead(null);
+      await logAudit({ action: 'lead.delete', target_id: lead.id, details: { client_name: lead.client_name } });
+      setToast({ type: 'success', message: 'Lead deleted' });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to delete lead' });
     }
   }
 
@@ -479,13 +493,24 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
                         </button>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <button
-                          onClick={() => setEditingLead(r)}
-                          title="Edit lead details"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-omega-slate hover:text-omega-orange hover:bg-omega-pale/60 transition-colors"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" /> Edit
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => setEditingLead(r)}
+                            title="Edit lead details"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-omega-slate hover:text-omega-orange hover:bg-omega-pale/60 transition-colors"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          {user?.role === 'operations' && (
+                            <button
+                              onClick={() => setDeletingLead(r)}
+                              title="Delete lead"
+                              className="p-1 rounded-md text-omega-stone hover:text-red-500 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -521,6 +546,14 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
             await setInPipeline(pinGate.lead, false);
             setPinGate(null);
           }}
+        />
+      )}
+
+      {deletingLead && (
+        <DeleteLeadModal
+          lead={deletingLead}
+          onClose={() => setDeletingLead(null)}
+          onConfirm={() => deleteLead(deletingLead)}
         />
       )}
     </div>
@@ -574,6 +607,42 @@ const PIN_REASON_MSG = {
   name_mismatch:'PIN belongs to another user — double-check the digits.',
   query_failed: 'Network error talking to the server. Try again.',
 };
+
+function DeleteLeadModal({ lead, onClose, onConfirm }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <Trash2 className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-omega-charcoal">Delete Lead</h3>
+            <p className="text-xs text-omega-stone mt-0.5">This action cannot be undone.</p>
+          </div>
+        </div>
+        <p className="text-sm text-omega-slate mb-6">
+          Are you sure you want to delete{' '}
+          <span className="font-semibold text-omega-charcoal">{lead.client_name || 'this lead'}</span>?
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-omega-slate hover:bg-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function PipelinePinModal({ lead, user, onClose, onConfirm }) {
   const [pin, setPin] = useState('');
