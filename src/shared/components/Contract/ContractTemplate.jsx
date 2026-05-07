@@ -184,6 +184,11 @@ export default function ContractTemplate({
 
   const [contractorSignDate, setContractorSignDate] = useState(todayIso());
 
+  // Single shared initials value — pre-fills all 4 initials boxes at once on
+  // screen. DocuSign will create independent initials tabs per page so the
+  // client must initial each one individually.
+  const [ownerInitials, setOwnerInitials] = useState('');
+
   // Inline editable field — underlined, blends with printed contract.
   // align-bottom + pb-px ensures the text baseline sits on the underline
   // rather than floating below it.
@@ -316,6 +321,7 @@ export default function ContractTemplate({
           {/* ── §9 ── */}
           <Section number="9" title="UNAVOIDABLE DELAYS.">{CLAUSES.s9_unavoidable}</Section>
 
+          <InitialsBox label="Owner Initials (Page 2):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
           <Section number="10" title="INSURANCE.">{CLAUSES.s10_insurance}</Section>
@@ -325,6 +331,7 @@ export default function ContractTemplate({
           <Section number="14" title="INSPECTION.">{CLAUSES.s14_inspection}</Section>
           <Section number="15" title="DEFAULT.">{CLAUSES.s15_default}</Section>
 
+          <InitialsBox label="Owner Initials (Page 3):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
           <Section number="16" title="REMEDIES.">{CLAUSES.s16_remedies}</Section>
@@ -332,6 +339,7 @@ export default function ContractTemplate({
           <Section number="18" title="INDEMNIFICATION and EXCLUSION OF CONSEQUENTIAL DAMAGES.">{CLAUSES.s18_indemnity}</Section>
           <Section number="19" title="SEVERABILITY.">{CLAUSES.s19_severability}</Section>
 
+          <InitialsBox label="Owner Initials (Page 4):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
           <Section number="20" title="AMENDMENT.">{CLAUSES.s20_amendment}</Section>
@@ -341,6 +349,7 @@ export default function ContractTemplate({
           <Section number="24" title="LEGAL FEES and COSTS.">{CLAUSES.s24_legal}</Section>
           <Section number="25" title="ENTIRE AGREEMENT.">{CLAUSES.s25_entire}</Section>
 
+          <InitialsBox label="Owner Initials (Page 5):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           {/* ── Cancellation notice + signatures ── */}
           <div className="contract-pagebreak" />
 
@@ -567,6 +576,28 @@ export default function ContractTemplate({
           background: transparent;
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─── Initials box ────────────────────────────────────────────────────
+// Rendered at the bottom of each important page (before a page break).
+// All 4 boxes share a single state so Brenda fills in once on screen.
+// DocuSign will generate independent initials tabs per page requiring
+// the client to initial each one separately.
+function InitialsBox({ label, value, onChange }) {
+  return (
+    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
+      <span className="text-[9px] tracking-[0.25em] uppercase text-gray-400 font-semibold">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={onChange}
+        maxLength={5}
+        placeholder="___"
+        className="w-16 text-center border-b-2 border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange text-[15px] font-bold uppercase pb-0.5 tracking-widest"
+      />
     </div>
   );
 }

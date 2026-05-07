@@ -168,6 +168,12 @@ in the contract price and shall be paid by Owner.</p>
 agreed dates, subject to change orders and Unavoidable Delays beyond Contractor's reasonable control
 (weather, material shortages, government restrictions, Acts of God, labor disputes, etc.).</p>
 
+<!-- Initials required — Payment &amp; Schedule page -->
+<div style="margin-top:24px;padding-top:12px;border-top:2px solid #2C2C2A;display:flex;justify-content:flex-end;align-items:center;gap:12px;">
+  <span style="font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#888;">Owner Initials (Page 2):</span>
+  <span style="display:inline-block;width:80px;border-bottom:1.5px solid #333;">&nbsp;</span>
+</div>
+
 <p><strong>5. INSURANCE.</strong> Contractor shall maintain general liability insurance valid under Connecticut
 law and provide certificates of insurance upon request.</p>
 
@@ -186,6 +192,12 @@ material. Contractor owns all copyrights to photographs taken at the Property.</
 failure to provide site access. The non-defaulting party may terminate with 30 days written notice
 and opportunity to cure.</p>
 
+<!-- Initials required — Insurance, Access &amp; Default page -->
+<div style="margin-top:24px;padding-top:12px;border-top:2px solid #2C2C2A;display:flex;justify-content:flex-end;align-items:center;gap:12px;">
+  <span style="font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#888;">Owner Initials (Page 3):</span>
+  <span style="display:inline-block;width:80px;border-bottom:1.5px solid #333;">&nbsp;</span>
+</div>
+
 <p><strong>10. INDEMNIFICATION.</strong> Owner shall defend, hold harmless, and indemnify Contractor and its
 principals from all claims arising from this Agreement, except those caused solely by Contractor's
 intentional misconduct or material breach.</p>
@@ -194,11 +206,23 @@ intentional misconduct or material breach.</p>
 reasonable control. The affected party shall give prompt written notice and resume performance
 as soon as practicable.</p>
 
+<!-- Initials required — Remedies &amp; Indemnification page -->
+<div style="margin-top:24px;padding-top:12px;border-top:2px solid #2C2C2A;display:flex;justify-content:flex-end;align-items:center;gap:12px;">
+  <span style="font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#888;">Owner Initials (Page 4):</span>
+  <span style="display:inline-block;width:80px;border-bottom:1.5px solid #333;">&nbsp;</span>
+</div>
+
 <p><strong>12. GOVERNING LAW.</strong> This Agreement is governed by the laws of the State of Connecticut.
 Disputes shall be resolved in the courts of Fairfield County, Connecticut.</p>
 
 <p><strong>13. ENTIRE AGREEMENT.</strong> This Agreement constitutes the entire agreement of the parties
 and may only be modified by a written instrument signed by both parties.</p>
+
+<!-- Initials required — General Terms page -->
+<div style="margin-top:24px;padding-top:12px;border-top:2px solid #2C2C2A;display:flex;justify-content:flex-end;align-items:center;gap:12px;">
+  <span style="font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#888;">Owner Initials (Page 5):</span>
+  <span style="display:inline-block;width:80px;border-bottom:1.5px solid #333;">&nbsp;</span>
+</div>
 
 <h2>Notice of Cancellation</h2>
 <p>You may cancel this contract, without penalty or obligation, within three (3) business days
@@ -399,6 +423,34 @@ async function handleCreateEnvelope(req, res) {
               anchorYOffset: '-10',
               anchorUnits:   'pixels',
             }],
+            // One initials tab per important page — client must initial each
+            // separately before they can complete the signature.
+            initialHereTabs: [
+              {
+                anchorString:  'Owner Initials (Page 2):',
+                anchorXOffset: '160',
+                anchorYOffset: '-4',
+                anchorUnits:   'pixels',
+              },
+              {
+                anchorString:  'Owner Initials (Page 3):',
+                anchorXOffset: '160',
+                anchorYOffset: '-4',
+                anchorUnits:   'pixels',
+              },
+              {
+                anchorString:  'Owner Initials (Page 4):',
+                anchorXOffset: '160',
+                anchorYOffset: '-4',
+                anchorUnits:   'pixels',
+              },
+              {
+                anchorString:  'Owner Initials (Page 5):',
+                anchorXOffset: '160',
+                anchorYOffset: '-4',
+                anchorUnits:   'pixels',
+              },
+            ],
           },
         }],
         carbonCopies: [{
