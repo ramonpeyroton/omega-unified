@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Check, Trash2, Plus, Send, FileText, DollarSign, Lock, Info, MessageSquare, X } from 'lucide-react';
+import { ArrowLeft, Check, Trash2, Plus, Send, FileText, DollarSign, Lock, Info, MessageSquare, X, Clock, CheckCircle2 } from 'lucide-react';
+import { validateUserPinDetailed } from '../lib/userPin';
 import { supabase } from '../lib/supabase';
 import { createEnvelope, getEnvelopeStatus, downloadSignedDocument } from '../lib/docusign';
 import LoadingSpinner from './LoadingSpinner';
@@ -20,7 +21,8 @@ const STEPS = [
   { id: 1, label: 'Review Estimate' },
   { id: 2, label: 'Payment Plan' },
   { id: 3, label: 'Generate Contract' },
-  { id: 4, label: 'Invoice & Deposit' },
+  { id: 4, label: 'Awaiting Signature' },
+  { id: 5, label: 'Invoice & Deposit' },
 ];
 
 // Permissions matrix
@@ -86,6 +88,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [paymentPlan, setPaymentPlan] = useState([]);
   const [showChangeModal, setShowChangeModal] = useState(false);
   const [changeText, setChangeText] = useState('');
+  const [showManualAdvanceModal, setShowManualAdvanceModal] = useState(false);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [job?.id]);
 
@@ -98,7 +101,8 @@ export default function EstimateFlow({ job, user, onBack }) {
       setContract(ctr || null);
       if (est?.payment_plan) setPaymentPlan(est.payment_plan);
       else if (ctr?.payment_plan) setPaymentPlan(ctr.payment_plan);
-      if (ctr?.signed_at) setStep(4);
+      if (ctr?.signed_at) setStep(5);
+      else if (ctr?.status === 'sent' || ctr?.docusign_envelope_id) setStep(4);
       else if (ctr) setStep(3);
       else if (est?.approved_at) setStep(2);
       else setStep(1);
@@ -285,6 +289,7 @@ export default function EstimateFlow({ job, user, onBack }) {
       await supabase.from('jobs').update({ pipeline_status: 'contract_sent' }).eq('id', job.id);
 
       setContract(updated);
+      setStep(4);
       logAudit({ user, action: 'contract.send', entityType: 'contract', entityId: updated.id, details: { job_id: job.id, envelope: envelopeId } });
       notify({ recipientRole: 'sales', title: 'Contract sent', message: `Contract for ${job.client_name || 'job'} was sent via DocuSign.`, type: 'contract', jobId: job.id });
       notify({ recipientRole: 'owner', title: 'Contract sent', message: `${job.client_name || 'Client'}: $${Number(updated.total_amount || 0).toLocaleString()}`, type: 'contract', jobId: job.id });
@@ -307,6 +312,7 @@ export default function EstimateFlow({ job, user, onBack }) {
       if (data) {
         setContract(data);
         if (!wasSigned && data.status === 'signed') {
+          setStep(5);
           logAudit({ user, action: 'contract.sign', entityType: 'contract', entityId: data.id, details: { job_id: job.id } });
           notify({ recipientRole: 'owner', title: 'Contract signed', message: `${job.client_name || 'Client'} signed — $${Number(data.total_amount || 0).toLocaleString()}`, type: 'contract', jobId: job.id });
           notify({ recipientRole: 'operations', title: 'Contract signed', message: `${job.client_name || 'Client'} — deposit invoice is next.`, type: 'contract', jobId: job.id });
@@ -542,7 +548,7 @@ export default function EstimateFlow({ job, user, onBack }) {
                   {downloadingPdf ? 'Downloading…' : 'Download Signed PDF'}
                 </button>
                 <button
-                  onClick={() => setStep(4)}
+                  onClick={() => setStep(5)}
                   className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold"
                 >
                   Continue to Invoice
@@ -550,16 +556,58 @@ export default function EstimateFlow({ job, user, onBack }) {
               </div>
             )}
 
-            {contract && !contract.signed_at && (
-              <p className="mt-3 text-xs text-omega-stone">
-                <FileText className="w-3.5 h-3.5 inline -mt-0.5 mr-1" /> Awaiting signature…
-              </p>
-            )}
           </section>
         )}
 
-        {/* STEP 4 */}
+        {/* STEP 4 — Awaiting Signature */}
         {step === 4 && (
+          <section className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-omega-charcoal">Awaiting Signature</h2>
+              {contract && <StatusBadge status={contract.docusign_status || contract.status} />}
+            </div>
+
+            <div className="flex flex-col items-center py-10 gap-4">
+              <div className="w-16 h-16 rounded-full bg-amber-50 border-2 border-amber-200 flex items-center justify-center">
+                <Clock className="w-8 h-8 text-amber-500" />
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-omega-charcoal">Waiting for client's signature</p>
+                <p className="text-sm text-omega-stone mt-1">
+                  The contract was sent to <span className="font-medium">{job.client_name || 'the client'}</span> via DocuSign.
+                  This step will advance automatically once they sign.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 mt-2 flex-wrap justify-center">
+                <button
+                  onClick={refreshContractStatus}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal transition-colors"
+                >
+                  <Clock className="w-4 h-4" /> Check Signature Status
+                </button>
+
+                {(user?.role === 'owner' || user?.role === 'operations' || user?.role === 'sales' || user?.role === 'salesperson') && (
+                  <button
+                    onClick={() => setShowManualAdvanceModal(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-stone hover:text-omega-charcoal transition-colors"
+                  >
+                    <Lock className="w-4 h-4" /> Mark as Signed Manually
+                  </button>
+                )}
+              </div>
+
+              {contract?.docusign_envelope_id && (
+                <p className="text-xs text-omega-stone mt-2">
+                  Envelope: <span className="font-mono">{contract.docusign_envelope_id}</span>
+                </p>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* STEP 5 — Invoice & Deposit */}
+        {step === 5 && (
           <section className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-bold text-omega-charcoal mb-4">Invoice & Deposit</h2>
 
@@ -600,6 +648,29 @@ export default function EstimateFlow({ job, user, onBack }) {
         )}
       </div>
 
+      {showManualAdvanceModal && (
+        <ManualAdvancePinModal
+          user={user}
+          onClose={() => setShowManualAdvanceModal(false)}
+          onConfirm={async () => {
+            try {
+              const now = new Date().toISOString();
+              const patch = { status: 'signed', signed_at: now, docusign_status: 'manually_confirmed' };
+              const { data, error } = await supabase.from('contracts').update(patch).eq('id', contract.id).select().single();
+              if (error) throw error;
+              setContract(data);
+              await supabase.from('jobs').update({ status: 'contracted' }).eq('id', job.id);
+              logAudit({ user, action: 'contract.manual_sign', entityType: 'contract', entityId: contract.id, details: { job_id: job.id } });
+              setShowManualAdvanceModal(false);
+              setStep(5);
+              setToast({ type: 'success', message: 'Contract marked as signed — advancing to Invoice.' });
+            } catch (err) {
+              setToast({ type: 'error', message: err.message || 'Failed to advance' });
+            }
+          }}
+        />
+      )}
+
       {showChangeModal && (
         <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowChangeModal(false)}>
           <div className="bg-white rounded-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
@@ -630,3 +701,77 @@ export default function EstimateFlow({ job, user, onBack }) {
     </div>
   );
 }
+
+function ManualAdvancePinModal({ user, onClose, onConfirm }) {
+  const [pin, setPin] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleConfirm() {
+    if (!pin.trim()) { setError('Enter your PIN'); return; }
+    setVerifying(true);
+    setError('');
+    try {
+      const result = await validateUserPinDetailed({ name: user?.name, pin, role: user?.role });
+      if (result.ok) {
+        await onConfirm();
+      } else {
+        setError(PIN_ERRORS[result.reason] || 'Invalid PIN');
+      }
+    } catch {
+      setError('Verification failed — try again');
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-omega-charcoal">Mark as Signed Manually</h3>
+            <p className="text-xs text-omega-stone mt-0.5">Enter your PIN to confirm.</p>
+          </div>
+        </div>
+        <p className="text-xs text-omega-stone mb-4">
+          Use this only if the client signed outside of DocuSign (e.g. printed and mailed). This will advance the flow to Invoice & Deposit.
+        </p>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          autoFocus
+          value={pin}
+          onChange={(e) => { setPin(e.target.value); setError(''); }}
+          onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
+          placeholder="Your PIN"
+          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm mb-2 focus:outline-none focus:border-omega-orange text-center tracking-widest"
+        />
+        {error && <p className="text-xs text-red-500 mb-2 text-center">{error}</p>}
+        <div className="flex gap-3 justify-end mt-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-omega-slate hover:bg-gray-100 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={verifying}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-omega-orange text-white hover:bg-omega-dark transition-colors disabled:opacity-60"
+          >
+            {verifying ? 'Verifying…' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PIN_ERRORS = {
+  wrong_pin:     'Wrong PIN — try again.',
+  role_mismatch: 'PIN matches a different role.',
+  name_mismatch: 'PIN belongs to another user.',
+  query_failed:  'Network error — try again.',
+};
