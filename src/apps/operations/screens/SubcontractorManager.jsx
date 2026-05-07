@@ -892,6 +892,44 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
     return m;
   }, [jobs]);
 
+  const [coiDocs, setCoiDocs] = useState([]);
+  const [uploadingCoi, setUploadingCoi] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from('subcontractor_coi_documents')
+      .select('*')
+      .eq('subcontractor_id', sub.id)
+      .order('uploaded_at', { ascending: false })
+      .then(({ data }) => setCoiDocs(data || []));
+  }, [sub.id]);
+
+  async function handleCoiUpload(file) {
+    if (!file) return;
+    setUploadingCoi(true);
+    try {
+      const path = `coi/${sub.id}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage
+        .from('subcontractor-docs')
+        .upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from('subcontractor-docs').getPublicUrl(path);
+      const fileUrl = pub?.publicUrl || null;
+      const { data: row, error: insErr } = await supabase
+        .from('subcontractor_coi_documents')
+        .insert([{ subcontractor_id: sub.id, file_url: fileUrl, file_name: file.name }])
+        .select().single();
+      if (insErr) throw insErr;
+      setCoiDocs((prev) => [row, ...prev]);
+      // Also keep legacy coi_url in sync for COIBadge
+      await supabase.from('subcontractors').update({ coi_url: fileUrl }).eq('id', sub.id);
+    } catch (err) {
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setUploadingCoi(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
@@ -942,29 +980,62 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
               }
             })()}
           />
-          <div className="sm:col-span-2 flex items-center gap-2 flex-wrap">
-            {sub.coi_url && (
-              <a
-                href={sub.coi_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-charcoal"
-              >
-                View current COI ↗
-              </a>
+          {/* COI History */}
+          <div className="sm:col-span-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-omega-stone uppercase tracking-wider">COI Documents</p>
+              <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
+                uploadingCoi
+                  ? 'border-gray-200 text-omega-stone opacity-60 pointer-events-none'
+                  : 'border-gray-200 hover:border-omega-orange text-omega-info'
+              }`}>
+                <Upload className="w-3.5 h-3.5" />
+                {uploadingCoi ? 'Uploading…' : 'Upload COI'}
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="hidden"
+                  disabled={uploadingCoi}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleCoiUpload(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {coiDocs.length === 0 ? (
+              <p className="text-xs text-omega-stone italic">No COI documents uploaded yet.</p>
+            ) : (
+              <ul className="border border-gray-100 rounded-lg overflow-hidden divide-y divide-gray-100">
+                {coiDocs.map((doc, i) => (
+                  <li key={doc.id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-omega-charcoal truncate">
+                        {doc.file_name || 'COI Document'}
+                        {i === 0 && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-omega-success/10 text-omega-success">
+                            Current
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-omega-stone mt-0.5">
+                        {new Date(doc.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <a
+                      href={doc.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-omega-info hover:text-blue-800 whitespace-nowrap"
+                    >
+                      View ↗
+                    </a>
+                  </li>
+                ))}
+              </ul>
             )}
-            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-info cursor-pointer">
-              <Upload className="w-3.5 h-3.5" /> Upload new COI
-              <input
-                type="file"
-                accept="application/pdf,image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onUploadCoi?.(file);
-                }}
-              />
-            </label>
           </div>
         </div>
 
