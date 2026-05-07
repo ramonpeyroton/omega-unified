@@ -14,7 +14,7 @@ export async function getAccessToken() {
 
   const integrationKey = process.env.DOCUSIGN_INTEGRATION_KEY || '';
   const userId         = process.env.DOCUSIGN_USER_ID         || '';
-  const oauthBase      = (process.env.DOCUSIGN_OAUTH_BASE || 'https://account-d.docusign.net').replace(/\/$/, '');
+  const oauthBase      = (process.env.DOCUSIGN_OAUTH_BASE || 'https://account-d.docusign.com').replace(/\/$/, '');
   const rawKey         = process.env.DOCUSIGN_PRIVATE_KEY     || '';
 
   // Vercel stores multi-line secrets with literal \n — normalize to real newlines.
