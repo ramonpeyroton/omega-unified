@@ -72,7 +72,7 @@ export default function SubcontractorManager({ user }) {
   const [showAddAgr, setShowAddAgr] = useState(false);
   const [subForm, setSubForm] = useState({
     name: '', contact_name: '', trade: '', phone: '', email: '', tax_id: '',
-    insurance_company: '', insurance_policy_number: '', coi_expiry_date: '',
+    insurance_company: '', insurance_policy_number: '', workers_comp_expiry: '', general_liability_expiry: '',
     // Sub-facing pages (offer Accept/Reject) translate based on this.
     // The internal app stays in English no matter what.
     preferred_language: 'en',
@@ -148,7 +148,8 @@ export default function SubcontractorManager({ user }) {
       preferred_language: sub.preferred_language || 'en',
       insurance_company: sub.insurance_company || '',
       insurance_policy_number: sub.insurance_policy_number || '',
-      coi_expiry_date: sub.coi_expiry_date || '',
+      workers_comp_expiry: sub.workers_comp_expiry || '',
+      general_liability_expiry: sub.general_liability_expiry || '',
     });
     setEditCoiFile(null);
   }
@@ -281,7 +282,7 @@ export default function SubcontractorManager({ user }) {
         setSubs((prev) => [data, ...prev]);
       }
       setShowAddSub(false);
-      setSubForm({ name: '', contact_name: '', trade: '', phone: '', email: '', tax_id: '', insurance_company: '', insurance_policy_number: '', coi_expiry_date: '', preferred_language: 'en' });
+      setSubForm({ name: '', contact_name: '', trade: '', phone: '', email: '', tax_id: '', insurance_company: '', insurance_policy_number: '', workers_comp_expiry: '', general_liability_expiry: '', preferred_language: 'en' });
       setCoiFile(null);
       setToast({ type: 'success', message: 'Subcontractor added' });
     } catch (err) {
@@ -470,8 +471,9 @@ export default function SubcontractorManager({ user }) {
                 { k: 'email',        label: 'Email', type: 'email' },
                 { k: 'tax_id',       label: 'Tax ID' },
                 { k: 'insurance_company',        label: 'Insurance Company' },
-                { k: 'insurance_policy_number',  label: 'Policy Number' },
-                { k: 'coi_expiry_date',          label: 'COI Expiry Date', type: 'date' },
+                { k: 'insurance_policy_number',  label: 'License Number' },
+                { k: 'workers_comp_expiry',      label: 'Workers Comp', type: 'date' },
+                { k: 'general_liability_expiry', label: 'General Liability', type: 'date' },
               ].map((f) => (
                 <div key={f.k} className={f.colSpan === 2 ? 'sm:col-span-2' : ''}>
                   <label className="text-xs font-semibold text-omega-stone uppercase">{f.label}</label>
@@ -618,8 +620,9 @@ export default function SubcontractorManager({ user }) {
                 { k: 'email',        label: 'Email', type: 'email' },
                 { k: 'tax_id',       label: 'Tax ID' },
                 { k: 'insurance_company',        label: 'Insurance Company' },
-                { k: 'insurance_policy_number',  label: 'Policy Number' },
-                { k: 'coi_expiry_date',          label: 'COI Expiry Date', type: 'date' },
+                { k: 'insurance_policy_number',  label: 'License Number' },
+                { k: 'workers_comp_expiry',      label: 'Workers Comp', type: 'date' },
+                { k: 'general_liability_expiry', label: 'General Liability', type: 'date' },
               ].map((f) => (
                 <div key={f.k} className={f.colSpan === 2 ? 'sm:col-span-2' : ''}>
                   <label className="text-xs font-semibold text-omega-stone uppercase">{f.label}</label>
@@ -922,8 +925,12 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
           <Field label="Insurance company" value={sub.insurance_company} />
           <Field label="Policy number" value={sub.insurance_policy_number} mono />
           <Field
-            label="COI expiry"
-            value={sub.coi_expiry_date ? new Date(sub.coi_expiry_date).toLocaleDateString() : null}
+            label="Workers Comp"
+            value={sub.workers_comp_expiry ? new Date(sub.workers_comp_expiry).toLocaleDateString() : null}
+          />
+          <Field
+            label="General Liability"
+            value={sub.general_liability_expiry ? new Date(sub.general_liability_expiry).toLocaleDateString() : null}
           />
           <Field
             label="Preferred language"
