@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   FileText, FileSignature, FileBadge, Home, CheckSquare, Receipt,
   Plus, X, Save, Loader2, AlertCircle, ImageIcon, ExternalLink, Trash2, Mic,
-  DollarSign, Layers, FolderClosed, FolderInput, Check,
+  DollarSign, Layers, FolderClosed, FolderInput, Check, ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
@@ -50,6 +50,10 @@ const FOLDERS = [
   // Auto-populated from NativeProjectChat uploads (sprint 5). Users
   // typically don't add to this folder manually — they just chat.
   { id: 'daily_logs',     label: 'Daily Logs Media', icon: ImageIcon     },
+  // Certificate of Insurance — per-job COIs (e.g. the client's own
+  // carrier sends one for this project). Subcontractor COIs live on
+  // the sub itself, not here.
+  { id: 'coi',            label: 'COI',              icon: ShieldCheck   },
   // Catch-all for the legacy bulk importer — anything the AI couldn't
   // confidently place lands here so nothing gets lost.
   { id: 'other',          label: 'Other',            icon: FolderClosed  },

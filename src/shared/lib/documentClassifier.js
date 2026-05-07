@@ -22,6 +22,7 @@ export const FOLDER_LABELS = {
   contracts:      'Contracts',
   change_orders:  'Change Orders',
   daily_logs:     'Daily Logs Media',
+  coi:            'COI',
   other:          'Other',
 };
 
@@ -34,6 +35,7 @@ const CATEGORY_DESCRIPTIONS = {
   contracts:      'Signed construction contracts, master agreements, proposals turned binding.',
   change_orders:  'Documents recording mid-project scope or cost changes (CO numbered).',
   daily_logs:     'Photos / videos of the jobsite, work in progress, before/after, punch list.',
+  coi:            'Certificate of Insurance (COI / ACORD 25) — liability insurance certificates from carriers naming additional insureds.',
   other:          'Anything that does not clearly fit any category above (warranties, letters, misc).',
 };
 
