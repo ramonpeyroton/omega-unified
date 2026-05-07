@@ -419,7 +419,7 @@ async function handleCreateEnvelope(req, res) {
             }],
             dateSignedTabs: [{
               anchorString:  'Owner Signature:',
-              anchorXOffset: '340',
+              anchorXOffset: '210',
               anchorYOffset: '-10',
               anchorUnits:   'pixels',
             }],
