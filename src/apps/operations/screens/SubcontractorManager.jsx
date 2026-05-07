@@ -894,6 +894,7 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
 
   const [coiDocs, setCoiDocs] = useState([]);
   const [uploadingCoi, setUploadingCoi] = useState(false);
+  const [coiError, setCoiError] = useState(null);
 
   useEffect(() => {
     supabase
@@ -901,7 +902,10 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
       .select('*')
       .eq('subcontractor_id', sub.id)
       .order('uploaded_at', { ascending: false })
-      .then(({ data }) => setCoiDocs(data || []));
+      .then(({ data, error }) => {
+        if (error) setCoiError('Could not load COI history: ' + error.message);
+        else setCoiDocs(data || []);
+      });
   }, [sub.id]);
 
   async function handleCoiUpload(file) {
@@ -924,7 +928,7 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
       // Also keep legacy coi_url in sync for COIBadge
       await supabase.from('subcontractors').update({ coi_url: fileUrl }).eq('id', sub.id);
     } catch (err) {
-      alert('Upload failed: ' + (err.message || 'Unknown error'));
+      setCoiError('Upload failed: ' + (err.message || 'Unknown error'));
     } finally {
       setUploadingCoi(false);
     }
@@ -1004,6 +1008,10 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
                 />
               </label>
             </div>
+
+            {coiError && (
+              <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-2">{coiError}</p>
+            )}
 
             {coiDocs.length === 0 ? (
               <p className="text-xs text-omega-stone italic">No COI documents uploaded yet.</p>
