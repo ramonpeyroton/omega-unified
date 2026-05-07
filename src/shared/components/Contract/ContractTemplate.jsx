@@ -156,8 +156,16 @@ export default function ContractTemplate({
       el.style.pageBreakBefore = 'always';
     });
     try {
-      const html2pdfMod = await import('html2pdf.js');
-      const html2pdf = html2pdfMod.default || html2pdfMod;
+      // Load html2pdf from CDN to avoid Vite ESM bundling issues with this
+      // legacy library. The script is injected once and reused on subsequent clicks.
+      const html2pdf = await new Promise((resolve, reject) => {
+        if (window.html2pdf) { resolve(window.html2pdf); return; }
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+        s.onload = () => resolve(window.html2pdf);
+        s.onerror = () => reject(new Error('Could not load html2pdf.js from CDN'));
+        document.head.appendChild(s);
+      });
       const filename = `omega-contract-${(ownerName || 'client').replace(/[^a-z0-9-]/gi, '_').slice(0, 40)}-${todayIso()}.pdf`;
       await html2pdf()
         .set({
@@ -413,7 +421,7 @@ export default function ContractTemplate({
 
               {/* Print name */}
               <div className="mt-6 border-b border-gray-200 pb-0.5">
-                <span className="text-[13px] text-gray-700 font-medium">Inácio Oliveira</span>
+                <span className="text-[13px] text-gray-700 font-medium">Inácio Deoliveira</span>
               </div>
               <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-1.5">Print Name — Agent on behalf of Omega Development LLC</p>
 
