@@ -429,6 +429,7 @@ export default function SubcontractorManager({ user }) {
             onAddSub={() => setShowAddSub(true)}
             onAddAgreement={() => setShowAddAgr(true)}
             onSelectSub={setProfileSub}
+            onDeleteSub={user?.role === 'operations' ? setDeleteSub : null}
           />
         )}
 

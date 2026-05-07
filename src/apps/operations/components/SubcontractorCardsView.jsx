@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, HardHat, Search, X } from 'lucide-react';
+import { Plus, HardHat, Search, X, Trash2 } from 'lucide-react';
 import COIBadge from './COIBadge';
 import { subDisplayNames } from '../../../shared/lib/subcontractor';
 
@@ -12,7 +12,7 @@ function money(n) {
 // modal (handled by the parent screen — we just bubble the click via
 // onSelectSub). Agreement details live on the Agreements tab now, so
 // this view stays a quick directory + click-to-drill-in.
-export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSub, onAddAgreement, onSelectSub }) {
+export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSub, onAddAgreement, onSelectSub, onDeleteSub }) {
   // Free-text filter — matches against contact name, company name,
   // phone, email and trade so Brenda can find a sub by anything she
   // remembers about them.
@@ -170,6 +170,15 @@ export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSu
                   {completedCount}/{subAgreements.length} {subAgreements.length === 1 ? 'job' : 'jobs'}
                 </div>
               </div>
+              {onDeleteSub && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDeleteSub(sub); }}
+                  className="p-1.5 rounded-lg text-omega-stone hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="Delete subcontractor"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
         );
