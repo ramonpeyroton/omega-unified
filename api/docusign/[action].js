@@ -478,8 +478,9 @@ async function handleCreateEnvelope(req, res) {
     return json(res, 200, { envelopeId });
 
   } catch (err) {
-    console.error('[docusign/create-envelope]', err);
-    return json(res, 500, { error: err.message || 'Internal error' });
+    const cause = err?.cause?.code || err?.cause?.message || '';
+    console.error('[docusign/create-envelope]', err, cause);
+    return json(res, 500, { error: err.message || 'Internal error', cause, account: ACCOUNT_ID ? 'set' : 'MISSING', baseUrl: BASE_URL });
   }
 }
 
