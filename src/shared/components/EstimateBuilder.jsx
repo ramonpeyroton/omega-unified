@@ -4,11 +4,35 @@ import {
   AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
   GripVertical, MoreVertical, Eye, Package, ChevronRight,
 } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
 import { StepBadge } from './JobFullView';
+
+// Stable IDs make sections + items addressable by @dnd-kit. Older
+// estimate rows in the DB lack them — `ensureIds` lazily backfills
+// on load so existing data keeps working without a migration.
+function newId() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+function ensureIds(sections) {
+  return (sections || []).map((s) => ({
+    id: s.id || newId(),
+    title: s.title || '',
+    items: (s.items || []).map((it) => ({ id: it.id || newId(), ...it })),
+  }));
+}
 
 // Hard cap on the seller-facing description that prefaces the
 // estimate. 500 chars is plenty for "Construction of a 320 sq ft
@@ -23,8 +47,8 @@ Upon Start 30%
 After Painting Completion 30%
 Upon Completion 10%`;
 
-function emptyItem()    { return { description: '', scope: '', price: 0 }; }
-function emptySection() { return { title: 'Section 1', items: [emptyItem()] }; }
+function emptyItem()    { return { id: newId(), description: '', scope: '', price: 0 }; }
+function emptySection() { return { id: newId(), title: 'Section 1', items: [emptyItem()] }; }
 
 export default function EstimateBuilder({ job, user, onJobUpdated }) {
   const [estimate, setEstimate] = useState(null); // currently edited row
@@ -115,7 +139,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     setEstimate(row);
     setActiveId(row?.id || null);
     setHeaderDescription(row?.header_description || '');
-    setSections(Array.isArray(row?.sections) && row.sections.length ? row.sections : [emptySection()]);
+    setSections(Array.isArray(row?.sections) && row.sections.length ? ensureIds(row.sections) : [emptySection()]);
     setCustomerMessage(row?.customer_message || DEFAULT_PAYMENT);
     setOptionLabel(row?.option_label || '');
     // Use the persisted disclaimers if the seller already customized
@@ -131,7 +155,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     setSections((prev) => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
   }
   function addSection() {
-    setSections((prev) => [...prev, { title: `Section ${prev.length + 1}`, items: [emptyItem()] }]);
+    setSections((prev) => [...prev, { id: newId(), title: `Section ${prev.length + 1}`, items: [emptyItem()] }]);
   }
   function removeSection(idx) {
     if (sections.length === 1) { setSections([emptySection()]); return; }
@@ -143,6 +167,88 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       const swap = idx + dir;
       if (swap < 0 || swap >= next.length) return prev;
       [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  }
+
+  // ─── Drag-and-drop reorder (sections + items, including
+  //     cross-section item moves) ─────────────────────────────────────
+  // Section IDs are used directly; item IDs are namespaced with `i:`
+  // so a section UUID can never collide with an item UUID in the same
+  // DndContext. Rendering uses the same prefix so dnd-kit's lookup
+  // matches the IDs we hand it.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Lookup helper: locate which section currently owns an item ID.
+  function findItemLocation(state, itemId) {
+    for (let s = 0; s < state.length; s++) {
+      const i = state[s].items.findIndex((it) => it.id === itemId);
+      if (i >= 0) return { sectionIndex: s, itemIndex: i };
+    }
+    return null;
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const isSection = (id) => sections.some((s) => s.id === id);
+
+    setSections((prev) => {
+      // Section ↔ Section: simple reorder.
+      if (isSection(active.id) && isSection(over.id)) {
+        const from = prev.findIndex((s) => s.id === active.id);
+        const to   = prev.findIndex((s) => s.id === over.id);
+        if (from < 0 || to < 0 || from === to) return prev;
+        return arrayMove(prev, from, to);
+      }
+
+      // Item drag — strip the `i:` prefix to recover the real item id.
+      if (!String(active.id).startsWith('i:')) return prev;
+      const activeItemId = String(active.id).slice(2);
+
+      const src = findItemLocation(prev, activeItemId);
+      if (!src) return prev;
+
+      // Drop target is another item ("i:<id>") OR a whole section.
+      let destSection;
+      let destIndex;
+      if (String(over.id).startsWith('i:')) {
+        const overItemId = String(over.id).slice(2);
+        const dst = findItemLocation(prev, overItemId);
+        if (!dst) return prev;
+        destSection = dst.sectionIndex;
+        destIndex   = dst.itemIndex;
+      } else if (prev.some((s) => s.id === over.id)) {
+        // Dropped on a section header / empty area — append to that section.
+        destSection = prev.findIndex((s) => s.id === over.id);
+        destIndex   = prev[destSection].items.length;
+      } else {
+        return prev;
+      }
+
+      // Same section reorder — use arrayMove on the items array.
+      if (src.sectionIndex === destSection) {
+        if (src.itemIndex === destIndex) return prev;
+        return prev.map((s, i) => i === destSection
+          ? { ...s, items: arrayMove(s.items, src.itemIndex, destIndex) }
+          : s);
+      }
+
+      // Cross-section move — pop from source, splice into target.
+      const next = prev.map((s) => ({ ...s, items: [...s.items] }));
+      const [moved] = next[src.sectionIndex].items.splice(src.itemIndex, 1);
+      // Clamp dest index in case the splice shifted indexes elsewhere.
+      const clamped = Math.min(destIndex, next[destSection].items.length);
+      next[destSection].items.splice(clamped, 0, moved);
+      // Sections cannot be empty — drop in a placeholder if we just
+      // emptied the source.
+      if (next[src.sectionIndex].items.length === 0) {
+        next[src.sectionIndex].items.push(emptyItem());
+      }
       return next;
     });
   }
@@ -246,8 +352,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
     // Each generated section keeps the seller's defaults (one blank
     // line at the bottom is convenient for adding extras inline).
     const seeded = autofillPreview.map((s) => ({
+      id: newId(),
       title: s.title,
-      items: s.items.length ? s.items : [emptyItem()],
+      items: (s.items.length ? s.items : [emptyItem()]).map((it) => ({ id: newId(), ...it })),
     }));
     setSections(seeded);
     setToast({ type: 'success', message: `Drafted ${seeded.length} section${seeded.length === 1 ? '' : 's'} from the questionnaire. Review and add prices.` });
@@ -862,49 +969,60 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
           </div>
         </div>
 
-        <div className="space-y-3">
-          {sections.map((sec, sIdx) => (
-            <SectionCard
-              key={sIdx}
-              section={sec}
-              sectionIndex={sIdx + 1}
-              onTitle={(v) => updateSection(sIdx, { title: v })}
-              onMoveUp={() => moveSection(sIdx, -1)}
-              onMoveDown={() => moveSection(sIdx, +1)}
-              onRemove={() => removeSection(sIdx)}
-              onUpdateItem={(iIdx, patch) => updateItem(sIdx, iIdx, patch)}
-              onAddItem={() => addItem(sIdx)}
-              onRemoveItem={(iIdx) => removeItem(sIdx, iIdx)}
-              disableUp={sIdx === 0}
-              disableDown={sIdx === sections.length - 1}
-            />
-          ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={sections.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-3">
+              {sections.map((sec, sIdx) => (
+                <SectionCard
+                  key={sec.id}
+                  section={sec}
+                  sectionIndex={sIdx + 1}
+                  onTitle={(v) => updateSection(sIdx, { title: v })}
+                  onMoveUp={() => moveSection(sIdx, -1)}
+                  onMoveDown={() => moveSection(sIdx, +1)}
+                  onRemove={() => removeSection(sIdx)}
+                  onUpdateItem={(iIdx, patch) => updateItem(sIdx, iIdx, patch)}
+                  onAddItem={() => addItem(sIdx)}
+                  onRemoveItem={(iIdx) => removeItem(sIdx, iIdx)}
+                  disableUp={sIdx === 0}
+                  disableDown={sIdx === sections.length - 1}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <button
+            onClick={addSection}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
+          >
+            <Plus className="w-4 h-4" /> Add Section
+          </button>
+          {canShowAutofill ? (
             <button
-              onClick={addSection}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange text-sm font-bold"
+              onClick={autofillFromQuestionnaire}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
+              title={`Seed ${autofillPreview.length} section${autofillPreview.length === 1 ? '' : 's'} from the questionnaire`}
             >
-              <Plus className="w-4 h-4" /> Add Section
+              <Wand2 className="w-4 h-4" /> Generate from questionnaire
+              <span className="text-[10px] font-bold bg-omega-orange/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                {autofillPreview.length} sec · {autofillPreview.reduce((n, s) => n + s.items.length, 0)} items
+              </span>
             </button>
-            {canShowAutofill ? (
-              <button
-                onClick={autofillFromQuestionnaire}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
-                title={`Seed ${autofillPreview.length} section${autofillPreview.length === 1 ? '' : 's'} from the questionnaire`}
-              >
-                <Wand2 className="w-4 h-4" /> Generate from questionnaire
-                <span className="text-[10px] font-bold bg-omega-orange/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                  {autofillPreview.length} sec · {autofillPreview.reduce((n, s) => n + s.items.length, 0)} items
-                </span>
-              </button>
-            ) : (
-              // Placeholder slot keeps Add Section centered when there's
-              // no questionnaire seed available, instead of letting it
-              // stretch to full width.
-              <div />
-            )}
-          </div>
+          ) : (
+            // Placeholder slot keeps Add Section centered when there's
+            // no questionnaire seed available, instead of letting it
+            // stretch to full width.
+            <div />
+          )}
         </div>
       </div>
 
@@ -1095,16 +1213,42 @@ function SaveStatus({ saving, estimate }) {
 }
 
 function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
+  // Whole-section sortable: the section card itself reorders within
+  // the parent SortableContext when its grip is dragged.
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef,
+    transform, transition, isDragging,
+  } = useSortable({ id: section.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // Lift the row visually while it's being dragged so the user sees
+    // a clean "picked up" state instead of fighting with sibling cards.
+    zIndex: isDragging ? 30 : undefined,
+    opacity: isDragging ? 0.85 : 1,
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      className="bg-white rounded-xl border border-gray-200 overflow-hidden"
+    >
       <div className="px-3 py-2.5 bg-omega-pale/40 border-b border-omega-orange/20 flex items-center gap-2">
-        {/* Drag-handle affordance — purely visual today (drag isn't
-            wired yet on the EstimateBuilder; the up/down chevrons do
-            the real work). Keeping the icon so the redesign reads
-            consistently with the mockup. */}
-        <span className="text-omega-fog hover:text-omega-stone cursor-grab" title="Drag to reorder (use arrows for now)">
+        {/* Section grip — the only spot wired to dnd-kit's listeners.
+            Inputs and other buttons are NOT activators so typing in
+            the title doesn't accidentally start a drag. */}
+        <button
+          ref={setActivatorNodeRef}
+          {...listeners}
+          type="button"
+          className="text-omega-fog hover:text-omega-stone cursor-grab active:cursor-grabbing touch-none"
+          title="Drag to reorder section"
+          aria-label="Drag section"
+        >
           <GripVertical className="w-4 h-4" />
-        </span>
+        </button>
         <input
           value={section.title}
           onChange={(e) => onTitle(e.target.value)}
@@ -1116,19 +1260,27 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
         <button onClick={onRemove} className="p-1 rounded text-red-500 hover:bg-red-50" title="Remove section"><Trash2 className="w-4 h-4" /></button>
       </div>
 
-      <div className="divide-y divide-gray-100">
-        {section.items.map((it, iIdx) => (
-          <ItemRow
-            key={iIdx}
-            item={it}
-            // "1.1", "1.2", "2.1" — matches the redesign mockup so the
-            // seller can refer to a specific line by section + position.
-            label={`${sectionIndex}.${iIdx + 1}`}
-            onChange={(patch) => onUpdateItem(iIdx, patch)}
-            onRemove={() => onRemoveItem(iIdx)}
-          />
-        ))}
-      </div>
+      {/* Items get their own SortableContext keyed by `i:<itemId>` so
+          they share the same DndContext as the sections (which lets a
+          row be dropped into a different section). */}
+      <SortableContext
+        items={section.items.map((it) => `i:${it.id}`)}
+        strategy={verticalListSortingStrategy}
+      >
+        <div className="divide-y divide-gray-100">
+          {section.items.map((it, iIdx) => (
+            <ItemRow
+              key={it.id}
+              item={it}
+              // "1.1", "1.2", "2.1" — matches the redesign mockup so the
+              // seller can refer to a specific line by section + position.
+              label={`${sectionIndex}.${iIdx + 1}`}
+              onChange={(patch) => onUpdateItem(iIdx, patch)}
+              onRemove={() => onRemoveItem(iIdx)}
+            />
+          ))}
+        </div>
+      </SortableContext>
 
       <div className="px-4 py-2 border-t border-gray-100 bg-white">
         <button
@@ -1143,8 +1295,37 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
 }
 
 function ItemRow({ item, label, onChange, onRemove }) {
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef,
+    transform, transition, isDragging,
+  } = useSortable({ id: `i:${item.id}` });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 25 : undefined,
+    opacity: isDragging ? 0.85 : 1,
+    background: isDragging ? '#fff' : undefined,
+  };
+
   return (
-    <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-[44px_1fr_1.5fr_140px_auto] gap-3 items-start">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      className="px-4 py-3 grid grid-cols-1 md:grid-cols-[20px_44px_1fr_1.5fr_140px_auto] gap-3 items-start"
+    >
+      {/* Drag grip — left of the section.position label. Same pattern
+          as the section header: only this button activates dnd. */}
+      <button
+        ref={setActivatorNodeRef}
+        {...listeners}
+        type="button"
+        className="md:mt-7 self-start text-omega-fog hover:text-omega-stone cursor-grab active:cursor-grabbing touch-none"
+        title="Drag to reorder item"
+        aria-label="Drag item"
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
       {/* Section.position label — sits on the left so the columns line
           up with the redesign mockup ("1.1", "1.2", "2.1"). */}
       <div className="md:pt-7">
