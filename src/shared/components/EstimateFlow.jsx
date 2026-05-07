@@ -89,6 +89,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [showChangeModal, setShowChangeModal] = useState(false);
   const [changeText, setChangeText] = useState('');
   const [showManualAdvanceModal, setShowManualAdvanceModal] = useState(false);
+  const [showInvoiceEditor, setShowInvoiceEditor] = useState(false);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [job?.id]);
 
@@ -342,14 +343,21 @@ export default function EstimateFlow({ job, user, onBack }) {
     }
   }
 
-  async function sendDepositInvoice() {
+  async function sendDepositInvoice(invoiceData) {
     if (!perms.canSendInvoice) { setToast({ type: 'warning', message: 'Only Operations or Owner can send the deposit invoice' }); return; }
     if (!contract) return;
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('contracts').update({ deposit_invoice_sent_at: new Date().toISOString() }).eq('id', contract.id).select().single();
+      const patch = {
+        deposit_invoice_sent_at: new Date().toISOString(),
+        deposit_amount: invoiceData.depositAmount != null ? Number(invoiceData.depositAmount) : contract.deposit_amount,
+        invoice_due_date: invoiceData.dueDate || null,
+        invoice_notes: invoiceData.notes || null,
+      };
+      const { data, error } = await supabase.from('contracts').update(patch).eq('id', contract.id).select().single();
       if (error) throw error;
       setContract(data);
+      setShowInvoiceEditor(false);
       logAudit({ user, action: 'contract.invoice_sent', entityType: 'contract', entityId: data.id, details: { job_id: job.id, deposit: data.deposit_amount } });
       setToast({ type: 'success', message: 'Deposit invoice sent' });
     } catch (err) {
@@ -637,16 +645,35 @@ export default function EstimateFlow({ job, user, onBack }) {
                   </div>
                 )}
 
-                <button onClick={sendDepositInvoice} disabled={saving || !!contract.deposit_invoice_sent_at || !perms.canSendInvoice}
-                        className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60 inline-flex items-center gap-2">
-                  {perms.canSendInvoice ? <Send className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                  {contract.deposit_invoice_sent_at ? `Invoice sent ${new Date(contract.deposit_invoice_sent_at).toLocaleDateString()}` : (saving ? 'Sending…' : 'Send Deposit Invoice')}
-                </button>
+                {contract.deposit_invoice_sent_at ? (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-cloud text-sm font-semibold text-omega-success">
+                    <Check className="w-4 h-4" />
+                    Invoice sent {new Date(contract.deposit_invoice_sent_at).toLocaleDateString()}
+                  </div>
+                ) : perms.canSendInvoice ? (
+                  <button
+                    onClick={() => setShowInvoiceEditor(true)}
+                    className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold inline-flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4" /> Review & Send Invoice
+                  </button>
+                ) : null}
               </>
             )}
           </section>
         )}
       </div>
+
+      {showInvoiceEditor && contract && (
+        <InvoiceEditorModal
+          contract={contract}
+          job={job}
+          paymentPlan={paymentPlan}
+          saving={saving}
+          onClose={() => setShowInvoiceEditor(false)}
+          onSend={(data) => sendDepositInvoice(data)}
+        />
+      )}
 
       {showManualAdvanceModal && (
         <ManualAdvancePinModal
@@ -775,3 +802,118 @@ const PIN_ERRORS = {
   name_mismatch: 'PIN belongs to another user.',
   query_failed:  'Network error — try again.',
 };
+
+function InvoiceEditorModal({ contract, job, paymentPlan, saving, onClose, onSend }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [depositAmount, setDepositAmount] = useState(
+    contract.deposit_amount != null ? String(contract.deposit_amount) : ''
+  );
+  const [dueDate, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const total = Number(contract.total_amount || 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="text-base font-bold text-omega-charcoal">Deposit Invoice</h3>
+            <p className="text-xs text-omega-stone mt-0.5">{job.client_name} — review before sending</p>
+          </div>
+          <button onClick={onClose} className="text-omega-stone hover:text-omega-charcoal">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-omega-cloud">
+              <p className="text-xs text-omega-stone uppercase font-semibold">Contract Total</p>
+              <p className="text-base font-bold text-omega-charcoal mt-0.5">${total.toLocaleString()}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-omega-cloud">
+              <p className="text-xs text-omega-stone uppercase font-semibold">Signed</p>
+              <p className="text-base font-bold text-omega-charcoal mt-0.5">
+                {contract.signed_at ? new Date(contract.signed_at).toLocaleDateString() : '—'}
+              </p>
+            </div>
+          </div>
+
+          {/* Payment plan summary */}
+          {paymentPlan.length > 0 && (
+            <div className="rounded-lg border border-gray-100 overflow-hidden">
+              <div className="px-3 py-2 bg-gray-50 text-xs font-semibold text-omega-stone uppercase">Payment Plan</div>
+              {paymentPlan.map((p, i) => {
+                const amt = p.amount
+                  ? Number(p.amount)
+                  : p.percent ? Math.round(total * Number(p.percent) / 100 * 100) / 100 : 0;
+                return (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 border-t border-gray-100 text-sm">
+                    <span className="text-omega-slate">{p.label || `Installment ${i + 1}`}</span>
+                    <span className="font-semibold text-omega-charcoal">${amt.toLocaleString()}{p.percent ? ` (${p.percent}%)` : ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Editable fields */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-omega-stone uppercase mb-1">Deposit Amount</label>
+              <div className="relative">
+                <DollarSign className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone" />
+                <input
+                  type="number"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-omega-orange"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-omega-stone uppercase mb-1">Due Date</label>
+              <input
+                type="date"
+                value={dueDate}
+                min={today}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-omega-orange"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-omega-stone uppercase mb-1">Notes / Payment Instructions</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="e.g. Please make check payable to Omega Development LLC, or bank transfer to…"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-omega-orange resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-omega-slate hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSend({ depositAmount: depositAmount || contract.deposit_amount, dueDate, notes })}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60 inline-flex items-center gap-2"
+          >
+            <Send className="w-4 h-4" />
+            {saving ? 'Sending…' : 'Send Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
