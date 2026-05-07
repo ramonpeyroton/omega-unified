@@ -318,6 +318,14 @@ export default function EstimateFlow({ job, user, onBack }) {
           notify({ recipientRole: 'owner', title: 'Contract signed', message: `${job.client_name || 'Client'} signed — $${Number(data.total_amount || 0).toLocaleString()}`, type: 'contract', jobId: job.id });
           notify({ recipientRole: 'operations', title: 'Contract signed', message: `${job.client_name || 'Client'} — deposit invoice is next.`, type: 'contract', jobId: job.id });
           notify({ recipientRole: 'sales', title: 'Contract signed', message: `Your client ${job.client_name || ''} signed the contract.`, type: 'contract', jobId: job.id });
+          // Save signed PDF to Documents → Contracts (fire-and-forget)
+          if (contract?.docusign_envelope_id) {
+            fetch('/api/docusign/save-signed-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contractId: contract.id, envelopeId: contract.docusign_envelope_id, jobId: job.id }),
+            }).catch(() => {});
+          }
         }
       }
     } catch (err) {

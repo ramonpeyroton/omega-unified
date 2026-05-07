@@ -13,6 +13,13 @@
 import { json, readJson } from '../_lib/http.js';
 import { getAccessToken } from '../_lib/docusignAuth.js';
 import { INACIO_SIG } from '../_lib/inacioSignature.js';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  { auth: { persistSession: false } }
+);
 
 const ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID || '';
 const BASE_URL   = (process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi').replace(/\/$/, '');
@@ -596,6 +603,63 @@ async function handleSendReminder(req, res) {
   }
 }
 
+async function handleSaveSignedPdf(req, res) {
+  if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
+
+  let body;
+  try { body = await readJson(req); } catch { return json(res, 400, { error: 'Invalid JSON' }); }
+
+  const { contractId, envelopeId, jobId } = body;
+  if (!contractId || !envelopeId || !jobId) return json(res, 400, { error: 'Missing contractId, envelopeId, or jobId' });
+
+  try {
+    // Check if already saved (idempotent)
+    const { data: existing } = await supabase
+      .from('job_documents')
+      .select('id')
+      .eq('job_id', jobId)
+      .ilike('title', 'Signed Contract%')
+      .limit(1);
+    if (existing && existing.length > 0) return json(res, 200, { ok: true, skipped: true });
+
+    const token = await getAccessToken();
+    const pdfRes = await fetch(
+      `${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}/documents/combined`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!pdfRes.ok) {
+      const text = await pdfRes.text();
+      return json(res, pdfRes.status, { error: `DocuSign PDF download failed: ${text}` });
+    }
+
+    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    const date = new Date().toISOString().split('T')[0];
+    const path = `${jobId}/contracts/signed-contract-${contractId}-${date}.pdf`;
+
+    const { error: upErr } = await supabase.storage
+      .from('job-documents')
+      .upload(path, pdfBuffer, { contentType: 'application/pdf', upsert: true });
+    if (upErr) return json(res, 500, { error: `Storage upload failed: ${upErr.message}` });
+
+    const { data: pub } = supabase.storage.from('job-documents').getPublicUrl(path);
+    const publicUrl = pub?.publicUrl || null;
+
+    const signedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    await supabase.from('job_documents').insert([{
+      job_id:      jobId,
+      folder:      'contracts',
+      title:       `Signed Contract — ${signedDate}`,
+      photo_url:   publicUrl,
+      uploaded_by: 'DocuSign',
+    }]);
+
+    return json(res, 200, { ok: true });
+  } catch (err) {
+    console.error('[docusign/save-signed-pdf]', err);
+    return json(res, 500, { error: err.message || 'Internal error' });
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
@@ -605,6 +669,7 @@ export default async function handler(req, res) {
   if (action === 'envelope-status')  return handleEnvelopeStatus(req, res);
   if (action === 'download')         return handleDownload(req, res);
   if (action === 'send-reminder')    return handleSendReminder(req, res);
+  if (action === 'save-signed-pdf')  return handleSaveSignedPdf(req, res);
 
   return json(res, 404, { error: `Unknown DocuSign action: ${action}` });
 }
