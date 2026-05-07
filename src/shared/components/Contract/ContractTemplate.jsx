@@ -146,19 +146,22 @@ export default function ContractTemplate({
     if (!docRef.current) return;
     setPdfDownloading(true);
     setPdfError('');
-    // Remove yellow highlight before capturing — inputs get transparent bg so
-    // the PDF looks clean. Restored in finally so the screen still shows yellow.
     const highlighted = Array.from(docRef.current.querySelectorAll('input, textarea'));
     highlighted.forEach((el) => (el.style.backgroundColor = 'transparent'));
+    // Apply page-break CSS only during PDF export — keeping it out of the static
+    // stylesheet prevents the browser from rendering a dark separator on screen.
+    const pageBreaks = Array.from(docRef.current.querySelectorAll('.contract-pagebreak'));
+    pageBreaks.forEach((el) => {
+      el.style.breakBefore = 'page';
+      el.style.pageBreakBefore = 'always';
+    });
     try {
-      // Dynamic import keeps html2pdf out of the main bundle until
-      // someone actually clicks the button.
       const html2pdfMod = await import('html2pdf.js');
       const html2pdf = html2pdfMod.default || html2pdfMod;
       const filename = `omega-contract-${(ownerName || 'client').replace(/[^a-z0-9-]/gi, '_').slice(0, 40)}-${todayIso()}.pdf`;
       await html2pdf()
         .set({
-          margin: [0.6, 0.6, 0.7, 0.6], // inches
+          margin: [0.6, 0.6, 0.7, 0.6],
           filename,
           image: { type: 'jpeg', quality: 0.95 },
           html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
@@ -171,6 +174,10 @@ export default function ContractTemplate({
       setPdfError(err?.message || 'Could not generate the PDF.');
     } finally {
       highlighted.forEach((el) => (el.style.backgroundColor = ''));
+      pageBreaks.forEach((el) => {
+        el.style.breakBefore = '';
+        el.style.pageBreakBefore = '';
+      });
       setPdfDownloading(false);
     }
   }
@@ -360,25 +367,21 @@ export default function ContractTemplate({
                 Owner / Client
               </p>
 
-              {/* Signature line */}
-              <div className="h-14 border-b-2 border-gray-300 flex items-end pb-1.5">
-                {ownerName && (
-                  <span className="text-[13px] font-semibold tracking-wide text-gray-700">
-                    {ownerName}
-                  </span>
-                )}
-              </div>
+              {/* Blank signature line — DocuSign places e-signature here */}
+              <div className="h-14 border-b-2 border-gray-300" />
               <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
 
-              {/* Date */}
-              <div className="mt-8">
-                <div className="border-b-2 border-gray-300 pb-1">
-                  <input
-                    type="date"
-                    className="w-full bg-transparent focus:outline-none text-[13px] text-gray-700"
-                    placeholder="mm/dd/yyyy"
-                  />
-                </div>
+              {/* Print name */}
+              <div className="mt-6 border-b border-gray-200 pb-0.5 min-h-[22px]">
+                <span className="text-[13px] text-gray-700 font-medium">
+                  {ownerName || ' '}
+                </span>
+              </div>
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-1.5">Print Name</p>
+
+              {/* Date — DocuSign auto-fills when owner signs */}
+              <div className="mt-6">
+                <div className="border-b-2 border-gray-300 h-7" />
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
               </div>
             </div>
@@ -389,7 +392,7 @@ export default function ContractTemplate({
                 Omega Development LLC
               </p>
 
-              {/* Pre-signed signature */}
+              {/* Pre-signed signature image */}
               <div className="relative h-14 border-b-2 border-gray-300">
                 <img
                   src="/inacio-signature.png"
@@ -397,18 +400,23 @@ export default function ContractTemplate({
                   className="absolute bottom-1 left-0 h-12 w-auto object-contain"
                 />
               </div>
-              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">
-                Agent on behalf of Omega Development LLC
-              </p>
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
+
+              {/* Print name */}
+              <div className="mt-6 border-b border-gray-200 pb-0.5">
+                <span className="text-[13px] text-gray-700 font-medium">Inácio Oliveira</span>
+              </div>
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-1.5">Print Name — Agent on behalf of Omega Development LLC</p>
 
               {/* Date */}
-              <div className="mt-8">
+              <div className="mt-6">
                 <div className="border-b-2 border-gray-300 pb-1">
                   <input
                     type="date"
                     value={contractorSignDate}
                     onChange={(e) => setContractorSignDate(e.target.value)}
                     className="w-full bg-transparent focus:outline-none text-[13px] text-gray-700"
+                    style={{ backgroundColor: 'transparent' }}
                   />
                 </div>
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
@@ -536,19 +544,27 @@ export default function ContractTemplate({
         </button>
       </div>
 
-      {/* Print/PDF rules — used by html2pdf so the editable inputs render
-          as plain text-on-line in the exported document. */}
+      {/* Style overrides — inputs use yellow highlight on screen (removed during
+          PDF export). Page-break CSS is applied dynamically only during export
+          so the browser never renders the dark page-separator on screen. */}
       <style>{`
         .contract-doc input,
         .contract-doc textarea {
           font: inherit;
           color: inherit;
           background-color: #fef08a;
+          height: 1.5em;
+          vertical-align: text-bottom;
+          padding-top: 0;
+          padding-bottom: 1px;
+          box-sizing: content-box;
         }
         .contract-doc .contract-pagebreak {
-          break-before: page;
-          page-break-before: always;
           height: 0;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          background: transparent;
         }
       `}</style>
     </div>
