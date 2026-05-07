@@ -29,10 +29,10 @@ function permsFor(role) {
     case 'sales':
     case 'salesperson': // legacy alias
       return {
-        canEditEstimate: true,     // step 1
-        canEditPaymentPlan: true,  // step 2
-        canSendContract: false,    // step 3 — gated
-        canSendInvoice: false,     // step 4 — gated
+        canEditEstimate: true,
+        canEditPaymentPlan: true,
+        canSendContract: true,     // full sales-cycle access
+        canSendInvoice: true,
       };
     case 'operations':
       return {
@@ -253,7 +253,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   }
 
   async function generateAndSendContract() {
-    if (!perms.canSendContract) { setToast({ type: 'warning', message: 'Only Operations or Owner can send contracts' }); return; }
+    if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
     setSaving(true);
     try {
       const { data: created, error: insErr } = await supabase
