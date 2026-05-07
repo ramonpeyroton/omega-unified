@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   FileText, FileSignature, FileBadge, Home, CheckSquare, Receipt,
   Plus, X, Save, Loader2, AlertCircle, ImageIcon, ExternalLink, Trash2, Mic,
-  DollarSign, Layers, FolderClosed,
+  DollarSign, Layers, FolderClosed, FolderInput, Check,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
@@ -68,6 +68,7 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
   const [noteError, setNoteError] = useState('');
   const [viewer, setViewer]       = useState(null);
   const [pendingDeleteEstId, setPendingDeleteEstId] = useState(null);
+  const [movingDocId, setMovingDocId] = useState(null);
 
   useEffect(() => {
     if (!job?.id) return;
@@ -170,6 +171,31 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
       setDocs((prev) => prev.filter((d) => d.id !== doc.id));
       logAudit({ user, action: 'document.delete', entityType: 'job_document', entityId: doc.id, details: { folder: doc.folder, title: doc.title } });
     } catch { /* ignore */ }
+  }
+
+  // Reclassify a doc into a different folder. Cheap operation — only
+  // updates `folder`; the storage URL is unchanged so links stay valid.
+  async function moveDoc(doc, newFolder) {
+    setMovingDocId(null);
+    if (!newFolder || newFolder === doc.folder) return;
+    const oldFolder = doc.folder;
+    // Optimistic update for snappy UX during the bulk migration.
+    setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, folder: newFolder } : d)));
+    try {
+      const { error } = await supabase
+        .from('job_documents')
+        .update({ folder: newFolder })
+        .eq('id', doc.id);
+      if (error) throw error;
+      logAudit({
+        user, action: 'document.move', entityType: 'job_document', entityId: doc.id,
+        details: { from: oldFolder, to: newFolder, title: doc.title },
+      });
+    } catch (err) {
+      // Roll back on failure.
+      setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, folder: oldFolder } : d)));
+      alert(err.message || 'Failed to move document');
+    }
   }
 
   const byFolder = FOLDERS.map((f) => ({
@@ -360,8 +386,9 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                 )}
                 {f.items.map((d) => {
                   const isPdf = d.photo_url?.toLowerCase().includes('.pdf');
+                  const isMoving = movingDocId === d.id;
                   return (
-                  <div key={d.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 group">
+                  <div key={d.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 group relative">
                     {isPdf ? (
                       <a
                         href={d.photo_url} target="_blank" rel="noopener noreferrer"
@@ -399,12 +426,26 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                       </a>
                     )}
                     <button
+                      onClick={() => setMovingDocId(isMoving ? null : d.id)}
+                      className={`transition-colors ${isMoving ? 'text-omega-orange' : 'text-omega-stone hover:text-omega-orange opacity-0 group-hover:opacity-100'}`}
+                      title="Move to another folder"
+                    >
+                      <FolderInput className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => deleteDoc(d)}
                       className="text-omega-stone hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Delete"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
+                    {isMoving && (
+                      <MoveMenu
+                        currentFolder={d.folder}
+                        onClose={() => setMovingDocId(null)}
+                        onPick={(folderId) => moveDoc(d, folderId)}
+                      />
+                    )}
                   </div>
                   );
                 })}
@@ -589,6 +630,56 @@ function AddDocumentRow({ folder, job, user, onClose, onAdded }) {
         >
           {saving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Move-to-folder popover ─────────────────────────────────────────
+// Anchored to the doc row's relative parent. Click anywhere outside
+// (or pick a folder) closes it. Used to fix bulk-importer mistakes
+// without deleting + re-uploading.
+function MoveMenu({ currentFolder, onClose, onPick }) {
+  // Close on outside click. We attach to mousedown so the click that
+  // opens the menu (mouseup on the trigger) doesn't immediately close
+  // it again.
+  useEffect(() => {
+    function onDown(e) {
+      if (!e.target.closest('[data-move-menu]')) onClose();
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+
+  return (
+    <div
+      data-move-menu
+      className="absolute right-2 top-full mt-1 z-20 w-56 rounded-xl bg-white border border-gray-200 shadow-lg overflow-hidden"
+    >
+      <div className="px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wider text-omega-stone">
+        Move to folder
+      </div>
+      <div className="max-h-64 overflow-y-auto">
+        {FOLDERS.map((f) => {
+          const Icon = f.icon;
+          const isCurrent = f.id === currentFolder;
+          return (
+            <button
+              key={f.id}
+              disabled={isCurrent}
+              onClick={() => onPick(f.id)}
+              className={`w-full px-3 py-2 flex items-center gap-2 text-xs text-left ${
+                isCurrent
+                  ? 'bg-omega-pale/60 text-omega-stone cursor-default'
+                  : 'hover:bg-omega-pale text-omega-charcoal'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5 text-omega-orange flex-shrink-0" />
+              <span className="flex-1 font-semibold">{f.label}</span>
+              {isCurrent && <Check className="w-3.5 h-3.5 text-omega-stone" />}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
