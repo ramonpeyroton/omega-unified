@@ -160,6 +160,10 @@ export function buildContractDocFromDom(rootEl) {
       const txt  = (type === 'date') ? fmtIsoDate(raw) : raw;
       span.textContent = txt || '       ';
       copyInlineStyles(live, span);
+      // Reset on-screen yellow highlight — operator review only, must
+      // not bleed into the contract sent to the client.
+      span.style.background = 'transparent';
+      span.style.backgroundColor = 'transparent';
       copy.replaceWith(span);
       return;
     }
@@ -171,6 +175,21 @@ export function buildContractDocFromDom(rootEl) {
     const copyKids = Array.from(copy.children);
     const len = Math.min(liveKids.length, copyKids.length);
     for (let i = 0; i < len; i++) walk(liveKids[i], copyKids[i]);
+  }
+
+  // Recursive font-size scale. Walked over the serialized clone after
+  // styles are inlined — multiplies every px-based font-size by `factor`
+  // so the printed contract isn't tiny in the DocuSign-rendered PDF.
+  function scaleFontSizes(node, factor) {
+    if (!node || node.nodeType !== 1) return;
+    const fs = node.style.fontSize;
+    if (fs && /^[\d.]+px$/.test(fs)) {
+      const px = parseFloat(fs);
+      if (!isNaN(px) && px > 0) {
+        node.style.fontSize = (px * factor).toFixed(2) + 'px';
+      }
+    }
+    for (const kid of Array.from(node.children)) scaleFontSizes(kid, factor);
   }
 
   function copyInlineStyles(live, copy) {
@@ -208,6 +227,12 @@ export function buildContractDocFromDom(rootEl) {
 
   walk(rootEl, clone);
 
+  // Bump every captured font-size 20% so the contract reads at roughly
+  // Word size 10-11 in the DocuSign PDF. The on-screen template uses
+  // text-[12.5px]/text-[13px] which prints too small once DocuSign
+  // rasterizes — no harm scaling on the way out.
+  scaleFontSizes(clone, 1.2);
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -226,6 +251,15 @@ export function buildContractDocFromDom(rootEl) {
   }
   .contract-pagebreak { page-break-before: always; break-before: page; height: 0; }
   img { max-width: 100%; }
+  /* DocuSign's HTML→PDF renderer sometimes interprets a max-width
+     captured upstream as a hard width. Defensive override so paragraphs
+     and the cancellation block fill the page rather than collapsing
+     into a narrow column on the right. */
+  p { max-width: none !important; width: auto !important; display: block !important; }
+  /* Ensure tables (used for signature + cancellation footer + total
+     bar) stay full-width even if computed values bake something
+     smaller. */
+  table { width: 100% !important; border-collapse: collapse; }
 </style>
 </head>
 <body>
@@ -553,12 +587,18 @@ export default function ContractTemplate({
             IN WITNESS WHEREOF, the parties hereto have executed this Agreement as of the date first written above.
           </p>
 
-          {/* ── Signature block ── */}
-          <div className="grid grid-cols-2 gap-16 mt-2 contract-signature">
-
-
-            {/* Owner / Client side */}
-            <div>
+          {/* ── Signature block ──
+              Originally a CSS-grid 2-col layout. DocuSign's HTML→PDF
+              renderer doesn't reliably support CSS grid (the right
+              column collapsed on top of the left or shrank to a sliver),
+              so this is now a 2-cell table — same look on screen,
+              works everywhere DocuSign is involved. The 32px padding
+              on each cell side reproduces the original gap-16 (64px). */}
+          <table className="mt-2 contract-signature" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              <tr>
+                {/* Owner / Client side */}
+                <td style={{ width: '50%', verticalAlign: 'top', paddingRight: '32px' }}>
               <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 font-semibold mb-4">
                 Owner / Client
               </p>
@@ -591,10 +631,10 @@ export default function ContractTemplate({
                 </div>
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
               </div>
-            </div>
+            </td>
 
-            {/* Contractor side */}
-            <div>
+                {/* Contractor side */}
+                <td style={{ width: '50%', verticalAlign: 'top', paddingLeft: '32px' }}>
               <p className="text-[9px] tracking-[0.3em] uppercase text-gray-400 font-semibold mb-4">
                 Omega Development LLC
               </p>
@@ -628,8 +668,10 @@ export default function ContractTemplate({
                 </div>
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
               </div>
-            </div>
-          </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
           {/* ── Schedule A ── */}
           <div className="contract-pagebreak" />
@@ -794,9 +836,12 @@ export default function ContractTemplate({
 // DocuSign will generate independent initials tabs per page requiring
 // the client to initial each one separately.
 function InitialsBox({ label, value, onChange }) {
+  // Right-aligned via text-align rather than flex justify-end so the
+  // serialized contract still renders correctly under DocuSign's
+  // HTML→PDF renderer (which doesn't reliably honor flex).
   return (
-    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100 contract-initials">
-      <span className="text-[9px] tracking-[0.25em] uppercase text-gray-400 font-semibold">
+    <div className="text-right mt-5 pt-4 border-t border-gray-100 contract-initials">
+      <span className="text-[9px] tracking-[0.25em] uppercase text-gray-400 font-semibold mr-3 align-middle">
         {label}
       </span>
       <input
@@ -804,7 +849,7 @@ function InitialsBox({ label, value, onChange }) {
         onChange={onChange}
         maxLength={5}
         placeholder="___"
-        className="w-16 text-center border-b-2 border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange text-[15px] font-bold uppercase pb-0.5 tracking-widest"
+        className="w-16 text-center border-b-2 border-gray-500 bg-transparent focus:outline-none focus:border-omega-orange text-[15px] font-bold uppercase pb-0.5 tracking-widest align-middle"
       />
     </div>
   );
