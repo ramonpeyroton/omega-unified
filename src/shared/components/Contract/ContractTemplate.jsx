@@ -277,6 +277,11 @@ export function buildContractDocFromDom(rootEl) {
      bar) stay full-width even if computed values bake something
      smaller. */
   table { width: 100% !important; border-collapse: collapse; }
+  /* Belt-and-suspenders against the yellow #fef08a operator-review
+     highlight bleeding into headings/paragraphs. Inputs are already
+     stripped at replace-time; this catches any leak via inheritance
+     or quirky computed-style behavior in DocuSign's renderer. */
+  h1, h2, h3, h4, h5, h6, p, table, tr, td, tbody, thead { background: transparent !important; background-color: transparent !important; }
 </style>
 </head>
 <body>
@@ -590,15 +595,27 @@ export default function ContractTemplate({
           {/* ── Cancellation notice + signatures ── */}
           <div className="contract-pagebreak" />
 
-          <div className="text-center mt-4 mb-7">
-            <h2 className="text-[13px] font-black tracking-[0.12em] uppercase text-gray-900 mb-2">
-              Notice of the Customer's Right to Cancel
-            </h2>
-            <div style={{ width: '40px', height: '2px', background: '#E8500A', margin: '0 auto 16px' }} />
-            <p className="italic text-[12px] text-gray-600 max-w-xl mx-auto leading-relaxed">
-              {CLAUSES.cancel_short}
-            </p>
-          </div>
+          {/* Notice of the Customer's Right to Cancel — wrapped in a
+              full-width table so DocuSign's HTML→PDF renderer can't
+              collapse the paragraph into a narrow column on the right
+              (which it kept doing with the previous div+text-center
+              structure no matter how we forced width). The cell is
+              guaranteed full-width by the parent table's width:100%. */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px', marginBottom: '28px' }}>
+            <tbody>
+              <tr>
+                <td style={{ textAlign: 'center', padding: 0, background: 'transparent' }}>
+                  <h2 className="text-[13px] font-black tracking-[0.12em] uppercase text-gray-900 mb-2" style={{ background: 'transparent' }}>
+                    Notice of the Customer's Right to Cancel
+                  </h2>
+                  <div style={{ width: '40px', height: '2px', background: '#E8500A', margin: '0 auto 16px' }} />
+                  <p className="italic text-[12px] text-gray-600 leading-relaxed" style={{ background: 'transparent', display: 'block', textAlign: 'center', margin: '0 auto', padding: '0 48px', maxWidth: '36rem' }}>
+                    {CLAUSES.cancel_short}
+                  </p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
           <p className="mb-10 text-[12.5px] text-gray-700">
             IN WITNESS WHEREOF, the parties hereto have executed this Agreement as of the date first written above.
