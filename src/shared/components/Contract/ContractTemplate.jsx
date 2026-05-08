@@ -227,11 +227,28 @@ export function buildContractDocFromDom(rootEl) {
 
   walk(rootEl, clone);
 
-  // Bump every captured font-size 20% so the contract reads at roughly
-  // Word size 10-11 in the DocuSign PDF. The on-screen template uses
-  // text-[12.5px]/text-[13px] which prints too small once DocuSign
-  // rasterizes — no harm scaling on the way out.
-  scaleFontSizes(clone, 1.2);
+  // Defensive post-walk pass: force every <p> to be a full-width block
+  // and clear any text-center container that lost its width. DocuSign's
+  // renderer has been observed to collapse the cancellation paragraph
+  // into a 50px-wide column on the right of the page and we cannot
+  // pin down the exact CSS that triggers it. Brute-forcing block flow
+  // here guarantees the contract body fills the page either way.
+  clone.querySelectorAll('p').forEach((p) => {
+    p.style.maxWidth = 'none';
+    p.style.width = 'auto';
+    p.style.display = 'block';
+  });
+  clone.querySelectorAll('div').forEach((d) => {
+    if (d.style.textAlign === 'center' && !d.style.width) {
+      d.style.width = '100%';
+    }
+  });
+
+  // Bump every captured font-size 50% so the contract reads at roughly
+  // Word size 12 (≈16px) in the DocuSign-rendered PDF. The on-screen
+  // template uses text-[12.5px]/text-[13px] which prints too small
+  // once DocuSign rasterizes.
+  scaleFontSizes(clone, 1.5);
 
   return `<!DOCTYPE html>
 <html>
@@ -639,12 +656,15 @@ export default function ContractTemplate({
                 Omega Development LLC
               </p>
 
-              {/* Pre-signed signature image */}
-              <div className="relative h-14 border-b-2 border-gray-300">
+              {/* Pre-signed signature image — inline (no position:absolute)
+                  because DocuSign's HTML→PDF renderer doesn't honor
+                  absolute positioning reliably; the image was floating
+                  free and overlapping the print-name text below it. */}
+              <div className="border-b-2 border-gray-300" style={{ height: '56px', overflow: 'hidden' }}>
                 <img
                   src="/inacio-signature.png"
                   alt="Inácio Oliveira signature"
-                  className="absolute bottom-1 left-0 h-12 w-auto object-contain"
+                  style={{ display: 'block', height: '48px', maxWidth: '220px', marginTop: '4px', objectFit: 'contain' }}
                 />
               </div>
               <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
