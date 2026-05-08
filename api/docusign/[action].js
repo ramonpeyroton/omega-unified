@@ -202,19 +202,22 @@ async function handleCreateEnvelope(req, res) {
           routingOrder: '1',
           tabs: {
             // The owner contract template (ContractTemplate.jsx) drops two
-            // invisible anchor markers — \sign_here_owner\ on the signature
-            // line and \sign_date_owner\ on the date line. They render as
-            // 8px transparent text so DocuSign's text scanner can find them
-            // but they're invisible in the final PDF. The subcontractor
-            // template still uses "Owner Signature:" as a visible anchor.
+            // anchor markers — `sign_here_owner_anchor` on the signature
+            // line and `sign_date_owner_anchor` on the date line. They're
+            // rendered in white-on-white at 8px so DocuSign's text-layer
+            // scanner finds them but they're invisible in the final PDF.
+            // (Earlier attempt used color:transparent + backslashes; the
+            // PDF text layer didn't preserve them and the anchors silently
+            // failed.) The subcontractor template still uses the visible
+            // "Owner Signature:" anchor.
             signHereTabs: [{
-              anchorString:  kind === 'subcontractor_agreement' ? 'Owner Signature:' : '\\sign_here_owner\\',
+              anchorString:  kind === 'subcontractor_agreement' ? 'Owner Signature:' : 'sign_here_owner_anchor',
               anchorXOffset: kind === 'subcontractor_agreement' ? '140' : '0',
               anchorYOffset: kind === 'subcontractor_agreement' ? '-10' : '0',
               anchorUnits:   'pixels',
             }],
             dateSignedTabs: [{
-              anchorString:  kind === 'subcontractor_agreement' ? 'Owner Signature:' : '\\sign_date_owner\\',
+              anchorString:  kind === 'subcontractor_agreement' ? 'Owner Signature:' : 'sign_date_owner_anchor',
               anchorXOffset: kind === 'subcontractor_agreement' ? '210' : '0',
               anchorYOffset: kind === 'subcontractor_agreement' ? '-10' : '0',
               anchorUnits:   'pixels',

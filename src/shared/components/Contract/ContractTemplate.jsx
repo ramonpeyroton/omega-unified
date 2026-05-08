@@ -135,7 +135,28 @@ function fmtIsoDate(iso) {
 // a base64 data URL before forwarding to DocuSign.
 function buildContractDocFromDom(rootEl) {
   if (!rootEl) return '';
-  const clone = rootEl.cloneNode(true);
+
+  // Off-screen mirror at exact Letter content width (7.5in = 8.5in
+  // page minus 0.5in margins each side). We READ computed styles from
+  // this mirror — that way every captured pixel width is sized for the
+  // printed page, not the operator's current viewport. Without this,
+  // serializing a contract on a 1300px-wide window would bake 1300px
+  // widths into the HTML and DocuSign would render off-page.
+  const liveMirror = rootEl.cloneNode(true);
+  liveMirror.style.position = 'absolute';
+  liveMirror.style.left = '-99999px';
+  liveMirror.style.top = '0';
+  liveMirror.style.width = '7.5in';
+  liveMirror.style.maxWidth = '7.5in';
+  liveMirror.style.boxSizing = 'border-box';
+  document.body.appendChild(liveMirror);
+  // Force synchronous layout pass so getComputedStyle reflects 7.5in.
+  void liveMirror.offsetWidth;
+
+  // The clone we'll mutate and serialize. Walked in lockstep with
+  // liveMirror so style reads come from a node that's actually mounted
+  // and laid out at the right width.
+  const clone = liveMirror.cloneNode(true);
 
   function walk(live, copy) {
     if (!live || !copy || copy.nodeType !== 1) return;
@@ -167,6 +188,17 @@ function buildContractDocFromDom(rootEl) {
       const cs = window.getComputedStyle(live);
       const decls = [];
       for (const prop of SERIALIZE_STYLE_PROPS) {
+        // Don't bake captured pixel widths/heights for elements that
+        // had no inline width to begin with. Those came from Tailwind
+        // classes and should stay fluid so the printed-page container
+        // drives their final size — not whatever the operator's window
+        // happened to be when serialization ran.
+        if ((prop === 'width' || prop === 'height' ||
+             prop === 'min-width' || prop === 'min-height' ||
+             prop === 'max-width' || prop === 'max-height') &&
+            !live.style[prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase())]) {
+          continue;
+        }
         const v = cs.getPropertyValue(prop);
         if (!v) continue;
         if ((prop === 'margin' || prop === 'padding') && v === '0px') continue;
@@ -176,19 +208,35 @@ function buildContractDocFromDom(rootEl) {
       }
       if (decls.length) {
         const existing = copy.getAttribute('style') || '';
-        copy.setAttribute('style', existing ? `${existing};${decls.join(';')}` : decls.join(';'));
+        // Computed first, existing inline last — author intent in JSX
+        // (e.g. style={{ width: '40px' }} on the orange divider) wins
+        // over the bulk computed-style flatten.
+        copy.setAttribute('style', existing ? `${decls.join(';')};${existing}` : decls.join(';'));
       }
     } catch { /* getComputedStyle can throw in detached/weird contexts */ }
   }
 
-  walk(rootEl, clone);
+  walk(liveMirror, clone);
+
+  // Drop the mirror — we have what we need.
+  document.body.removeChild(liveMirror);
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <style>
-  body { margin: 0; padding: 32px 40px; background: #ffffff; font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; }
+  /* Body fills the Letter page; padding creates the print margin.
+     box-sizing keeps the math sane regardless of DocuSign's renderer. */
+  html, body { margin: 0; padding: 0; }
+  body {
+    padding: 0.5in;
+    background: #ffffff;
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .contract-pagebreak { page-break-before: always; break-before: page; height: 0; }
   img { max-width: 100%; }
 </style>
@@ -529,11 +577,15 @@ export default function ContractTemplate({
               </p>
 
               {/* Blank signature line — DocuSign places e-signature here */}
-              {/* Invisible anchor: DocuSign positions the signHere tab on this
-                  signature line. color: transparent keeps it readable by the
-                  text-layer scanner but invisible to humans in the rendered PDF. */}
+              {/* DocuSign anchor marker: the text 'sign_here_owner_anchor' is
+                  rendered in white (invisible against the white page but
+                  preserved in the PDF text layer) so DocuSign's anchor scanner
+                  can find it. We pad it with leading underscores in case the
+                  scanner trims punctuation — the unique core token survives.
+                  color:transparent doesn't always make it into the text layer,
+                  white-on-white reliably does. */}
               <div className="h-14 border-b-2 border-gray-300">
-                <span style={{ color: 'transparent', fontSize: '8px' }}>{'\\sign_here_owner\\'}</span>
+                <span style={{ color: '#ffffff', fontSize: '8px' }}>sign_here_owner_anchor</span>
               </div>
               <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
 
@@ -548,7 +600,7 @@ export default function ContractTemplate({
               {/* Date — DocuSign auto-fills when owner signs */}
               <div className="mt-6">
                 <div className="border-b-2 border-gray-300 h-7">
-                  <span style={{ color: 'transparent', fontSize: '8px' }}>{'\\sign_date_owner\\'}</span>
+                  <span style={{ color: '#ffffff', fontSize: '8px' }}>sign_date_owner_anchor</span>
                 </div>
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
               </div>
@@ -776,14 +828,17 @@ function InitialsBox({ label, value, onChange }) {
 // tracking, body text in a separate block below (not inline) so inputs
 // inside the body align correctly against their underlines.
 function Section({ number, title, children }) {
+  // Inline-block + margin instead of flex+gap: DocuSign's HTML→PDF
+  // renderer doesn't reliably honor flexbox `gap`, which collapsed the
+  // 8px space between number and title (rendered as "01.DESCRIPTION OF
+  // SERVICES" with no breath). Inline-block always works.
   return (
     <div className="mb-5 contract-section">
-      <div className="flex items-baseline gap-2 mb-1.5 contract-section-title">
-
-        <span className="text-omega-orange font-black text-[11px] leading-none tabular-nums flex-shrink-0">
+      <div className="mb-1.5 contract-section-title">
+        <span className="text-omega-orange font-black text-[11px] leading-none tabular-nums inline-block mr-2 align-baseline">
           {String(number).padStart(2, '0')}.
         </span>
-        <span className="font-bold text-[11px] uppercase tracking-[0.08em] text-gray-900 leading-tight">
+        <span className="font-bold text-[11px] uppercase tracking-[0.08em] text-gray-900 leading-tight inline-block align-baseline">
           {title}
         </span>
       </div>
