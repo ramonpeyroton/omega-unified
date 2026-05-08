@@ -13,9 +13,37 @@
 //
 // PDF download is local — html2pdf.js renders the same DOM the user is
 // editing into a Letter-sized PDF. Zero server cost, zero AI.
+//
+// DocuSign send is also DOM-based — buildContractDocFromDom() snapshots
+// docRef.current with Brenda's edits and inlines computed styles so
+// DocuSign's HTML→PDF renderer produces the same 11-page contract she
+// just reviewed on screen. The server no longer carries a parallel
+// template (the old short template caused a long-running content
+// mismatch where clients received a 2-page summary).
 
 import { useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Send, Lock } from 'lucide-react';
+
+// Subset of CSS properties we replicate inline when serializing the
+// contract DOM for DocuSign. Listed explicitly so the payload stays
+// readable and we don't blast browser defaults at DocuSign's renderer.
+const SERIALIZE_STYLE_PROPS = [
+  'box-sizing',
+  'display', 'position', 'top', 'right', 'bottom', 'left',
+  'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+  'border-radius', 'border-color', 'border-style', 'border-width',
+  'background', 'background-color', 'background-image',
+  'color', 'opacity',
+  'font-family', 'font-size', 'font-weight', 'font-style',
+  'line-height', 'letter-spacing', 'text-align', 'text-decoration',
+  'text-transform', 'white-space', 'word-break', 'overflow-wrap',
+  'vertical-align',
+  'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap',
+  'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
+];
 
 // Static legal copy is captured here so the JSX stays readable. Keep
 // the wording identical to the supplied PDF — any change is a legal
@@ -86,6 +114,89 @@ function todayIso() {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+// Format YYYY-MM-DD as "Month DD, YYYY" for the static contract snapshot
+// sent to DocuSign. Falls through with the raw value when format is off.
+function fmtIsoDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-').map((s) => Number(s));
+  if (!y || !m || !d) return iso;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${months[m - 1]} ${d}, ${y}`;
+}
+
+// Snapshot the live, edited contract DOM into a self-contained HTML
+// document so it can be sent verbatim to DocuSign. Inputs become spans
+// containing the edited value (so Brenda's name/date/initials show up),
+// Tailwind classes are flattened to inline styles via getComputedStyle
+// (so DocuSign's renderer doesn't need our stylesheet), and the
+// signature image keeps its relative URL — the server replaces it with
+// a base64 data URL before forwarding to DocuSign.
+function buildContractDocFromDom(rootEl) {
+  if (!rootEl) return '';
+  const clone = rootEl.cloneNode(true);
+
+  function walk(live, copy) {
+    if (!live || !copy || copy.nodeType !== 1) return;
+
+    // Replace inputs (text/date) with plain spans containing their edited
+    // value. Date values are formatted en-US for legal readability.
+    if (copy.tagName === 'INPUT') {
+      const span = document.createElement('span');
+      const type = copy.getAttribute('type') || 'text';
+      const raw  = live.value || '';
+      const txt  = (type === 'date') ? fmtIsoDate(raw) : raw;
+      span.textContent = txt || '       ';
+      copyInlineStyles(live, span);
+      copy.replaceWith(span);
+      return;
+    }
+
+    copyInlineStyles(live, copy);
+    copy.removeAttribute('class');
+
+    const liveKids = Array.from(live.children);
+    const copyKids = Array.from(copy.children);
+    const len = Math.min(liveKids.length, copyKids.length);
+    for (let i = 0; i < len; i++) walk(liveKids[i], copyKids[i]);
+  }
+
+  function copyInlineStyles(live, copy) {
+    try {
+      const cs = window.getComputedStyle(live);
+      const decls = [];
+      for (const prop of SERIALIZE_STYLE_PROPS) {
+        const v = cs.getPropertyValue(prop);
+        if (!v) continue;
+        if ((prop === 'margin' || prop === 'padding') && v === '0px') continue;
+        if (prop === 'border-radius' && v === '0px') continue;
+        if (prop === 'opacity' && v === '1') continue;
+        decls.push(`${prop}:${v}`);
+      }
+      if (decls.length) {
+        const existing = copy.getAttribute('style') || '';
+        copy.setAttribute('style', existing ? `${existing};${decls.join(';')}` : decls.join(';'));
+      }
+    } catch { /* getComputedStyle can throw in detached/weird contexts */ }
+  }
+
+  walk(rootEl, clone);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  body { margin: 0; padding: 32px 40px; background: #ffffff; font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; }
+  .contract-pagebreak { page-break-before: always; break-before: page; height: 0; }
+  img { max-width: 100%; }
+</style>
+</head>
+<body>
+${clone.outerHTML}
+</body>
+</html>`;
 }
 
 // Pull line items out of the estimate. EstimateBuilder persists `sections`
@@ -203,6 +314,15 @@ export default function ContractTemplate({
   // screen. DocuSign will create independent initials tabs per page so the
   // client must initial each one individually.
   const [ownerInitials, setOwnerInitials] = useState('');
+
+  // Snapshot the current DOM and hand the HTML to the parent flow. The
+  // parent passes it to /api/docusign/create-envelope verbatim so the
+  // client receives the exact 11-page contract Brenda just reviewed.
+  async function handleSendDocuSignClick() {
+    if (!docRef.current || !onSendDocuSign) return;
+    const html = buildContractDocFromDom(docRef.current);
+    await onSendDocuSign(html);
+  }
 
   // Inline editable field — underlined, blends with printed contract.
   // Heights/alignment handled via the <style> block at the bottom so all
@@ -409,7 +529,12 @@ export default function ContractTemplate({
               </p>
 
               {/* Blank signature line — DocuSign places e-signature here */}
-              <div className="h-14 border-b-2 border-gray-300" />
+              {/* Invisible anchor: DocuSign positions the signHere tab on this
+                  signature line. color: transparent keeps it readable by the
+                  text-layer scanner but invisible to humans in the rendered PDF. */}
+              <div className="h-14 border-b-2 border-gray-300">
+                <span style={{ color: 'transparent', fontSize: '8px' }}>{'\\sign_here_owner\\'}</span>
+              </div>
               <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Signature</p>
 
               {/* Print name */}
@@ -422,7 +547,9 @@ export default function ContractTemplate({
 
               {/* Date — DocuSign auto-fills when owner signs */}
               <div className="mt-6">
-                <div className="border-b-2 border-gray-300 h-7" />
+                <div className="border-b-2 border-gray-300 h-7">
+                  <span style={{ color: 'transparent', fontSize: '8px' }}>{'\\sign_date_owner\\'}</span>
+                </div>
                 <p className="text-[9px] tracking-[0.18em] uppercase text-gray-400 mt-2">Date</p>
               </div>
             </div>
@@ -575,7 +702,7 @@ export default function ContractTemplate({
           {pdfDownloading ? 'Generating…' : 'Download PDF'}
         </button>
         <button
-          onClick={onSendDocuSign}
+          onClick={handleSendDocuSignClick}
           disabled={!canSendDocuSign || saving}
           title={canSendDocuSign ? 'Send for e-signature via DocuSign' : 'DocuSign not configured yet — use Download PDF'}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition"

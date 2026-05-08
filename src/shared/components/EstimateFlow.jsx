@@ -257,8 +257,9 @@ export default function EstimateFlow({ job, user, onBack }) {
     setStep(3);
   }
 
-  async function generateAndSendContract() {
+  async function generateAndSendContract(contractHtml) {
     if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
+    if (!contractHtml) { setToast({ type: 'error', message: 'Could not snapshot the contract — please reload and try again.' }); return; }
     setSaving(true);
     try {
       const { data: created, error: insErr } = await supabase
@@ -277,7 +278,7 @@ export default function EstimateFlow({ job, user, onBack }) {
         .select().single();
       if (insErr) throw insErr;
 
-      const { envelopeId } = await createEnvelope({ contractId: created.id, job, estimate, paymentPlan });
+      const { envelopeId } = await createEnvelope({ contractId: created.id, job, estimate, paymentPlan, html: contractHtml });
 
       const { data: updated, error: updErr } = await supabase
         .from('contracts')
