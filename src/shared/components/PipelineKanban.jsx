@@ -354,6 +354,10 @@ export default function PipelineKanban({
   const [estimates, setEstimates] = useState([]);
   const [subs, setSubs] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  // Manual job costing rows — fallback for the column total when a
+  // job doesn't have an estimate yet. Loaded best-effort: a missing
+  // table (fresh env without migration 050) just leaves this empty.
+  const [jobCosts, setJobCosts] = useState([]);
   const [toast, setToast] = useState(null);
 
   const [activeId, setActiveId] = useState(null);
@@ -492,6 +496,15 @@ export default function PipelineKanban({
         } catch { /* migration 030 missing — silently skip */ }
       }
       setAssignments(a || []);
+
+      // Job costing fallback for the column totals. Tolerates a missing
+      // table (migration 050) — empty array is a valid neutral state.
+      try {
+        const { data: jc, error: jcErr } = await supabase
+          .from('job_costs')
+          .select('job_id, estimated_revenue');
+        if (!jcErr && Array.isArray(jc)) setJobCosts(jc);
+      } catch { /* table missing — silently skip */ }
     } catch (err) {
       setToast({ type: 'error', message: 'Failed to load pipeline' });
     } finally {
@@ -509,6 +522,15 @@ export default function PipelineKanban({
     });
     return map;
   }, [estimates]);
+
+  // Manual cost row per job — used as a fallback for column totals
+  // when a job doesn't have an estimate yet (e.g. early leads where
+  // someone typed a rough number into Job Costing). One row per job.
+  const costByJob = useMemo(() => {
+    const map = {};
+    jobCosts.forEach((c) => { map[c.job_id] = c; });
+    return map;
+  }, [jobCosts]);
 
   // Jobs with an assigned sub whose COI is expiring within 30 days or expired.
   const coiWarningByJob = useMemo(() => {
@@ -564,12 +586,19 @@ export default function PipelineKanban({
     visibleJobs.forEach((j) => {
       const key = COLUMN_BY_ID[j.pipeline_status] ? j.pipeline_status : 'new_lead';
       grouped[key].push(j);
+      // Priority: latest estimate.total_amount → job_costs.estimated_revenue
+      // (manual entry from the Financials > Job Costing tab) → 0. Keeps the
+      // column total honest for early leads where the estimate isn't built
+      // yet but the seller already eyeballed a ballpark.
       const est = estByJob[j.id];
-      const amount = Number(est?.total_amount) || 0;
+      const cost = costByJob[j.id];
+      const amount = Number(est?.total_amount)
+        || Number(cost?.estimated_revenue)
+        || 0;
       totals[key] += amount;
     });
     return { jobsByColumn: grouped, totalsByColumn: totals };
-  }, [visibleJobs, estByJob]);
+  }, [visibleJobs, estByJob, costByJob]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
   // The drag target (`event.over.id`) can be either a column id or
