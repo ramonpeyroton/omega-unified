@@ -17,7 +17,7 @@
 
 DROP TABLE IF EXISTS public.marketing_spend;
 
-CREATE TABLE public.marketing_spend (
+CREATE TABLE IF NOT EXISTS public.marketing_spend (
   channel        text          PRIMARY KEY,
   monthly_amount numeric(12,2) NOT NULL DEFAULT 0,
   notes          text,

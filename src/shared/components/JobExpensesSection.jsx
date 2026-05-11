@@ -92,7 +92,9 @@ export default function JobExpensesSection({ job, user }) {
     try {
       const payload = {
         job_id: job.id,
-        date: form.date,
+        // Empty string would be rejected by Postgres (date column). Null is the
+        // documented "no value" convention used elsewhere in the codebase.
+        date: form.date || null,
         category: form.category,
         description: form.description || null,
         amount: Number(form.amount),

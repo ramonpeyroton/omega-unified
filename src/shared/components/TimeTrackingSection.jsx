@@ -74,7 +74,8 @@ export default function TimeTrackingSection({ job, user }) {
         job_id: job.id,
         worker_name: form.worker_name.trim(),
         worker_type: form.worker_type,
-        date: form.date,
+        // null fallback so an empty date input doesn't trip Postgres.
+        date: form.date || null,
         hours_worked: Number(form.hours_worked),
         phase_id: form.phase_id || null,
         notes: form.notes || null,

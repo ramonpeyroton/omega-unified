@@ -226,7 +226,14 @@ export default async function handler(req, res) {
       if (becomingSigned) {
         patch.status = 'signed';
         patch.signed_at = completedAt || new Date().toISOString();
-        await supabase.from('jobs').update({ status: 'contracted' }).eq('id', contract.job_id);
+        // ALSO advance the pipeline so the kanban card moves to
+        // 'Contract Signed' automatically — without this the card
+        // stays stuck at 'Awaiting Signature' until someone opens
+        // EstimateFlow and triggers the front-end refresh. Audit #2.
+        await supabase
+          .from('jobs')
+          .update({ status: 'contracted', pipeline_status: 'contract_signed' })
+          .eq('id', contract.job_id);
       } else if (event === 'envelope-declined' || status === 'declined') {
         patch.status = 'declined';
       } else if (event === 'envelope-sent' || status === 'sent') {

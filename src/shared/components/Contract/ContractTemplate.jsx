@@ -21,7 +21,7 @@
 // template (the old short template caused a long-running content
 // mismatch where clients received a 2-page summary).
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Send, Lock } from 'lucide-react';
 
 // Subset of CSS properties we replicate inline when serializing the
@@ -336,6 +336,19 @@ export default function ContractTemplate({
   const [ownerEmail, setOwnerEmail]     = useState(job?.client_email || '');
   const [propertyAddress, setPropertyAddress] = useState(job?.address || '');
   const [initialDepositDate, setInitialDepositDate] = useState('');
+
+  // Sync owner fields whenever the underlying `job` prop changes.
+  // Without these, the useState initializers above run once on mount
+  // and freeze the values — so fixing a typo in the job card while
+  // the contract step is mounted would silently send the DocuSign
+  // envelope with the stale info. Audit #8.
+  useEffect(() => { setOwnerName(job?.client_name || ''); },     [job?.client_name]);
+  useEffect(() => { setOwnerEmail(job?.client_email || ''); },   [job?.client_email]);
+  useEffect(() => {
+    // Address powers BOTH ownerAddress and propertyAddress by default.
+    setOwnerAddress(job?.address || '');
+    setPropertyAddress(job?.address || '');
+  }, [job?.address]);
 
   const schedule = useMemo(() => readScheduleA(estimate), [estimate]);
   const totalAmount = useMemo(() => {

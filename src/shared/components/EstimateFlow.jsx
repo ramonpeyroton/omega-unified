@@ -19,6 +19,50 @@ import { notify } from '../lib/notifications';
 // the meantime so Brenda can see what the future flow will look like.
 const DOCUSIGN_CLIENT_ENABLED = import.meta.env?.VITE_DOCUSIGN_ENABLED === '1';
 
+// Parse a free-text payment schedule out of estimate.customer_message.
+// Attila/Brenda typically write blocks like:
+//   "Payment Schedule:
+//    Deposit - 50%
+//    Upon Completion 50%"
+// We split on newlines and commas, then for each chunk look for an
+// "<optional label> <N>%" pattern. Returns an array shaped like the
+// rest of the payment_plan UI expects:
+//   [{ label, percent, amount, due_date }]
+// Returns [] when the message doesn't look like a schedule so the
+// caller can fall back to the default starter plan.
+export function parsePlanFromMessage(message) {
+  if (!message || typeof message !== 'string') return [];
+  // Strip a leading "Payment Schedule:" header if present so it doesn't
+  // get parsed as a row on its own.
+  const cleaned = message.replace(/payment\s*schedule\s*:?/i, '');
+  const chunks = cleaned
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const pct = /([\d]+(?:\.\d+)?)\s*%/;
+  const out = [];
+  for (const chunk of chunks) {
+    const m = chunk.match(pct);
+    if (!m) continue;
+    const percent = Number(m[1]);
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) continue;
+    // Label = everything except the matched percent, minus connectors
+    // like dashes/colons. Falls back to "Installment N" if empty.
+    const label = chunk
+      .replace(pct, '')
+      .replace(/^\s*[-–:•]+\s*/, '')
+      .replace(/\s*[-–:•]+\s*$/, '')
+      .trim() || `Installment ${out.length + 1}`;
+    out.push({ label, percent, amount: 0, due_date: '' });
+  }
+  // Sanity check — if the parsed plan doesn't add up close to 100%
+  // (within 5 points either way), bail. Probably noise, not a plan.
+  const total = out.reduce((s, r) => s + r.percent, 0);
+  if (out.length === 0) return [];
+  if (Math.abs(total - 100) > 5) return [];
+  return out;
+}
+
 const STEPS = [
   { id: 1, label: 'Review Estimate' },
   { id: 2, label: 'Payment Plan' },
@@ -111,8 +155,26 @@ export default function EstimateFlow({ job, user, onBack }) {
       const { data: ctr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
       setEstimate(est || null);
       setContract(ctr || null);
-      if (est?.payment_plan) setPaymentPlan(est.payment_plan);
-      else if (ctr?.payment_plan) setPaymentPlan(ctr.payment_plan);
+      // Priority order for the installment plan in step 2:
+      //   1. Estimate already has a structured payment_plan — use it.
+      //   2. Contract already exists with a payment_plan — use it.
+      //   3. Parse the estimate.customer_message free-text (often
+      //      formatted as "Payment Schedule: Deposit 50%, Upon
+      //      Completion 50%") into a structured plan so Brenda doesn't
+      //      have to retype what Attila already promised the client.
+      //   4. Otherwise leave the array empty so the UI shows the
+      //      DEFAULT_PAYMENT_PLAN starter rows.
+      if (Array.isArray(est?.payment_plan) && est.payment_plan.length > 0) {
+        setPaymentPlan(est.payment_plan);
+      } else if (Array.isArray(ctr?.payment_plan) && ctr.payment_plan.length > 0) {
+        setPaymentPlan(ctr.payment_plan);
+      } else {
+        const parsed = parsePlanFromMessage(est?.customer_message);
+        if (parsed.length > 0) {
+          setPaymentPlan(parsed);
+          setToast({ type: 'info', message: `Auto-filled ${parsed.length} installments from the estimate. Review and continue.` });
+        }
+      }
       if (ctr?.signed_at) setStep(5);
       else if (ctr?.status === 'sent' || ctr?.docusign_envelope_id) setStep(4);
       else if (ctr) setStep(3);

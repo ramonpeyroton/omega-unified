@@ -29,6 +29,11 @@ export default function JobCostingSection({ job, user }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [subsTotal, setSubsTotal] = useState(0);
+  // Latest estimate.total_amount — kept separately from the form so we
+  // can warn the user when their saved estimated_revenue has drifted
+  // away from the current estimate. The form value is still authoritative
+  // for the math; this is just a banner.
+  const [latestEstimateTotal, setLatestEstimateTotal] = useState(null);
   const saveTimer = useRef(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
@@ -61,6 +66,7 @@ export default function JobCostingSection({ job, user }) {
         .eq('job_id', job.id);
       const subs = (agrs || []).reduce((acc, a) => acc + (Number(a.their_estimate) || 0), 0);
       setSubsTotal(subs);
+      setLatestEstimateTotal(est?.total_amount ?? null);
 
       setRow(cost || null);
       setForm({
@@ -164,6 +170,33 @@ export default function JobCostingSection({ job, user }) {
           valueColor={calc.balanceDue <= 0 ? 'text-omega-success' : 'text-amber-600'}
         />
       </div>
+
+      {/* Drift warning — if the latest estimate.total_amount has moved
+          away from the saved estimated_revenue, the form silently kept
+          the old value and Finance KPIs went stale. Audit #12. */}
+      {(() => {
+        const saved = parseNum(form.estimated_revenue);
+        const latest = latestEstimateTotal != null ? Number(latestEstimateTotal) : null;
+        if (latest == null || saved === 0) return null;
+        const diff = latest - saved;
+        if (Math.abs(diff) < 0.01) return null;
+        return (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-amber-200 flex items-center justify-center flex-shrink-0 text-amber-800 font-bold text-sm">!</div>
+            <div className="flex-1 text-sm text-amber-900">
+              The latest estimate is <strong>{money(latest)}</strong> — your saved revenue says
+              <strong> {money(saved)}</strong> ({diff > 0 ? '+' : '−'}{money(Math.abs(diff))} difference).
+              Job Costing won't auto-update.
+            </div>
+            <button
+              onClick={() => update('estimated_revenue', latest)}
+              className="self-center px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold whitespace-nowrap"
+            >
+              Update to {money(latest)}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Inputs */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">

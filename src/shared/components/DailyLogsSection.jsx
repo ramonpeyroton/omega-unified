@@ -54,7 +54,8 @@ export default function DailyLogsSection({ job, user }) {
     try {
       const payload = {
         job_id: job.id,
-        log_date: form.log_date,
+        // null fallback so an empty date input doesn't trip Postgres.
+        log_date: form.log_date || null,
         weather: form.weather || null,
         workers_on_site: form.workers_on_site === '' ? null : Number(form.workers_on_site),
         work_performed: form.work_performed || null,

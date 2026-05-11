@@ -19,6 +19,19 @@ import { logAudit } from './audit';
 
 const OVERDUE_GRACE_DAYS = 3;
 
+// Defensive ISO-string helper. `markMilestoneReceived` / `markSubPaymentPaid`
+// used to call `new Date(opts.date).toISOString()` directly; a malformed
+// caller input (e.g. an empty string or '32/13/2026') would crash the
+// whole function with RangeError. Now we accept the string when it parses
+// and fall back to `now()` otherwise — the calling UI is free to keep
+// validating, but the helper itself is safe.
+function safeIsoOrNow(input) {
+  if (input == null || input === '') return new Date().toISOString();
+  const d = new Date(input);
+  if (isNaN(d.getTime())) return new Date().toISOString();
+  return d.toISOString();
+}
+
 // ─── Effective status (UI-only projection) ───────────────────────
 export function effectiveStatus(m, today = new Date()) {
   if (!m) return 'pending';
@@ -119,7 +132,7 @@ export async function markMilestoneReceived(milestoneId, opts) {
     .from('payment_milestones')
     .update({
       received_amount: newReceived,
-      received_at: date ? new Date(date).toISOString() : new Date().toISOString(),
+      received_at: safeIsoOrNow(date),
       received_to_account_id: accountId || m.received_to_account_id || null,
       status: newStatus,
       notes: mergedNotes,
@@ -254,7 +267,7 @@ export async function markSubPaymentPaid(paymentId, opts) {
     .from('sub_payments')
     .update({
       paid_amount: newPaid,
-      paid_at: date ? new Date(date).toISOString() : new Date().toISOString(),
+      paid_at: safeIsoOrNow(date),
       paid_from_account_id: accountId || p.paid_from_account_id || null,
       status: newStatus,
       notes: mergedNotes,
