@@ -41,6 +41,19 @@ export default function EstimateView() {
         if (!e) throw new Error('Estimate not found');
         const { data: j } = await supabase.from('jobs').select('*').eq('id', e.job_id).maybeSingle();
         setEstimate(e); setJob(j || null); setCompany(c || null);
+
+        // Best-effort open beacon. The endpoint stamps client_opened_at
+        // on the row and emails Omega only on the FIRST open per
+        // estimate — repeated reloads from the same client won't spam.
+        // Fire-and-forget; do not block the render if it fails.
+        try {
+          fetch('/api/estimate-opened', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estimateId: id }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch { /* ignore */ }
       } catch (er) {
         setErr(er?.message || String(er));
       } finally {

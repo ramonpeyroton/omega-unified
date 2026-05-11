@@ -56,6 +56,16 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
   const total = estimate.total_amount ?? sections.reduce((acc, s) =>
     acc + (s.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
 
+  // Summary line — top-level scope titles joined together so the
+  // client gets a tasting menu in the email, but the full breakdown
+  // only loads after they click "Review Estimate" (which also triggers
+  // the open-tracking beacon on the public page).
+  const scopeSummary = sections
+    .map((s) => s.title)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(' · ');
+
   const addressBlock = [company?.address, `${company?.city || ''}${company?.city && company?.state ? ', ' : ''}${company?.state || ''} ${company?.zip || ''}`.trim(), company?.phone, company?.email]
     .filter(Boolean).map((l) => `<div>${escape(l)}</div>`).join('');
 
@@ -91,7 +101,7 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
       <tr>
         <td style="background:#E8732A;border-radius:8px;padding:0;">
           <a href="${escape(clientLink)}" style="display:inline-block;padding:14px 32px;background:#E8732A;color:#ffffff;font-weight:900;font-size:15px;text-decoration:none;border-radius:8px;letter-spacing:.02em;">
-            Review &amp; Sign Estimate →
+            Review Estimate →
           </a>
         </td>
       </tr>
@@ -176,39 +186,39 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
       </tr>
     </table>
 
-    <!-- Description -->
+    <!-- Description (optional intro line from the seller) -->
     ${estimate.header_description ? `
     <div style="margin-top:20px;background:#fafafa;border:1px solid #eee;border-radius:6px;padding:14px;">
       <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b;font-weight:700;margin-bottom:8px;">Description</div>
       <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.6;">${escape(estimate.header_description)}</div>
     </div>` : ''}
 
-    <!-- Sections -->
-    ${sectionsHTML}
-
-    <!-- Footer: customer message + total -->
-    <table style="width:100%;border-collapse:collapse;margin-top:28px;">
-      <tr>
-        <td style="vertical-align:top;width:60%;padding-right:12px;">
-          ${customerMsgHTML}
-        </td>
-        <td style="vertical-align:top;width:40%;padding-left:12px;text-align:right;">
-          <div style="font-size:12px;color:#6b6b6b;letter-spacing:.08em;text-transform:uppercase;font-weight:700;">Estimate Total</div>
-          <div style="font-size:34px;color:#E8732A;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums;">${money(total)}</div>
-        </td>
-      </tr>
-    </table>
+    <!-- Summary card — total + scope chips. The full line-item
+         breakdown is one tap away via the Review Estimate button. -->
+    <div style="margin-top:24px;border:2px solid #E8732A;border-radius:8px;padding:20px;text-align:center;background:#FFF7F1;">
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:800;">Estimate Total</div>
+      <div style="font-size:40px;color:#E8732A;font-weight:900;line-height:1;margin:6px 0 14px;font-variant-numeric:tabular-nums;">${money(total)}</div>
+      ${scopeSummary ? `
+      <div style="font-size:12px;color:#555;line-height:1.6;">
+        <strong style="color:#2C2C2A;">Scope:</strong> ${escape(scopeSummary)}${sections.length > 4 ? ` <span style="color:#888;">+ ${sections.length - 4} more</span>` : ''}
+      </div>` : ''}
+    </div>
 
     ${signButtonHTML ? `
-    <!-- Bottom CTA — second chance right before the footer -->
-    <div style="margin-top:32px;padding:24px;background:#2C2C2A;border-radius:8px;text-align:center;">
-      <div style="font-size:15px;color:white;font-weight:700;margin-bottom:6px;">
-        Ready to approve?
-      </div>
-      <div style="font-size:12px;color:#cccccc;margin-bottom:16px;line-height:1.5;">
-        Sign electronically on your phone or computer — no printing, scanning, or DocuSign back-and-forth. The final binding contract comes next.
-      </div>
+    <!-- Primary CTA — full breakdown lives on the public page. -->
+    <div style="margin-top:24px;text-align:center;">
       ${signButtonHTML}
+      <div style="font-size:11px;color:#888;margin-top:10px;line-height:1.5;">
+        Tap above to see the full line-item breakdown, ask for changes, or approve.
+      </div>
+    </div>` : ''}
+
+    ${estimate.customer_message ? `
+    <!-- Customer message — kept in the summary email so the seller's
+         note isn't hidden behind the Review button. -->
+    <div style="margin-top:24px;background:#fafafa;border:1px solid #eee;padding:14px;border-radius:6px;">
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b;margin-bottom:6px;font-weight:700;">A message for you</div>
+      <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.6;">${escape(estimate.customer_message)}</div>
     </div>` : ''}
 
     <div style="margin-top:28px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#888;text-align:center;">

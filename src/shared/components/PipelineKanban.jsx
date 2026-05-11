@@ -512,10 +512,17 @@ export default function PipelineKanban({
     }
   }
 
-  // Most recent estimate per job — used for column totals.
+  // Most recent APPROVED/SIGNED estimate per job — used for column
+  // totals. Drafts and sent-but-not-approved estimates intentionally
+  // do NOT count, since the customer hasn't agreed to the number yet.
+  // For early-stage cards without an approved estimate we fall back
+  // to job_costs.estimated_revenue (manual entry from Job Costing)
+  // in the totals reducer further below.
+  const APPROVED_STATUSES = new Set(['approved', 'signed']);
   const estByJob = useMemo(() => {
     const map = {};
     estimates.forEach((e) => {
+      if (!APPROVED_STATUSES.has(e.status)) return;
       if (!map[e.job_id] || new Date(e.created_at) > new Date(map[e.job_id].created_at)) {
         map[e.job_id] = e;
       }
