@@ -193,32 +193,19 @@ function renderEstimateHTML({ estimate, job, company, clientLink }) {
       <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.6;">${escape(estimate.header_description)}</div>
     </div>` : ''}
 
-    <!-- Summary card — total + scope chips. The full line-item
-         breakdown is one tap away via the Review Estimate button. -->
-    <div style="margin-top:24px;border:2px solid #E8732A;border-radius:8px;padding:20px;text-align:center;background:#FFF7F1;">
-      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:800;">Estimate Total</div>
-      <div style="font-size:40px;color:#E8732A;font-weight:900;line-height:1;margin:6px 0 14px;font-variant-numeric:tabular-nums;">${money(total)}</div>
-      ${scopeSummary ? `
-      <div style="font-size:12px;color:#555;line-height:1.6;">
-        <strong style="color:#2C2C2A;">Scope:</strong> ${escape(scopeSummary)}${sections.length > 4 ? ` <span style="color:#888;">+ ${sections.length - 4} more</span>` : ''}
-      </div>` : ''}
-    </div>
-
     ${signButtonHTML ? `
-    <!-- Primary CTA — full breakdown lives on the public page. -->
-    <div style="margin-top:24px;text-align:center;">
-      ${signButtonHTML}
-      <div style="font-size:11px;color:#888;margin-top:10px;line-height:1.5;">
-        Tap above to see the full line-item breakdown, ask for changes, or approve.
+    <!-- Dark CTA — the email intentionally does NOT show the line
+         items, customer message or total. The client has to open the
+         public page to see what was proposed, which fires the open
+         tracking beacon and gives Omega visibility into engagement. -->
+    <div style="margin-top:32px;padding:24px;background:#2C2C2A;border-radius:8px;text-align:center;">
+      <div style="font-size:15px;color:white;font-weight:700;margin-bottom:6px;">
+        Your estimate is ready
       </div>
-    </div>` : ''}
-
-    ${estimate.customer_message ? `
-    <!-- Customer message — kept in the summary email so the seller's
-         note isn't hidden behind the Review button. -->
-    <div style="margin-top:24px;background:#fafafa;border:1px solid #eee;padding:14px;border-radius:6px;">
-      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b;margin-bottom:6px;font-weight:700;">A message for you</div>
-      <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.6;">${escape(estimate.customer_message)}</div>
+      <div style="font-size:12px;color:#cccccc;margin-bottom:16px;line-height:1.5;">
+        Tap below to review the full proposal. You'll see scope, pricing, and our payment schedule on the next screen.
+      </div>
+      ${signButtonHTML}
     </div>` : ''}
 
     <div style="margin-top:28px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#888;text-align:center;">
