@@ -42,15 +42,16 @@ export default function EstimateView() {
         const { data: j } = await supabase.from('jobs').select('*').eq('id', e.job_id).maybeSingle();
         setEstimate(e); setJob(j || null); setCompany(c || null);
 
-        // Best-effort open beacon. The endpoint stamps client_opened_at
-        // on the row and emails Omega only on the FIRST open per
-        // estimate — repeated reloads from the same client won't spam.
-        // Fire-and-forget; do not block the render if it fails.
+        // Best-effort open beacon. Co-located inside send-estimate.js
+        // (action: 'opened') because Vercel Hobby caps total functions
+        // at 12. The endpoint stamps client_opened_at and emails Omega
+        // only on the FIRST open per estimate — repeated reloads from
+        // the same client won't spam. Fire-and-forget.
         try {
-          fetch('/api/estimate-opened', {
+          fetch('/api/send-estimate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estimateId: id }),
+            body: JSON.stringify({ estimateId: id, action: 'opened' }),
             keepalive: true,
           }).catch(() => {});
         } catch { /* ignore */ }

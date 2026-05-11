@@ -379,6 +379,13 @@ export default async function handler(req, res) {
   const estimateId = body?.estimateId;
   if (!estimateId) return json(res, 400, { ok: false, error: 'Missing estimateId' });
 
+  // Route 2: open-tracking beacon. Vercel Hobby caps serverless
+  // functions at 12, so the EstimateView page posts to this same
+  // endpoint with `action: 'opened'` instead of a dedicated function.
+  if (body?.action === 'opened') {
+    return handleEstimateOpened(estimateId, res);
+  }
+
   // Load estimate + job + company settings in parallel.
   const { data: estimate, error: eErr } = await supabase
     .from('estimates').select('*').eq('id', estimateId).maybeSingle();
@@ -519,4 +526,81 @@ export default async function handler(req, res) {
     bundle: isBundle, bundleCount: isBundle ? bundleMembers.length : 0,
     multiOption: isMultiOption, optionCount: isMultiOption ? siblings.length : 1,
   });
+}
+
+// ─── Estimate-opened beacon ──────────────────────────────────────
+// Bumps client_open_count on every hit and stamps client_opened_at
+// on the first one. Emails Omega's main inbox the first time the
+// client engages with the proposal so the salesperson knows the
+// link was opened. Co-located here instead of in its own function
+// because Vercel Hobby caps total serverless functions at 12.
+function renderOpenedEmailHTML({ estimate, job, openLink }) {
+  const total = money(estimate.total_amount || 0);
+  const fmtNow = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  return `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:560px;margin:0 auto;background:white;padding:24px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
+    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:800;">Estimate opened by client</div>
+    <h1 style="font-size:20px;margin:6px 0 16px;font-weight:900;">${escape(job?.client_name || 'Client')} just viewed their proposal</h1>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr><td style="padding:6px 0;color:#6b6b6b;width:38%;">Estimate #</td><td style="padding:6px 0;font-weight:700;">${escape(estimate.estimate_number || '—')}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b6b6b;">Total</td><td style="padding:6px 0;font-weight:700;">${total}</td></tr>
+      ${estimate.sent_by ? `<tr><td style="padding:6px 0;color:#6b6b6b;">Sent by</td><td style="padding:6px 0;">${escape(estimate.sent_by)}</td></tr>` : ''}
+      ${job?.address ? `<tr><td style="padding:6px 0;color:#6b6b6b;">Project</td><td style="padding:6px 0;">${escape(job.address)}</td></tr>` : ''}
+      <tr><td style="padding:6px 0;color:#6b6b6b;">Opened at</td><td style="padding:6px 0;">${escape(fmtNow)}</td></tr>
+    </table>
+    <div style="margin-top:20px;text-align:center;">
+      <a href="${escape(openLink)}" style="display:inline-block;padding:10px 22px;background:#2C2C2A;color:white;font-weight:700;font-size:13px;text-decoration:none;border-radius:8px;letter-spacing:.02em;">
+        View the estimate the client saw →
+      </a>
+    </div>
+    <p style="font-size:11px;color:#888;margin:20px 0 0;text-align:center;">
+      Heads-up only — no action required. We'll send a follow-up when the client signs.
+    </p>
+  </div>
+</body></html>`;
+}
+
+async function handleEstimateOpened(estimateId, res) {
+  if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured.' });
+
+  const { data: estimate, error: eErr } = await supabase
+    .from('estimates').select('*').eq('id', estimateId).maybeSingle();
+  if (eErr || !estimate) return json(res, 404, { ok: false, error: 'Estimate not found' });
+
+  const isFirstOpen = !estimate.client_opened_at;
+  const nowIso = new Date().toISOString();
+  const patch = {
+    client_last_opened_at: nowIso,
+    client_open_count: (estimate.client_open_count || 0) + 1,
+  };
+  if (isFirstOpen) patch.client_opened_at = nowIso;
+
+  try { await supabase.from('estimates').update(patch).eq('id', estimateId); }
+  catch { /* non-fatal */ }
+
+  if (isFirstOpen && RESEND_API_KEY) {
+    try {
+      const { data: job } = await supabase.from('jobs').select('*').eq('id', estimate.job_id).maybeSingle();
+      const { data: company } = await supabase
+        .from('company_settings').select('*')
+        .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+      const to = company?.email;
+      if (to) {
+        const openLink = `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`;
+        const html = renderOpenedEmailHTML({ estimate, job, openLink });
+        const subject = `📬 Estimate opened — ${job?.client_name || 'client'}${estimate.estimate_number ? ` (#${estimate.estimate_number})` : ''}`;
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html }),
+        });
+      }
+    } catch { /* swallow — best-effort */ }
+  }
+
+  return json(res, 200, { ok: true, firstOpen: isFirstOpen, openCount: patch.client_open_count });
 }
