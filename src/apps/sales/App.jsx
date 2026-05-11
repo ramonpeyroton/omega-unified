@@ -207,7 +207,7 @@ function SalesRouter({ user, onLogout, onOpenJob }) {
     );
 
   if (screen === 'notifications')
-    return <Notifications onNavigate={navigate} />;
+    return <Notifications onNavigate={navigate} user={user} />;
 
   if (screen === 'leads')
     return (
