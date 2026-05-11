@@ -19,8 +19,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FolderInput, Upload, Loader2, CheckCircle2, AlertTriangle, Folder,
-  ChevronRight, RefreshCw, FileText, Users, X, ArrowRight,
+  ChevronRight, RefreshCw, FileText, Users, X, ArrowRight, UserPlus,
 } from 'lucide-react';
+
+// Sentinel value used in the per-group dropdown to mean "create a
+// brand-new job for this client from the folder name". The actual
+// jobs.id is filled in at run time, just before the file uploads.
+const CREATE_NEW = '__create_new__';
 import { supabase } from '../../../shared/lib/supabase';
 import { logAudit } from '../../../shared/lib/audit';
 import {
@@ -184,11 +189,18 @@ export default function LegacyFilesImporter({ user }) {
     const grouped = groupFilesByTopFolder(fileList);
     const enriched = grouped.map((g) => {
       const { match, candidates, ambiguous } = matchJobForFolder(g.folder, jobs);
+      // Default behavior:
+      //   * Matched          → jobId = matched job's id
+      //   * Ambiguous (>1)   → empty (admin must pick from suggestions)
+      //   * No candidates    → CREATE_NEW (we'll auto-create the client)
+      let defaultJobId = '';
+      if (match) defaultJobId = match.id;
+      else if (candidates.length === 0) defaultJobId = CREATE_NEW;
       return {
         ...g,
-        jobId: match?.id || '',
+        jobId: defaultJobId,
         candidates,
-        ambiguous: ambiguous || !match,
+        ambiguous: ambiguous || (!match && candidates.length > 0),
         fileStatuses: g.files.map(() => ({ state: 'pending' })),
       };
     });
@@ -228,6 +240,7 @@ export default function LegacyFilesImporter({ user }) {
 
     let totalUploaded = 0;
     let totalErrored  = 0;
+    let totalCreated  = 0;
     let stopped       = false;
 
     for (const group of groups) {
@@ -240,12 +253,61 @@ export default function LegacyFilesImporter({ user }) {
         continue;
       }
 
+      // Resolve the target job. If the admin asked to create a new
+      // client from this folder name, insert the row first and use
+      // its id for the upload loop below.
+      let resolvedJobId = group.jobId;
+      if (resolvedJobId === CREATE_NEW) {
+        try {
+          const { data: newJob, error: createErr } = await supabase
+            .from('jobs')
+            .insert([{
+              client_name: group.folder.trim(),
+              // Legacy archive — hide from the live pipeline and mark
+              // as completed so it doesn't pollute Attila's kanban.
+              // Brenda can re-classify later by editing the card.
+              in_pipeline: false,
+              pipeline_status: 'completed',
+              status: 'completed',
+              created_by: 'legacy_import',
+            }])
+            .select('id, client_name')
+            .single();
+          if (createErr) throw createErr;
+          resolvedJobId = newJob.id;
+          totalCreated += 1;
+          logAudit({
+            user,
+            action: 'job.create',
+            entityType: 'job',
+            entityId: newJob.id,
+            details: { source: 'legacy_import', client_name: newJob.client_name },
+          });
+          // Persist the new id back into the group so the report
+          // renders the right client name afterwards.
+          setGroups((prev) => prev.map((gg) =>
+            gg.folder === group.folder ? { ...gg, jobId: newJob.id, createdFromImport: true } : gg
+          ));
+          // Keep the new job in the local jobs cache so the report row
+          // (which looks up client_name by id) finds it.
+          setJobs((prev) => [...prev, { id: newJob.id, client_name: newJob.client_name, address: null, city: null, service: null, pipeline_status: 'completed' }]);
+        } catch (err) {
+          // If creation fails, skip the group and mark every file as
+          // errored so the admin sees what happened.
+          for (let i = 0; i < group.files.length; i++) {
+            updateFile(group.folder, i, { state: 'error', error: `Could not create client: ${err.message || err}` });
+            totalErrored += 1;
+          }
+          continue;
+        }
+      }
+
       // Title-collision set, scoped per job. We pre-load the existing
       // titles so we don't overwrite older docs.
       const { data: existing } = await supabase
         .from('job_documents')
         .select('title')
-        .eq('job_id', group.jobId);
+        .eq('job_id', resolvedJobId);
       const usedTitles = new Set((existing || []).map((d) => String(d.title || '').toLowerCase()));
 
       for (let i = 0; i < group.files.length; i++) {
@@ -277,7 +339,7 @@ export default function LegacyFilesImporter({ user }) {
 
         try {
           const safe = sanitizeName(file.name);
-          const path = `${group.jobId}/${folder}/${Date.now()}-${i}-${safe}`;
+          const path = `${resolvedJobId}/${folder}/${Date.now()}-${i}-${safe}`;
           const { error: upErr } = await supabase.storage
             .from(BUCKET)
             .upload(path, file, {
@@ -294,7 +356,7 @@ export default function LegacyFilesImporter({ user }) {
           const { data: row, error: insErr } = await supabase
             .from('job_documents')
             .insert([{
-              job_id: group.jobId,
+              job_id: resolvedJobId,
               folder,
               title,
               photo_url: pub?.publicUrl || null,
@@ -331,7 +393,8 @@ export default function LegacyFilesImporter({ user }) {
       entityId: null,
       details: {
         groupsAttempted: groups.length,
-        groupsMatched: groups.filter((g) => g.jobId).length,
+        groupsMatched: groups.filter((g) => g.jobId && g.jobId !== CREATE_NEW).length,
+        clientsCreated: totalCreated,
         uploaded: totalUploaded,
         errored: totalErrored,
         stoppedAtCap: stopped,
@@ -345,9 +408,10 @@ export default function LegacyFilesImporter({ user }) {
   // ─── Aggregates for the header ──────────────────────────────────
   const totals = useMemo(() => {
     const fileCount = groups.reduce((s, g) => s + g.files.length, 0);
-    const matchedGroups = groups.filter((g) => g.jobId).length;
-    const unmatchedGroups = groups.length - matchedGroups;
-    return { fileCount, matchedGroups, unmatchedGroups };
+    const matchedGroups   = groups.filter((g) => g.jobId && g.jobId !== CREATE_NEW).length;
+    const willCreateGroups = groups.filter((g) => g.jobId === CREATE_NEW).length;
+    const skippedGroups   = groups.filter((g) => !g.jobId).length;
+    return { fileCount, matchedGroups, willCreateGroups, skippedGroups };
   }, [groups]);
 
   const allFileStatuses = useMemo(
@@ -442,7 +506,8 @@ export default function LegacyFilesImporter({ user }) {
             <SummaryStrip
               totalGroups={groups.length}
               matchedGroups={totals.matchedGroups}
-              unmatchedGroups={totals.unmatchedGroups}
+              willCreateGroups={totals.willCreateGroups}
+              skippedGroups={totals.skippedGroups}
               fileCount={totals.fileCount}
             />
 
@@ -461,10 +526,12 @@ export default function LegacyFilesImporter({ user }) {
                   </button>
                   <button
                     onClick={runImport}
-                    disabled={totals.matchedGroups === 0}
+                    disabled={(totals.matchedGroups + totals.willCreateGroups) === 0}
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Upload className="w-4 h-4" /> Run import ({totals.matchedGroups} client{totals.matchedGroups === 1 ? '' : 's'})
+                    <Upload className="w-4 h-4" />
+                    Run import ({totals.matchedGroups + totals.willCreateGroups} client{(totals.matchedGroups + totals.willCreateGroups) === 1 ? '' : 's'}
+                    {totals.willCreateGroups > 0 ? `, ${totals.willCreateGroups} new` : ''})
                   </button>
                 </div>
               </div>
@@ -525,12 +592,13 @@ export default function LegacyFilesImporter({ user }) {
 }
 
 // ─── Subcomponents ────────────────────────────────────────────────
-function SummaryStrip({ totalGroups, matchedGroups, unmatchedGroups, fileCount }) {
+function SummaryStrip({ totalGroups, matchedGroups, willCreateGroups, skippedGroups, fileCount }) {
   return (
-    <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
       <Stat label="Subfolders" value={totalGroups} />
       <Stat label="Matched" value={matchedGroups} accent="success" />
-      <Stat label="Needs review" value={unmatchedGroups} accent={unmatchedGroups > 0 ? 'warn' : null} />
+      <Stat label="Will create" value={willCreateGroups} accent={willCreateGroups > 0 ? 'info' : null} />
+      <Stat label="Skipped" value={skippedGroups} accent={skippedGroups > 0 ? 'warn' : null} />
       <Stat label="Files" value={fileCount} />
     </section>
   );
@@ -569,6 +637,7 @@ function Stat({ label, value, accent }) {
   const color =
     accent === 'success' ? 'text-omega-success' :
     accent === 'warn'    ? 'text-omega-warning' :
+    accent === 'info'    ? 'text-omega-info' :
     'text-omega-charcoal';
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
@@ -579,11 +648,12 @@ function Stat({ label, value, accent }) {
 }
 
 function GroupRow({ group, jobs, onSetJob }) {
-  const matched = !!group.jobId;
-  const matchedJob = jobs.find((j) => j.id === group.jobId);
+  const willCreate = group.jobId === CREATE_NEW;
+  const matched = !!group.jobId && !willCreate;
+  const matchedJob = matched ? jobs.find((j) => j.id === group.jobId) : null;
 
   return (
-    <div className={`px-5 py-4 ${group.ambiguous && !matched ? 'bg-amber-50/40' : ''}`}>
+    <div className={`px-5 py-4 ${group.ambiguous && !matched && !willCreate ? 'bg-amber-50/40' : ''}`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-semibold text-omega-charcoal">
@@ -615,6 +685,10 @@ function GroupRow({ group, jobs, onSetJob }) {
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-omega-success px-2 py-1 rounded-full bg-green-50">
               <CheckCircle2 className="w-3.5 h-3.5" /> Matched
             </span>
+          ) : willCreate ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-omega-info px-2 py-1 rounded-full bg-blue-50">
+              <UserPlus className="w-3.5 h-3.5" /> Will create
+            </span>
           ) : group.ambiguous ? (
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-omega-warning px-2 py-1 rounded-full bg-amber-50">
               <AlertTriangle className="w-3.5 h-3.5" /> Needs review
@@ -630,7 +704,9 @@ function GroupRow({ group, jobs, onSetJob }) {
             onChange={(e) => onSetJob(e.target.value)}
             className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-omega-orange min-w-[14rem]"
           >
+            <option value={CREATE_NEW}>+ Create new client &quot;{group.folder}&quot;</option>
             <option value="">Skip — don&apos;t import this folder</option>
+            <option disabled>──────────</option>
             {jobs.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.client_name || '(no name)'}
@@ -657,6 +733,12 @@ function GroupRow({ group, jobs, onSetJob }) {
           {matchedJob.address && <span className="text-gray-400">— {matchedJob.address}</span>}
         </p>
       )}
+      {willCreate && (
+        <p className="text-[11px] text-omega-info mt-2 ml-6 flex items-center gap-1">
+          <UserPlus className="w-3 h-3" /> A new client card will be created for <strong className="mx-1">{group.folder}</strong>
+          <span className="text-gray-400">— marked as Completed, hidden from the pipeline.</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -672,11 +754,16 @@ function GroupRunReport({ group, jobs }) {
   }
   return (
     <div className="px-5 py-3">
-      <div className="flex items-center gap-2 text-sm font-semibold text-omega-charcoal mb-1">
+      <div className="flex items-center gap-2 text-sm font-semibold text-omega-charcoal mb-1 flex-wrap">
         <Folder className="w-4 h-4 text-omega-stone" />
         <span>{group.folder}</span>
         <ChevronRight className="w-3 h-3 text-gray-400" />
-        <span className="text-omega-info">{matchedJob?.client_name || '(unknown)'}</span>
+        <span className="text-omega-info">{matchedJob?.client_name || group.folder}</span>
+        {group.createdFromImport && (
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold text-omega-info bg-blue-50 px-1.5 py-0.5 rounded">
+            <UserPlus className="w-3 h-3" /> New
+          </span>
+        )}
       </div>
       <ul className="ml-6 text-xs space-y-0.5">
         {group.files.map((f, idx) => {
