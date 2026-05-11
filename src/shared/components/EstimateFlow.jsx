@@ -176,6 +176,7 @@ export default function EstimateFlow({ job, user, onBack }) {
         logAudit({ user, action: 'pipeline.complete', entityType: 'job', entityId: job.id, details: { reason: 'all_milestones_paid' } });
         notify({ recipientRole: 'owner',      title: 'Job completed', message: `${job.client_name || 'Client'} — all installments received.`, type: 'finance', jobId: job.id });
         notify({ recipientRole: 'operations', title: 'Job completed', message: `${job.client_name || 'Client'} — final installment received.`, type: 'finance', jobId: job.id });
+        notify({ recipientRole: 'sales',      title: 'Job completed', message: `${job.client_name || 'Your client'} — project closed and fully paid. 🎉`, type: 'finance', jobId: job.id });
       } catch { /* non-fatal */ }
     }
   }
@@ -377,6 +378,7 @@ export default function EstimateFlow({ job, user, onBack }) {
     logAudit({ user, action: 'estimate.approve', entityType: 'estimate', entityId: data.id, details: { job_id: job.id, total: data.total_amount } });
     notify({ recipientRole: 'operations', title: 'Estimate approved', message: `${job.client_name || 'A client'} approved the estimate for ${job.service || 'their project'}.`, type: 'estimate', jobId: job.id });
     notify({ recipientRole: 'owner', title: 'Estimate approved', message: `${job.client_name || 'Client'}: $${Number(data.total_amount || 0).toLocaleString()}`, type: 'estimate', jobId: job.id });
+    notify({ recipientRole: 'sales', title: 'Estimate approved', message: `${job.client_name || 'Your client'} approved the estimate — $${Number(data.total_amount || 0).toLocaleString()}. Operations will follow up with the contract.`, type: 'estimate', jobId: job.id });
     setToast({ type: 'success', message: 'Estimate approved' });
     setStep(2);
   }

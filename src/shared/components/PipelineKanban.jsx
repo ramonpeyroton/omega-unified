@@ -26,7 +26,26 @@ import JobFullView from './JobFullView';
 import DeleteJobModal from './DeleteJobModal';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
 import { logAudit } from '../lib/audit';
+import { notify } from '../lib/notifications';
 import { validateUserPin } from '../lib/userPin';
+
+// Phases from which a card move should notify the salesperson. The
+// rule of thumb: anything from "estimate sent" onwards is part of
+// Attila's commercial cycle and he wants to see it on the bell.
+// new_lead and estimate_draft are skipped because they're early-funnel
+// hygiene that only matters to receptionist/operations.
+const SALES_NOTIFY_PHASES = new Set([
+  'estimate_sent',
+  'estimate_approved',
+  'estimate_negotiating',
+  'estimate_rejected',
+  'contract_drafted',
+  'contract_sent',
+  'contract_signed',
+  'awaiting_kickoff',
+  'in_progress',
+  'completed',
+]);
 
 // Phases that require a PIN confirmation before moving a card into
 // them. Anything terminal goes here so a stray drop doesn't quietly
@@ -770,6 +789,25 @@ export default function PipelineKanban({
         details: { from: previous, to: targetCol, client: job.client_name, source: 'kanban' },
       });
       setToast({ type: 'success', message: 'Job moved' });
+
+      // Notify sales whenever a card crosses through anything past
+      // "estimate sent" — Attila wants to know when the commercial
+      // cycle of his clients moves, regardless of who dragged it.
+      // We skip self-notifications so a salesperson dragging his own
+      // card doesn't ping himself.
+      const touchesSalesPhase = SALES_NOTIFY_PHASES.has(previous) || SALES_NOTIFY_PHASES.has(targetCol);
+      const isSales = user?.role === 'sales' || user?.role === 'salesperson';
+      if (touchesSalesPhase && !isSales) {
+        const fromLabel = PIPELINE_STEP_LABEL[previous]  || previous;
+        const toLabel   = PIPELINE_STEP_LABEL[targetCol] || targetCol;
+        notify({
+          recipientRole: 'sales',
+          title: `Pipeline moved · ${toLabel}`,
+          message: `${job.client_name || 'A client'} · ${fromLabel} → ${toLabel}${user?.name ? ` (by ${user.name})` : ''}`,
+          type: 'pipeline',
+          jobId: activeJobId,
+        });
+      }
     }
   }
 
