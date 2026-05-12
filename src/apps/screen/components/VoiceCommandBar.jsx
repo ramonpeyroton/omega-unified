@@ -109,8 +109,17 @@ export default function VoiceCommandBar() {
   const [text, setText]       = useState('');
   const [running, setRunning] = useState(false);
   const [result, setResult]   = useState(null); // { type, ... } or { error }
+  const [autoStatus, setAutoStatus] = useState(null); // 'listening' | 'submitting' | null
   const inputRef = useRef(null);
   const clearTimerRef = useRef(null);
+  // For auto-submit after voice transcription: track text length so we
+  // can detect a sudden jump (voice / paste) vs character-by-character
+  // typing. A jump triggers an auto-submit after a short debounce so
+  // the user doesn't have to press Next + Go after speaking.
+  const prevLenRef = useRef(0);
+  const autoSubmitTimerRef = useRef(null);
+  const VOICE_JUMP_THRESHOLD = 8;       // chars added in one event
+  const AUTO_SUBMIT_DELAY_MS = 900;     // pause before firing
 
   // Keep the input focused so the Firestick voice transcription lands
   // here. Re-focuses on result close / dismiss too.
@@ -222,12 +231,57 @@ export default function VoiceCommandBar() {
 
   function onSubmit(ev) {
     ev?.preventDefault();
+    // Cancel any pending auto-submit — user committed manually.
+    if (autoSubmitTimerRef.current) {
+      clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+    setAutoStatus(null);
     const raw = text.trim();
     if (!raw) return;
     void runCommand(raw);
   }
 
+  // Auto-submit detector: voice transcription / paste lands as a large
+  // jump in the input value. Manual typing changes 1 char at a time.
+  // When we see a jump, schedule an auto-submit; further jumps reset
+  // the timer so progressive transcriptions still wait for the final
+  // chunk before firing.
+  function onInputChange(ev) {
+    const next = ev.target.value;
+    const delta = next.length - prevLenRef.current;
+    prevLenRef.current = next.length;
+    setText(next);
+
+    if (delta >= VOICE_JUMP_THRESHOLD && next.trim().length > 0) {
+      if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+      setAutoStatus('listening');
+      autoSubmitTimerRef.current = setTimeout(() => {
+        autoSubmitTimerRef.current = null;
+        // Re-read latest value from the input — state may have advanced
+        // again during the debounce window.
+        const latest = (inputRef.current?.value || '').trim();
+        if (!latest) { setAutoStatus(null); return; }
+        setAutoStatus('submitting');
+        void runCommand(latest).finally(() => setAutoStatus(null));
+      }, AUTO_SUBMIT_DELAY_MS);
+    } else if (delta <= 0) {
+      // User deleted or cleared — cancel any pending auto-submit.
+      if (autoSubmitTimerRef.current) {
+        clearTimeout(autoSubmitTimerRef.current);
+        autoSubmitTimerRef.current = null;
+        setAutoStatus(null);
+      }
+    }
+  }
+
   function dismiss() {
+    if (autoSubmitTimerRef.current) {
+      clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+    setAutoStatus(null);
+    prevLenRef.current = 0;
     setText('');
     setResult(null);
     inputRef.current?.focus();
@@ -249,12 +303,25 @@ export default function VoiceCommandBar() {
         <input
           ref={inputRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={onInputChange}
           placeholder="Press the mic on the Firestick remote and speak…  (e.g., 'last estimate Yulia')"
-          className="flex-1 px-5 py-3 rounded-2xl bg-white/5 border-2 border-white/10 focus:border-omega-orange text-2xl text-white placeholder:text-white/40 focus:outline-none"
+          className={`flex-1 px-5 py-3 rounded-2xl bg-white/5 border-2 ${
+            autoStatus ? 'border-omega-orange shadow-[0_0_0_4px_rgba(249,115,22,0.2)]' : 'border-white/10 focus:border-omega-orange'
+          } text-2xl text-white placeholder:text-white/40 focus:outline-none transition-all`}
           autoComplete="off"
           spellCheck={false}
         />
+        {/* Visible feedback after voice transcription — replaces the
+            extra Next + Go presses on Firestick by auto-submitting
+            once the input has been stable for ~900ms. */}
+        {autoStatus === 'listening' && (
+          <span className="px-3 py-1.5 rounded-full bg-omega-orange/20 border border-omega-orange text-omega-orange text-xs font-bold uppercase tracking-wider animate-pulse whitespace-nowrap">
+            Sending…
+          </span>
+        )}
+        {autoStatus === 'submitting' && (
+          <Loader2 className="w-5 h-5 animate-spin text-omega-orange" />
+        )}
         {text && (
           <button
             type="button"
