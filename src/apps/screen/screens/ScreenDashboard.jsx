@@ -15,6 +15,7 @@ import {
 import { unlockAudio, isUnlocked } from '../lib/bells';
 import Celebration from '../components/Celebration';
 import { Donut, BarChart, HBars } from '../components/Charts';
+import VoiceCommandBar from '../components/VoiceCommandBar';
 import { PIPELINE_COLORS, PIPELINE_STEP_LABEL, PIPELINE_ORDER } from '../../../shared/config/phaseBreakdown';
 
 const DATA_REFRESH_MS = 60_000;
@@ -217,6 +218,9 @@ export default function ScreenDashboard({ onLogout }) {
   return (
     <div className="h-screen w-screen bg-[#0a0e18] text-white select-none overflow-hidden font-sans flex flex-col">
       <div className="absolute inset-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,rgba(249,115,22,0.15),transparent_50%),radial-gradient(ellipse_at_bottom_left,rgba(59,130,246,0.08),transparent_50%)]" />
+
+      {/* ═══ Voice command bar — Firestick remote target ══════════ */}
+      <VoiceCommandBar />
 
       {/* ═══ Top strip ═════════════════════════════════════════════ */}
       <header className="relative z-10 flex items-center gap-4 px-6 pt-4 pb-3 border-b border-white/[0.06]">
