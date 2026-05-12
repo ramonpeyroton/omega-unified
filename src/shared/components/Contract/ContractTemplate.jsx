@@ -93,6 +93,11 @@ Notwithstanding any other terms or conditions in this Agreement to the contrary,
 Any delay, waiver or omission of the Contractor in exercising or enforcing any right, term or condition under this Agreement shall not be construed in any way as a waiver or surrender of any such right, term or condition, or as acquiescence, consent or agreement to conduct in contravention of any such right, term or condition.`,
   s24_legal: `The Owner shall be liable to the Contractor for any costs, expenses or legal fees incurred by the Contractor in enforcing any obligation of the Owner under the terms and conditions of this Agreement, or remedying or curing any breach or failure to perform of the Owner under the terms and conditions of this Agreement.`,
   s25_entire: `This Agreement constitutes the entire agreement of the parties. There are no oral or collateral terms or conditions agreed to by the parties concerning the subject matter of this Agreement or the Work that are not reflected herein. There are no oral or collateral understandings or inducements between the parties concerning the subject matter of this Agreement or the Work that are not reflected herein.`,
+  s26_warranty: `Contractor provides a three (3) year warranty on craftsmanship and labor performed under this Agreement, commencing on the date of Substantial Completion of the Work. During the warranty period, Contractor shall, at no additional cost to Owner, repair or correct any defects in workmanship attributable to Contractor's performance of the Work.
+
+This warranty does NOT cover: (a) damage caused by clogged drains or by the introduction into the plumbing system of materials, debris, grease, hair, foreign objects or any item not intended for normal drainage; (b) damage caused by Owner's misuse, neglect, lack of maintenance, alteration, or repairs performed by parties other than Contractor; (c) damage caused by acts of God, fire, flood, water intrusion not attributable to Contractor's work, or other casualty beyond Contractor's reasonable control; or (d) normal wear and tear.
+
+To make a warranty claim, Owner must notify Contractor in writing within thirty (30) days of discovering the defect. The remedies provided in this warranty are Owner's exclusive remedies for any defect in workmanship and labor.`,
   cancel_short: `Owner may cancel this transaction at any time prior to midnight on the third business day after the date of this transaction. SEE THE ATTACHED NOTICE OF CANCELLATION FOR AN EXPLANATION OF THIS RIGHT.`,
   cancel_full: `YOU MAY CANCEL THIS TRANSACTION WITHOUT ANY PENALTY OR OBLIGATION, WITHIN THREE BUSINESS DAYS FROM THE ABOVE DATE.
 
@@ -617,6 +622,7 @@ export default function ContractTemplate({
           <Section number="23" title="NO WAIVER OF CONTRACTUAL RIGHT.">{CLAUSES.s23_no_waiver}</Section>
           <Section number="24" title="LEGAL FEES and COSTS.">{CLAUSES.s24_legal}</Section>
           <Section number="25" title="ENTIRE AGREEMENT.">{CLAUSES.s25_entire}</Section>
+          <Section number="26" title="WARRANTY.">{CLAUSES.s26_warranty}</Section>
 
           <InitialsBox label="Owner Initials (Page 5):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           {/* ── Cancellation notice + signatures ── */}
