@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Omegatron Voice POC</title>
+  <style>
+    /* ─── Reset + theme ────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #0b1020;
+      --bg-soft: #131933;
+      --bg-card: #1a2142;
+      --border: #2a3358;
+      --text: #e6e9f5;
+      --muted: #8b95b8;
+      --orange: #f97316;
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --red: #ef4444;
+      --yellow: #facc15;
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    body { min-height: 100vh; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 12px; font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    p  { margin: 0; line-height: 1.5; }
+    code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; }
+
+    .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+
+    /* ─── Status badge ─────────────────────────────────────────── */
+    .status-card { text-align: center; padding: 28px; }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 12px;
+      padding: 14px 28px; border-radius: 999px;
+      font-size: 22px; font-weight: 800; letter-spacing: 0.02em;
+      transition: all 0.25s ease;
+    }
+    .status-emoji { font-size: 28px; }
+    .status-idle      { background: rgba(139,149,184,0.12); color: var(--muted);  border: 2px solid rgba(139,149,184,0.3); }
+    .status-listening { background: rgba(34,197,94,0.12);   color: var(--green);  border: 2px solid rgba(34,197,94,0.4); }
+    .status-listening .status-emoji { animation: pulse 1.6s ease-in-out infinite; }
+    .status-wake      { background: rgba(249,115,22,0.15);  color: var(--orange); border: 2px solid rgba(249,115,22,0.5); }
+    .status-parsing   { background: rgba(59,130,246,0.15);  color: var(--blue);   border: 2px solid rgba(59,130,246,0.4); }
+    .status-done      { background: rgba(34,197,94,0.15);   color: var(--green);  border: 2px solid rgba(34,197,94,0.5); }
+    .status-error     { background: rgba(239,68,68,0.15);   color: var(--red);    border: 2px solid rgba(239,68,68,0.5); }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+
+    /* ─── Buttons ──────────────────────────────────────────────── */
+    button {
+      font-family: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.15s ease;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--orange); color: white; border: none; padding: 12px 22px; font-size: 15px; }
+    .btn-primary:hover:not(:disabled) { background: #ea580c; }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 10px 18px; font-size: 13px; }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
+    .btn-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+
+    /* ─── Transcript + command display ─────────────────────────── */
+    .transcript {
+      min-height: 80px;
+      padding: 14px 16px;
+      background: var(--bg-soft);
+      border-radius: 10px;
+      font-size: 15px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .transcript .final  { color: var(--text); }
+    .transcript .interim { color: var(--muted); font-style: italic; }
+    .transcript .wake { background: rgba(250,204,21,0.25); color: var(--yellow); padding: 0 4px; border-radius: 4px; font-weight: 800; }
+
+    .command-display {
+      font-size: 24px; font-weight: 800;
+      padding: 16px 18px;
+      background: rgba(249,115,22,0.08);
+      border-left: 4px solid var(--orange);
+      border-radius: 0 10px 10px 0;
+      color: white;
+      min-height: 28px;
+    }
+    .command-empty { color: var(--muted); font-weight: 400; font-style: italic; font-size: 16px; }
+
+    /* ─── JSON output ──────────────────────────────────────────── */
+    pre.json {
+      background: var(--bg-soft);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+      color: var(--text);
+    }
+    pre.json .k { color: var(--yellow); }
+    pre.json .s { color: var(--green); }
+    pre.json .n { color: var(--blue); }
+    pre.json .b { color: var(--orange); }
+
+    /* ─── Metrics ──────────────────────────────────────────────── */
+    .metric { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-soft); border-radius: 999px; font-size: 12px; color: var(--muted); }
+    .metric strong { color: var(--text); font-weight: 700; }
+
+    /* ─── Log table ────────────────────────────────────────────── */
+    .log { max-height: 280px; overflow-y: auto; }
+    .log-row { display: grid; grid-template-columns: 86px 1fr 1fr 80px; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .log-row:last-child { border-bottom: none; }
+    .log-time { color: var(--muted); font-family: "SF Mono", monospace; }
+    .log-cmd  { color: var(--text); }
+    .log-action { color: var(--orange); font-weight: 700; }
+    .log-target { color: var(--green); }
+    .log-conf { color: var(--muted); font-size: 11px; text-align: right; }
+    .log-empty { padding: 18px; text-align: center; color: var(--muted); font-style: italic; font-size: 13px; }
+
+    /* ─── Settings + test mode ─────────────────────────────────── */
+    .settings-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 8px; }
+    .settings-row input, .test-input {
+      background: var(--bg-soft); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 14px; border-radius: 10px; font: inherit; font-size: 14px;
+    }
+    .settings-row input:focus, .test-input:focus { outline: none; border-color: var(--orange); }
+    .test-input { width: 100%; }
+
+    /* ─── Banners ──────────────────────────────────────────────── */
+    .banner {
+      padding: 14px 16px; border-radius: 10px;
+      display: flex; gap: 12px; align-items: flex-start;
+      font-size: 14px; line-height: 1.5;
+    }
+    .banner-error { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+    .banner-warn  { background: rgba(250,204,21,0.10); border: 1px solid rgba(250,204,21,0.35); color: var(--yellow); }
+    .banner-info  { background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.35); color: #93c5fd; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- Header -->
+    <div>
+      <h1>🎙️ Omegatron Voice POC</h1>
+      <p style="color: var(--muted); font-size: 14px;">
+        Wake word ambient testing — Web Speech API (Chrome) + Groq Llama parsing.
+      </p>
+    </div>
+
+    <!-- Compatibility / permission banner -->
+    <div id="bannerArea"></div>
+
+    <!-- Status -->
+    <div class="card status-card">
+      <div id="statusBadge" class="status-badge status-idle">
+        <span class="status-emoji">⚪</span>
+        <span id="statusText">Not started</span>
+      </div>
+      <div class="btn-row">
+        <button id="toggleBtn" class="btn-primary">▶ Start Listening</button>
+        <button id="clearLogBtn" class="btn-secondary">Clear Log</button>
+      </div>
+    </div>
+
+    <!-- Two-column: live transcript + command display -->
+    <div class="row">
+      <div class="card">
+        <h2>Live Transcript</h2>
+        <div id="transcript" class="transcript">
+          <span class="interim">Aguardando…</span>
+        </div>
+        <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="metric">Last wake: <strong id="lastWake">—</strong></span>
+          <span class="metric">Restarts: <strong id="restartCount">0</strong></span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Extracted Command</h2>
+        <div id="commandDisplay" class="command-display">
+          <span class="command-empty">Waiting for "Omegatron…"</span>
+        </div>
+        <h2 style="margin-top: 16px;">Intent (Groq Llama)</h2>
+        <pre id="intentJson" class="json">{
+  "action": null,
+  "target": null
+}</pre>
+        <div style="margin-top: 10px;">
+          <span class="metric">Parsing: <strong id="latencyValue">—</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test mode (manual text input) -->
+    <div class="card">
+      <h2>Test Mode (type instead of speak)</h2>
+      <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px;">
+        <input id="testInput" class="test-input" type="text" placeholder='Ex: "Omegatron mostra o estimate da Megan Flores"' />
+        <button id="testBtn" class="btn-secondary">Parse this</button>
+      </div>
+      <p style="color: var(--muted); font-size: 12px; margin-top: 8px;">
+        Bypass the speech engine — type any phrase including a wake word, or just the command, and parse directly.
+      </p>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <h2>Last 10 Detections</h2>
+      <div id="log" class="log">
+        <div class="log-empty">No detections yet. Start listening or use test mode.</div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <h2>Settings</h2>
+      <p style="color: var(--muted); font-size: 12px;">API key is read from the constant at the top of the file. Wake words and model below for reference.</p>
+      <div style="margin-top: 8px; font-size: 13px; color: var(--text); display: grid; gap: 4px;">
+        <div>Wake words: <code id="wakeWordsDisplay" style="color: var(--orange);"></code></div>
+        <div>Model: <code id="modelDisplay" style="color: var(--green);"></code></div>
+        <div>Lang: <code id="langDisplay" style="color: var(--blue);"></code></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ═══════════════════════════════════════════════════════════════
+  // CONSTANTS (edit these for your environment)
+  // ═══════════════════════════════════════════════════════════════
+  const GROQ_API_KEY = "COLE_AQUI";
+  const LLAMA_MODEL  = "llama-3.3-70b-versatile";
+  const WAKE_WORDS   = ["omegatron", "omega tron", "ômega tron"];
+  const RECOGNITION_LANG = "pt-BR";
+
+  // After we successfully process a wake word, suppress further
+  // detections for this long. Stops the loop where the interim
+  // transcript keeps matching the same wake word every 200ms.
+  const POST_DETECTION_COOLDOWN_MS = 2000;
+
+  // Maximum entries kept in the live detection log.
+  const LOG_MAX = 10;
+
+  // When the captured command has >= this many words, fire the parser
+  // even if the speech engine hasn't yet produced a final result.
+  // Speeds up perceived latency for short commands like "abre a yulia".
+  const MIN_WORDS_TO_FIRE = 2;
+
+  // Show the wake words / model in the settings card on render.
+  document.getElementById("wakeWordsDisplay").textContent = WAKE_WORDS.join(" · ");
+  document.getElementById("modelDisplay").textContent     = LLAMA_MODEL;
+  document.getElementById("langDisplay").textContent      = RECOGNITION_LANG;
+
+  // ═══════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════
+  /**
+   * App state machine:
+   *   idle       — nothing happening, listener stopped
+   *   listening  — engine running, waiting for a wake word
+   *   wake       — wake word detected, accumulating the command
+   *   parsing    — Groq round-trip in flight
+   *   done       — last result displayed (auto-returns to listening)
+   *   error      — recoverable error shown
+   */
+  let appState = "idle";
+  let recognition = null;
+  let recognitionShouldRun = false; // true when user clicked Start
+  let lastDetectionAt = 0;          // ms timestamp of last wake-word firing
+  let lastProcessedTranscript = ""; // anti-echo: don't re-fire on the same text
+  let restartCount = 0;
+  let currentCommandText = "";      // the command being captured after wake
+  let logEntries = [];              // ring buffer of detection objects
+
+  // DOM handles
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    badge:        $("statusBadge"),
+    statusText:   $("statusText"),
+    toggleBtn:    $("toggleBtn"),
+    clearLogBtn:  $("clearLogBtn"),
+    transcript:   $("transcript"),
+    lastWake:     $("lastWake"),
+    restartCount: $("restartCount"),
+    command:      $("commandDisplay"),
+    intent:       $("intentJson"),
+    latency:      $("latencyValue"),
+    testInput:    $("testInput"),
+    testBtn:      $("testBtn"),
+    log:          $("log"),
+    banner:       $("bannerArea"),
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // UTILITIES
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Strip accents + lowercase + collapse whitespace for matching. */
+  function normalize(s) {
+    return String(s || "")
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Returns { index, word } when any wake word is present in the
+   * normalized transcript, where `index` is the start position in
+   * the normalized string. Returns null when no match.
+   */
+  function findWakeWord(normalizedText) {
+    for (const w of WAKE_WORDS) {
+      const nw = normalize(w);
+      const i = normalizedText.indexOf(nw);
+      if (i >= 0) return { index: i, word: nw };
+    }
+    return null;
+  }
+
+  /**
+   * Extract the command text — everything AFTER the wake word in the
+   * transcript. We try to keep the original casing/punctuation of the
+   * raw text where possible by mapping the position back via length.
+   * For our purposes a normalized cut is fine — the LLM is robust to
+   * casing.
+   */
+  function extractCommand(raw) {
+    const norm = normalize(raw);
+    const match = findWakeWord(norm);
+    if (!match) return "";
+    // Slice from after the wake word, then strip leading filler
+    // words ("e", "ai", "olha", "por favor") that don't matter.
+    let tail = norm.slice(match.index + match.word.length).trim();
+    tail = tail.replace(/^(e |ai |olha |por favor |por favor, |pf |faz |faça )/g, "").trim();
+    return tail;
+  }
+
+  /** Pretty-print a JSON object with syntax-highlighting spans. */
+  function highlightJson(obj) {
+    const json = JSON.stringify(obj, null, 2);
+    return json
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/("(\\.|[^"\\])*")(\s*:)/g, '<span class="k">$1</span>$3')           // keys
+      .replace(/:\s*("(\\.|[^"\\])*")/g, ': <span class="s">$1</span>')             // strings
+      .replace(/:\s*(-?\d+(\.\d+)?)/g, ': <span class="n">$1</span>')               // numbers
+      .replace(/:\s*(true|false|null)/g, ': <span class="b">$1</span>');           // booleans/null
+  }
+
+  /** Set the visible state badge. */
+  function setState(state, label) {
+    appState = state;
+    els.badge.className = "status-badge status-" + state;
+    const emojiMap = {
+      idle: "⚪", listening: "🟢", wake: "🎤", parsing: "💭", done: "✅", error: "❌",
+    };
+    const labels = {
+      idle: "Not started", listening: "Listening",
+      wake: "Wake word detected", parsing: "Parsing…",
+      done: "Done", error: "Error",
+    };
+    els.badge.innerHTML = `<span class="status-emoji">${emojiMap[state] || "•"}</span><span id="statusText">${label || labels[state]}</span>`;
+    console.log(`[state] → ${state}${label ? " (" + label + ")" : ""}`);
+  }
+
+  /** Render the live transcript with interim/final styling. */
+  function renderTranscript({ finalText, interimText, wakeMatch }) {
+    let html = "";
+    if (finalText) {
+      // Highlight the wake word inside the final text.
+      let displayFinal = finalText;
+      if (wakeMatch) {
+        // Try to highlight the original casing range — for simplicity
+        // we just bold the first case-insensitive match.
+        const re = new RegExp("(" + WAKE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "i");
+        displayFinal = displayFinal.replace(re, '<span class="wake">$1</span>');
+      }
+      html += '<span class="final">' + displayFinal + "</span>";
+    }
+    if (interimText) {
+      if (html) html += " ";
+      html += '<span class="interim">' + interimText + "</span>";
+    }
+    if (!html) html = '<span class="interim">Aguardando…</span>';
+    els.transcript.innerHTML = html;
+  }
+
+  /** Push a row into the log and re-render. Keeps newest 10. */
+  function pushLog(entry) {
+    logEntries.unshift(entry);
+    if (logEntries.length > LOG_MAX) logEntries.length = LOG_MAX;
+    renderLog();
+  }
+
+  function renderLog() {
+    if (logEntries.length === 0) {
+      els.log.innerHTML = '<div class="log-empty">No detections yet. Start listening or use test mode.</div>';
+      return;
+    }
+    els.log.innerHTML = logEntries.map((e) => {
+      const time = new Date(e.ts).toLocaleTimeString("pt-BR", { hour12: false });
+      const action = e.intent?.action || "—";
+      const target = e.intent?.target || "—";
+      const conf   = e.intent?.confidence || "—";
+      const cmd    = (e.command || "").slice(0, 60);
+      return `<div class="log-row">
+        <span class="log-time">${time}</span>
+        <span class="log-cmd">${escapeHtml(cmd)}</span>
+        <span><span class="log-action">${escapeHtml(action)}</span> · <span class="log-target">${escapeHtml(target)}</span></span>
+        <span class="log-conf">${escapeHtml(conf)}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function showBanner(kind, html) {
+    els.banner.innerHTML = `<div class="banner banner-${kind}">${html}</div>`;
+  }
+  function clearBanner() { els.banner.innerHTML = ""; }
+
+  // ═══════════════════════════════════════════════════════════════
+  // GROQ INTENT PARSER
+  // ═══════════════════════════════════════════════════════════════
+  const SYSTEM_PROMPT = `Você é um parser de comandos de voz do Omega Unified, app de gestão de construção. Recebe frase em português brasileiro e retorna APENAS JSON válido (sem markdown, sem explicação) com a intenção.
+
+Schema:
+{
+  "action": "navigate" | "show_document" | "query" | "unknown",
+  "target": string | null,
+  "filter": object | null,
+  "raw_query": string,
+  "confidence": "high" | "medium" | "low"
+}
+
+Exemplos:
+- "volta pro dashboard" → {"action":"navigate","target":"dashboard","filter":null,"raw_query":"volta pro dashboard","confidence":"high"}
+- "mostra o estimate da Megan Flores" → {"action":"show_document","target":"estimate","filter":{"client":"Megan Flores","latest":true},"raw_query":"mostra o estimate da Megan Flores","confidence":"high"}
+- "quantos jobs ativos" → {"action":"query","target":"jobs_count","filter":{"status":"active"},"raw_query":"quantos jobs ativos","confidence":"high"}
+
+Se não entender, action="unknown" e confidence="low".
+SEMPRE retorne JSON válido. NUNCA texto fora do JSON.`;
+
+  /** Parse a command via Groq Llama. Returns { intent, latency_ms }. */
+  async function parseIntent(commandText) {
+    const started = performance.now();
+    if (!GROQ_API_KEY || GROQ_API_KEY === "COLE_AQUI") {
+      throw new Error("GROQ_API_KEY missing — set it at the top of voice-poc.html");
+    }
+    const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + GROQ_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: LLAMA_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: commandText },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error("Groq HTTP " + resp.status + ": " + text.slice(0, 200));
+    }
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+    let intent;
+    try { intent = JSON.parse(content); }
+    catch (e) {
+      // Llama occasionally still wraps in markdown despite response_format.
+      const stripped = content.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+      intent = JSON.parse(stripped);
+    }
+    if (!intent.raw_query) intent.raw_query = commandText;
+    return { intent, latency_ms: Math.round(performance.now() - started) };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DETECTION PIPELINE
+  // ═══════════════════════════════════════════════════════════════
+  /**
+   * Called whenever a transcript update has BOTH a wake word AND
+   * a usable command after it. Runs the Groq parse and renders.
+   */
+  async function processCommand(commandText, source = "voice") {
+    if (!commandText) return;
+    // Anti-echo: don't re-fire on the same text within the cooldown.
+    if (commandText === lastProcessedTranscript) {
+      console.log("[anti-echo] same transcript as last detection, ignoring");
+      return;
+    }
+    lastProcessedTranscript = commandText;
+    lastDetectionAt = Date.now();
+
+    setState("parsing");
+    els.command.textContent = commandText;
+    els.lastWake.textContent = new Date().toLocaleTimeString("pt-BR", { hour12: false });
+    els.intent.innerHTML = highlightJson({ action: null, target: null, status: "parsing…" });
+    els.latency.textContent = "—";
+
+    try {
+      const { intent, latency_ms } = await parseIntent(commandText);
+      els.intent.innerHTML = highlightJson(intent);
+      els.latency.textContent = latency_ms + " ms";
+      setState("done", "Done — " + (intent.action || "unknown"));
+      pushLog({ ts: Date.now(), command: commandText, intent, latency_ms, source });
+      console.log("[parsed]", { commandText, intent, latency_ms });
+      // After 2.5s of "done", drop back to "listening" so the user
+      // sees the result long enough to read it.
+      setTimeout(() => {
+        if (appState === "done") setState(recognitionShouldRun ? "listening" : "idle");
+      }, 2500);
+    } catch (err) {
+      console.error("[parse error]", err);
+      setState("error", "Parse failed");
+      showBanner("error", `<div><strong>Groq error:</strong> ${escapeHtml(err.message)}</div>`);
+      pushLog({ ts: Date.now(), command: commandText, intent: { action: "unknown", target: "error", confidence: "low" }, source });
+      setTimeout(() => {
+        clearBanner();
+        if (recognitionShouldRun) setState("listening");
+        else setState("idle");
+      }, 4000);
+    }
+  }
+
+  /**
+   * Drives the Web Speech onresult event. Looks for a wake word in
+   * every interim/final result, extracts the command after it, and
+   * fires processCommand when the command is long enough OR the
+   * result is final.
+   */
+  function handleRecognitionResult(event) {
+    // Gather interim + final pieces. SpeechRecognitionEvent.results
+    // is an iterable of SpeechRecognitionResult lists.
+    let finalText = "";
+    let interimText = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      const transcript = r[0]?.transcript || "";
+      if (r.isFinal) finalText += transcript + " ";
+      else           interimText += transcript + " ";
+    }
+    finalText = finalText.trim();
+    interimText = interimText.trim();
+
+    // Combined text used for wake-word search.
+    const combined = (finalText + " " + interimText).trim();
+    const normalized = normalize(combined);
+    const wake = findWakeWord(normalized);
+
+    renderTranscript({ finalText, interimText, wakeMatch: wake });
+
+    if (!wake) return;
+
+    // Cooldown — ignore rapid re-fires during the 2s after a hit.
+    const sinceLast = Date.now() - lastDetectionAt;
+    if (sinceLast < POST_DETECTION_COOLDOWN_MS) {
+      console.log(`[cooldown] ${POST_DETECTION_COOLDOWN_MS - sinceLast}ms remaining, ignoring wake hit`);
+      return;
+    }
+
+    setState("wake");
+    const command = extractCommand(combined);
+    currentCommandText = command;
+
+    // Fire when we have enough words OR when the speech engine has
+    // wrapped the result up as final.
+    const wordCount = command.split(/\s+/).filter(Boolean).length;
+    const hasFinal  = finalText && findWakeWord(normalize(finalText));
+    if (wordCount >= MIN_WORDS_TO_FIRE || hasFinal) {
+      processCommand(command, "voice");
+    } else {
+      // Hold in the "wake" state and wait for more words.
+      console.log(`[wake] only ${wordCount} words so far, holding…`);
+    }
+  }
+
+  function setupRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = RECOGNITION_LANG;
+
+    rec.onstart = () => {
+      console.log("[recognition] started");
+      clearBanner();
+      if (recognitionShouldRun) setState("listening");
+    };
+
+    rec.onresult = handleRecognitionResult;
+
+    rec.onerror = (ev) => {
+      console.warn("[recognition error]", ev.error, ev);
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        recognitionShouldRun = false;
+        setState("error", "Mic permission denied");
+        showBanner("error", `<div><strong>Microphone permission denied.</strong> Allow mic access in the browser address bar and click <em>Try again</em>.</div>`);
+        els.toggleBtn.textContent = "▶ Try again";
+      } else if (ev.error === "no-speech") {
+        // Common — engine just waits. Auto-restart handled in onend.
+      } else if (ev.error === "audio-capture") {
+        showBanner("error", `<div><strong>No microphone found.</strong> Plug one in and reload.</div>`);
+      } else {
+        showBanner("warn", `<div><strong>Recognition warning:</strong> ${escapeHtml(ev.error || "unknown")}.</div>`);
+      }
+    };
+
+    rec.onend = () => {
+      console.log("[recognition] ended");
+      // Web Speech in Chrome sometimes stops itself after a long silence.
+      // Auto-restart while the user still wants us listening.
+      if (recognitionShouldRun) {
+        restartCount += 1;
+        els.restartCount.textContent = restartCount;
+        try {
+          rec.start();
+        } catch (e) {
+          // start() can throw if it's still ending; defer.
+          console.warn("[recognition] auto-restart deferred:", e?.message);
+          setTimeout(() => { try { rec.start(); } catch {} }, 250);
+        }
+      } else {
+        setState("idle");
+      }
+    };
+
+    return rec;
+  }
+
+  function startListening() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      showBanner("error", `<div><strong>Web Speech API not supported.</strong> Use Chrome / Edge desktop.</div>`);
+      return;
+    }
+    if (!recognition) recognition = setupRecognition();
+    if (!recognition) return;
+    recognitionShouldRun = true;
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("[recognition] start error:", e?.message);
+    }
+    els.toggleBtn.textContent = "⏹ Stop Listening";
+    setState("listening");
+  }
+
+  function stopListening() {
+    recognitionShouldRun = false;
+    if (recognition) {
+      try { recognition.stop(); } catch {}
+    }
+    els.toggleBtn.textContent = "▶ Start Listening";
+    setState("idle");
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // WIRING — buttons + test mode
+  // ═══════════════════════════════════════════════════════════════
+  els.toggleBtn.addEventListener("click", () => {
+    if (appState === "idle" || appState === "error") startListening();
+    else stopListening();
+  });
+
+  els.clearLogBtn.addEventListener("click", () => {
+    logEntries = [];
+    renderLog();
+  });
+
+  // Test mode: type any phrase and parse directly.
+  function fireTest() {
+    const v = (els.testInput.value || "").trim();
+    if (!v) return;
+    // If the typed phrase contains a wake word, extract the command;
+    // otherwise treat the whole input as the command.
+    const norm = normalize(v);
+    const wake = findWakeWord(norm);
+    const command = wake ? extractCommand(v) : v;
+    if (!command) {
+      showBanner("warn", "<div>Type a command (with or without a wake word).</div>");
+      return;
+    }
+    lastProcessedTranscript = ""; // bypass the anti-echo for manual tests
+    lastDetectionAt = 0;
+    setState("wake");
+    els.command.textContent = command;
+    processCommand(command, "test");
+  }
+  els.testBtn.addEventListener("click", fireTest);
+  els.testInput.addEventListener("keydown", (e) => { if (e.key === "Enter") fireTest(); });
+
+  // Initial compatibility check.
+  (function bootstrap() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      showBanner("error", `<div><strong>Web Speech API is not available in this browser.</strong> Use Chrome or Edge on desktop. (Mobile Chrome works but with quirks.)</div>`);
+      els.toggleBtn.disabled = true;
+    } else if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+      showBanner("warn", `<div><strong>Mic only works on HTTPS or localhost.</strong> Currently loaded from <code>${escapeHtml(location.protocol)}</code> on <code>${escapeHtml(location.hostname)}</code>.</div>`);
+    } else if (GROQ_API_KEY === "COLE_AQUI" || !GROQ_API_KEY) {
+      showBanner("warn", `<div><strong>GROQ_API_KEY not set.</strong> Open <code>voice-poc.html</code> and paste your key at the top of the &lt;script&gt; block.</div>`);
+    }
+  })();
+</script>
+</body>
+</html>
