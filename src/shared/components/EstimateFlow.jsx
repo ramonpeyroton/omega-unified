@@ -328,6 +328,30 @@ export default function EstimateFlow({ job, user, onBack }) {
       if (pickedIds.length === 0 && approved.length > 0) {
         pickedIds = [approved[approved.length - 1].id];
       }
+
+      // ─── 3a. Legacy multi-merge auto-expand ─────────────────────
+      // When the contract row has a stored total that doesn't match the
+      // sum of currently picked estimates (typical for legacy contracts
+      // created BEFORE migration 060), try to find a subset of approved
+      // estimates whose totals sum to the contract total. We prefer the
+      // simplest answer first: ALL approved estimates. If that matches,
+      // use it. This rescues Yulia's case (contract $37,400 with
+      // legacy estimate_id pointing to a single $18,200 row, while two
+      // approved estimates sum to $37,400).
+      if (ctr && ctr.total_amount && approved.length > 1) {
+        const target = Number(ctr.total_amount) || 0;
+        const currentSum = approved
+          .filter((e) => pickedIds.includes(e.id))
+          .reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
+        if (Math.abs(currentSum - target) > 1) {
+          const allSum = approved.reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
+          if (Math.abs(allSum - target) <= 1) {
+            pickedIds = approved.map((e) => e.id);
+          }
+          // If "all" still doesn't match, we leave pickedIds as-is and let
+          // the math chip flag it red so Attila knows something's off.
+        }
+      }
       setPickedEstimateIds(pickedIds);
 
       // Choose default plan source — the most recent of the picked
@@ -925,63 +949,126 @@ export default function EstimateFlow({ job, user, onBack }) {
               <p className="text-sm text-omega-stone py-10 text-center">No estimate has been created for this job yet.</p>
             ) : (
               <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Description</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2 text-right">Unit</th>
-                        <th className="px-3 py-2 text-right">Unit Price</th>
-                        <th className="px-3 py-2 text-right">Line Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(estimate.line_items || []).length === 0 && (
-                        <tr><td colSpan={5} className="px-3 py-6 text-center text-omega-stone text-sm">No line items.</td></tr>
-                      )}
-                      {(estimate.line_items || []).map((li, i) => (
-                        <tr key={i}>
-                          <td className="px-3 py-2">{li.description || li.item || '—'}</td>
-                          <td className="px-3 py-2 text-right">{li.qty ?? '—'}</td>
-                          <td className="px-3 py-2 text-right">{li.unit || '—'}</td>
-                          <td className="px-3 py-2 text-right">{li.unit_price != null ? `$${Number(li.unit_price).toLocaleString()}` : '—'}</td>
-                          <td className="px-3 py-2 text-right font-medium">{li.total != null ? `$${Number(li.total).toLocaleString()}` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+                {/* Render mode: EstimateBuilder writes `sections` (each
+                    has title + items[]); legacy estimates use a flat
+                    `line_items` array. We support both so the Review
+                    step works for any vintage of estimate. */}
+                {Array.isArray(estimate.sections) && estimate.sections.length > 0 ? (
+                  <div className="space-y-4">
+                    {estimate.sections.map((sec, si) => (
+                      <div key={si} className="rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="px-4 py-2 bg-omega-cloud text-xs font-bold uppercase tracking-wider text-omega-charcoal">
+                          {sec.title || `Section ${si + 1}`}
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                          {(sec.items || []).length === 0 && (
+                            <p className="px-4 py-3 text-xs text-omega-stone italic">No items in this section.</p>
+                          )}
+                          {(sec.items || []).map((it, ii) => (
+                            <div key={ii} className="px-4 py-3 grid grid-cols-[1fr_auto] gap-4 items-start">
+                              <div>
+                                <p className="text-sm font-semibold text-omega-charcoal">{it.description || it.item || '—'}</p>
+                                {it.scope && (
+                                  <p className="text-xs text-omega-stone mt-1 whitespace-pre-line leading-snug">{it.scope}</p>
+                                )}
+                              </div>
+                              <p className="text-sm font-semibold text-omega-charcoal tabular-nums whitespace-nowrap">
+                                ${Number(it.price ?? 0).toLocaleString()}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                     {estimate.total_amount != null && (
-                      <tfoot>
-                        <tr className="font-bold">
-                          <td colSpan={4} className="px-3 py-3 text-right">Total</td>
-                          <td className="px-3 py-3 text-right">${Number(estimate.total_amount).toLocaleString()}</td>
-                        </tr>
-                      </tfoot>
+                      <div className="flex justify-between items-center bg-omega-charcoal text-white rounded-xl px-5 py-3 font-bold">
+                        <span className="uppercase text-xs tracking-wider">Estimate Total</span>
+                        <span className="text-lg tabular-nums">${Number(estimate.total_amount).toLocaleString()}</span>
+                      </div>
                     )}
-                  </table>
-                </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Description</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2 text-right">Unit</th>
+                          <th className="px-3 py-2 text-right">Unit Price</th>
+                          <th className="px-3 py-2 text-right">Line Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {(estimate.line_items || []).length === 0 && (
+                          <tr><td colSpan={5} className="px-3 py-6 text-center text-omega-stone text-sm">No items in this estimate.</td></tr>
+                        )}
+                        {(estimate.line_items || []).map((li, i) => (
+                          <tr key={i}>
+                            <td className="px-3 py-2">{li.description || li.item || '—'}</td>
+                            <td className="px-3 py-2 text-right">{li.qty ?? '—'}</td>
+                            <td className="px-3 py-2 text-right">{li.unit || '—'}</td>
+                            <td className="px-3 py-2 text-right">{li.unit_price != null ? `$${Number(li.unit_price).toLocaleString()}` : '—'}</td>
+                            <td className="px-3 py-2 text-right font-medium">{li.total != null ? `$${Number(li.total).toLocaleString()}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {estimate.total_amount != null && (
+                        <tfoot>
+                          <tr className="font-bold">
+                            <td colSpan={4} className="px-3 py-3 text-right">Total</td>
+                            <td className="px-3 py-3 text-right">${Number(estimate.total_amount).toLocaleString()}</td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                )}
 
                 {estimate.notes && (
                   <div className="mt-4 p-3 rounded-lg bg-omega-cloud text-sm text-omega-slate">{estimate.notes}</div>
                 )}
 
-                <div className="flex justify-end gap-2 mt-6 flex-wrap">
-                  <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Reject</button>
-                  <button onClick={() => setShowChangeModal(true)} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-info hover:bg-blue-900 text-white text-sm font-semibold disabled:opacity-60">
-                    <MessageSquare className="w-4 h-4" /> Request Changes
-                  </button>
-                  {/* Send to Client — only when estimate hasn't been sent yet.
-                      Moves pipeline to estimate_sent so the client-side team
-                      knows the estimate is now with the client. */}
-                  {estimate.status !== 'sent' && estimate.status !== 'approved' && (
-                    <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
-                      {saving ? 'Sending…' : 'Send to Client'}
+                {/* Action row — disabled when the estimate is already
+                    signed or approved by the client. The customer has
+                    already committed; the only meaningful next step is
+                    Continue (or Re-pick from Step 2 / 3). */}
+                {(estimate.signed_at || estimate.status === 'approved' || estimate.status === 'signed') ? (
+                  <div className="mt-6 flex items-center justify-between flex-wrap gap-3 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
+                    <div className="text-sm text-green-900">
+                      <p className="font-semibold">Estimate already approved by client</p>
+                      <p className="text-xs mt-0.5">
+                        {estimate.signed_at && `Signed on ${new Date(estimate.signed_at).toLocaleDateString()}`}
+                        {!estimate.signed_at && estimate.approved_at && `Approved on ${new Date(estimate.approved_at).toLocaleDateString()}`}
+                        {estimate.signed_by && ` by ${estimate.signed_by}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setStep(2)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold"
+                    >
+                      Continue to Select Estimates <ChevronRightIcon />
                     </button>
-                  )}
-                  <button onClick={approveEstimate} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-                    {saving ? 'Saving…' : 'Approve Estimate'}
-                  </button>
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-end gap-2 mt-6 flex-wrap">
+                    <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Reject</button>
+                    <button onClick={() => setShowChangeModal(true)} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-info hover:bg-blue-900 text-white text-sm font-semibold disabled:opacity-60">
+                      <MessageSquare className="w-4 h-4" /> Request Changes
+                    </button>
+                    {/* Send to Client — only when estimate hasn't been sent yet.
+                        Moves pipeline to estimate_sent so the client-side team
+                        knows the estimate is now with the client. */}
+                    {estimate.status !== 'sent' && (
+                      <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
+                        {saving ? 'Sending…' : 'Send to Client'}
+                      </button>
+                    )}
+                    <button onClick={approveEstimate} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+                      {saving ? 'Saving…' : 'Approve Estimate'}
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -990,6 +1077,7 @@ export default function EstimateFlow({ job, user, onBack }) {
         {/* STEP 2 — Select Estimates (replaces old Payment Plan editor) */}
         {step === 2 && (
           <EstimatePicker
+            perms={perms}
             approvedEstimates={approvedEstimates}
             pickedEstimateIds={pickedEstimateIds}
             planSourceEstimateId={planSourceEstimateId}
@@ -1290,6 +1378,7 @@ export default function EstimateFlow({ job, user, onBack }) {
 // total + a green/red consistency badge, an explicit confirmation
 // modal pops on Continue, and Step 3 has a chip that re-validates.
 function EstimatePicker({
+  perms,
   approvedEstimates,
   pickedEstimateIds,
   planSourceEstimateId,
@@ -1299,6 +1388,7 @@ function EstimatePicker({
   onBack,
   saving,
 }) {
+  const readOnly = !perms?.canSendContract;
   const picked = (approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id));
   const total  = picked.reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
 
@@ -1328,10 +1418,17 @@ function EstimatePicker({
   return (
     <section className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-lg font-bold text-omega-charcoal mb-1">Select Estimates</h2>
-      <p className="text-sm text-omega-stone mb-5">
+      <p className="text-sm text-omega-stone mb-3">
         Pick which approved estimate(s) feed this contract. The Schedule A
         and total are derived from your selection.
       </p>
+
+      {readOnly && (
+        <div className="mb-4 flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+          <Info className="w-4 h-4 text-blue-700 mt-0.5" />
+          <p className="text-sm text-blue-900">Read-only — only Sales / Operations / Owner can change the selection and send contracts.</p>
+        </div>
+      )}
 
       <ul className="space-y-2">
         {approvedEstimates.map((e) => {
@@ -1350,8 +1447,9 @@ function EstimatePicker({
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={(ev) => onTogglePick(e.id, ev.target.checked)}
-                  className="w-5 h-5 accent-omega-orange flex-shrink-0"
+                  disabled={readOnly}
+                  onChange={(ev) => !readOnly && onTogglePick(e.id, ev.target.checked)}
+                  className="w-5 h-5 accent-omega-orange flex-shrink-0 disabled:opacity-50"
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-omega-charcoal">
@@ -1396,8 +1494,9 @@ function EstimatePicker({
                     type="radio"
                     name="plan-source"
                     checked={planSourceEstimateId === e.id}
-                    onChange={() => onPickPlanSource(e.id)}
-                    className="accent-omega-orange"
+                    disabled={readOnly}
+                    onChange={() => !readOnly && onPickPlanSource(e.id)}
+                    className="accent-omega-orange disabled:opacity-50"
                   />
                   <span className="font-semibold text-omega-charcoal">{tag}</span>
                   <span className="text-omega-stone text-xs">— {summary}</span>
@@ -1425,7 +1524,8 @@ function EstimatePicker({
           </button>
           <button
             onClick={onContinue}
-            disabled={saving || picked.length === 0}
+            disabled={saving || picked.length === 0 || readOnly}
+            title={readOnly ? 'Only Sales / Operations / Owner can advance the contract flow.' : ''}
             className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
           >
             Continue to Contract <ChevronRightIcon />
@@ -1519,7 +1619,21 @@ function MathCheckChip({ estimate, paymentPlan, approvedEstimates, pickedEstimat
   // When the user is on a legacy contract with no picked ids, fall
   // back to comparing just plan vs estimate.
   const refTotal = sumOfPicked > 0 ? sumOfPicked : estTotal;
-  if (refTotal === 0) return null;
+  if (refTotal === 0) {
+    // Neutral / "nothing to check" state — show explicit info so the
+    // user doesn't wonder why no chip rendered.
+    return (
+      <div className="mb-4 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 flex items-start gap-3 text-omega-stone">
+        <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-semibold leading-snug">Nothing to math-check yet</p>
+          <p className="text-xs mt-1">
+            Go back to <strong>Select Estimates</strong> and pick at least one approved estimate before sending.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const planOk = Math.abs(sumOfPlan - refTotal) <= 1;
   const estOk  = sumOfPicked === 0 || Math.abs(estTotal - sumOfPicked) <= 1;
