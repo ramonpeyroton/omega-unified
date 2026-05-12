@@ -240,7 +240,18 @@
   // ═══════════════════════════════════════════════════════════════
   const GROQ_API_KEY = "COLE_AQUI";
   const LLAMA_MODEL  = "llama-3.3-70b-versatile";
-  const WAKE_WORDS   = ["omegatron", "omega tron", "ômega tron"];
+  // Wake-word variants the Chrome speech engine commonly produces.
+  // Normalize() strips accents at match time, so "ômegatron" hits
+  // "omegatron" — but we include explicit variants anyway in case
+  // the engine inserts spaces ("ô mega tron") or swaps the prefix.
+  const WAKE_WORDS   = [
+    "omegatron",
+    "omega tron",
+    "ômega tron",
+    "ô megatron",
+    "ô mega tron",
+    "mega tron",       // engine sometimes drops the leading "o"
+  ];
   const RECOGNITION_LANG = "pt-BR";
 
   // After we successfully process a wake word, suppress further
@@ -251,10 +262,21 @@
   // Maximum entries kept in the live detection log.
   const LOG_MAX = 10;
 
-  // When the captured command has >= this many words, fire the parser
-  // even if the speech engine hasn't yet produced a final result.
-  // Speeds up perceived latency for short commands like "abre a yulia".
-  const MIN_WORDS_TO_FIRE = 2;
+  // After a wake word is detected, wait this long for the user to
+  // keep talking. If no new transcript arrives in this window we fire
+  // whatever's been buffered. Tuned so a normal sentence-ending pause
+  // triggers, but a mid-sentence "uhh" doesn't cut you off.
+  const SILENCE_TIMEOUT_MS = 1600;
+
+  // Hard cap on how long we'll wait after the wake word before firing,
+  // regardless of silence. Stops the buffer from growing forever if
+  // the engine never produces a final result.
+  const MAX_BUFFER_MS = 8000;
+
+  // Minimum words in the captured command before we fire on a final
+  // result. Stops a stray "Omegatron" by itself from firing — the
+  // user almost certainly meant to follow it with a command.
+  const MIN_WORDS_TO_FIRE = 1;
 
   // Show the wake words / model in the settings card on render.
   document.getElementById("wakeWordsDisplay").textContent = WAKE_WORDS.join(" · ");
@@ -281,6 +303,19 @@
   let restartCount = 0;
   let currentCommandText = "";      // the command being captured after wake
   let logEntries = [];              // ring buffer of detection objects
+
+  // ─── Wake-word buffering state ────────────────────────────────
+  // After we detect a wake word we enter "buffering" mode: we keep
+  // accumulating whatever the user says until either (a) the engine
+  // marks the result final, (b) ~1.6s of silence elapses, or (c) the
+  // hard cap kicks in. Only then we fire the Groq parser. This stops
+  // the previous "fire on 2 words" behavior that was chopping the
+  // command mid-sentence.
+  let buffering = false;            // true between wake word and fire
+  let bufferStartedAt = 0;          // ms when we entered buffering
+  let bufferedCommand = "";         // best-known command text so far
+  let silenceTimerId = null;        // resets on every new transcript update
+  let maxWaitTimerId = null;        // one-shot cap, never resets
 
   // DOM handles
   const $ = (id) => document.getElementById(id);
@@ -366,9 +401,12 @@
       idle: "⚪", listening: "🟢", wake: "🎤", parsing: "💭", done: "✅", error: "❌",
     };
     const labels = {
-      idle: "Not started", listening: "Listening",
-      wake: "Wake word detected", parsing: "Parsing…",
-      done: "Done", error: "Error",
+      idle: "Not started",
+      listening: "Listening",
+      wake: "Listening… speak the command",
+      parsing: "Parsing…",
+      done: "Done",
+      error: "Error",
     };
     els.badge.innerHTML = `<span class="status-emoji">${emojiMap[state] || "•"}</span><span id="statusText">${label || labels[state]}</span>`;
     console.log(`[state] → ${state}${label ? " (" + label + ")" : ""}`);
@@ -542,17 +580,57 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON.`;
   }
 
   /**
-   * Drives the Web Speech onresult event. Looks for a wake word in
-   * every interim/final result, extracts the command after it, and
-   * fires processCommand when the command is long enough OR the
-   * result is final.
+   * Clear both timers and reset the buffering state. Called on fire,
+   * cooldown end, or manual stop. Idempotent.
+   */
+  function resetBuffer() {
+    if (silenceTimerId) { clearTimeout(silenceTimerId); silenceTimerId = null; }
+    if (maxWaitTimerId) { clearTimeout(maxWaitTimerId); maxWaitTimerId = null; }
+    buffering = false;
+    bufferStartedAt = 0;
+    bufferedCommand = "";
+  }
+
+  /**
+   * Fire the buffered command and reset state. Called when either
+   * silence elapses, the engine marks the result final, or the
+   * hard cap kicks in.
+   */
+  function fireBufferedCommand(reason) {
+    const command = bufferedCommand.trim();
+    console.log(`[fire] reason=${reason}, command="${command}"`);
+    resetBuffer();
+    if (!command) {
+      // Wake word fired but no actual command attached. Drop back to
+      // listening instead of bothering Groq with empty text.
+      if (recognitionShouldRun) setState("listening");
+      return;
+    }
+    const wordCount = command.split(/\s+/).filter(Boolean).length;
+    if (wordCount < MIN_WORDS_TO_FIRE) {
+      console.log(`[fire] command too short (${wordCount} words), dropping`);
+      if (recognitionShouldRun) setState("listening");
+      return;
+    }
+    processCommand(command, "voice");
+  }
+
+  /**
+   * Drives the Web Speech onresult event. Two phases:
+   *  - WAITING FOR WAKE: scan every result for a wake word, start
+   *    buffering when we find one.
+   *  - BUFFERING: keep updating bufferedCommand with the freshest
+   *    text. Reset the silence timer on every update so we only fire
+   *    when the user actually stops talking. Fire immediately when
+   *    the engine marks the result final.
    */
   function handleRecognitionResult(event) {
-    // Gather interim + final pieces. SpeechRecognitionEvent.results
-    // is an iterable of SpeechRecognitionResult lists.
+    // Gather interim + final pieces from the entire results array
+    // (not just event.resultIndex onwards — we need the full picture
+    // because the wake word might be in an earlier final result).
     let finalText = "";
     let interimText = "";
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    for (let i = 0; i < event.results.length; i++) {
       const r = event.results[i];
       const transcript = r[0]?.transcript || "";
       if (r.isFinal) finalText += transcript + " ";
@@ -561,35 +639,51 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON.`;
     finalText = finalText.trim();
     interimText = interimText.trim();
 
-    // Combined text used for wake-word search.
     const combined = (finalText + " " + interimText).trim();
     const normalized = normalize(combined);
     const wake = findWakeWord(normalized);
 
     renderTranscript({ finalText, interimText, wakeMatch: wake });
 
-    if (!wake) return;
-
-    // Cooldown — ignore rapid re-fires during the 2s after a hit.
-    const sinceLast = Date.now() - lastDetectionAt;
-    if (sinceLast < POST_DETECTION_COOLDOWN_MS) {
-      console.log(`[cooldown] ${POST_DETECTION_COOLDOWN_MS - sinceLast}ms remaining, ignoring wake hit`);
+    if (!wake) {
+      // No wake word visible anywhere. If we were buffering and the
+      // engine cleared the transcript (rare), let silence cap fire.
       return;
     }
 
-    setState("wake");
-    const command = extractCommand(combined);
-    currentCommandText = command;
+    // Cooldown — ignore new wake hits in the 2s after a fire.
+    const sinceLast = Date.now() - lastDetectionAt;
+    if (sinceLast < POST_DETECTION_COOLDOWN_MS) {
+      // Stay quiet — don't even start buffering.
+      return;
+    }
 
-    // Fire when we have enough words OR when the speech engine has
-    // wrapped the result up as final.
-    const wordCount = command.split(/\s+/).filter(Boolean).length;
-    const hasFinal  = finalText && findWakeWord(normalize(finalText));
-    if (wordCount >= MIN_WORDS_TO_FIRE || hasFinal) {
-      processCommand(command, "voice");
-    } else {
-      // Hold in the "wake" state and wait for more words.
-      console.log(`[wake] only ${wordCount} words so far, holding…`);
+    // ── Enter buffering (first hit) ──
+    if (!buffering) {
+      buffering = true;
+      bufferStartedAt = Date.now();
+      setState("wake", "Listening… speak the command");
+      // Hard cap: fire no matter what after MAX_BUFFER_MS.
+      maxWaitTimerId = setTimeout(() => fireBufferedCommand("max-wait"), MAX_BUFFER_MS);
+    }
+
+    // Update the command buffer with whatever we have right now.
+    const fresh = extractCommand(combined).trim();
+    if (fresh && fresh !== bufferedCommand) {
+      bufferedCommand = fresh;
+      els.command.textContent = fresh || "(speak the command…)";
+    }
+
+    // Reset the silence timer on every transcript change. The next
+    // 1.6s of quiet triggers the fire.
+    if (silenceTimerId) clearTimeout(silenceTimerId);
+    silenceTimerId = setTimeout(() => fireBufferedCommand("silence"), SILENCE_TIMEOUT_MS);
+
+    // Final result that contains the wake word? User clearly paused
+    // long enough for the engine to commit — fire immediately, don't
+    // wait for the silence timer.
+    if (finalText && findWakeWord(normalize(finalText))) {
+      fireBufferedCommand("final-result");
     }
   }
 
@@ -667,6 +761,7 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON.`;
 
   function stopListening() {
     recognitionShouldRun = false;
+    resetBuffer();
     if (recognition) {
       try { recognition.stop(); } catch {}
     }
