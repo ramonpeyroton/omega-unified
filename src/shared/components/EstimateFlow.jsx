@@ -156,11 +156,14 @@ export default function EstimateFlow({ job, user, onBack }) {
       // wants combined into a single contract, we merge them into a
       // virtual estimate below so the contract Schedule A includes
       // ALL line items and the total is the sum.
+      // Pull EVERY estimate for the job EXCEPT explicit rejections.
+      // changes_requested / draft / sent / approved / signed all stay
+      // in — Brenda decides at the contract step which scope is real.
       const { data: allEstimates } = await supabase
         .from('estimates')
         .select('*')
         .eq('job_id', job.id)
-        .not('status', 'in', '(rejected,changes_requested)')
+        .neq('status', 'rejected')
         .order('created_at', { ascending: true });
       const list = allEstimates || [];
       // Default to the most recent — preserves the old behavior when
