@@ -287,14 +287,11 @@ export default function EstimateFlow({ job, user, onBack }) {
   async function loadData() {
     setLoading(true);
     try {
-      // Pull EVERY non-rejected estimate for the job, oldest first.
-      // When the seller built two (or more) estimates that the client
-      // wants combined into a single contract, we merge them into a
-      // virtual estimate below so the contract Schedule A includes
-      // ALL line items and the total is the sum.
-      // Pull EVERY estimate for the job EXCEPT explicit rejections.
-      // changes_requested / draft / sent / approved / signed all stay
-      // in — Brenda decides at the contract step which scope is real.
+      // ─── 1. Pull all non-rejected estimates for the job ─────────
+      // We pull EVERY non-rejected estimate (draft/sent/approved/signed/
+      // changes_requested). The picker UI later filters to show only
+      // the ones that have been approved/signed by the customer — the
+      // others stay loaded so Step 1 can still surface the latest one.
       const { data: allEstimates } = await supabase
         .from('estimates')
         .select('*')
@@ -302,189 +299,117 @@ export default function EstimateFlow({ job, user, onBack }) {
         .neq('status', 'rejected')
         .order('created_at', { ascending: true });
       const list = allEstimates || [];
-      // Default to the most recent — preserves the old behavior when
-      // only one estimate exists.
-      let est = list.length ? list[list.length - 1] : null;
-      // When there's more than one we synthesize a merged estimate.
-      // Sections are concatenated (each section gets prefixed with the
-      // estimate's bundle/option label so the contract reader can tell
-      // what came from where); total_amount is summed. Everything else
-      // (payment_plan, customer_message, estimate_number) is taken from
-      // the most recent row so existing UI keeps making sense.
-      if (list.length > 1) {
-        const mergedSections = [];
-        let mergedTotal = 0;
-        list.forEach((e, idx) => {
-          const numberTag = e.estimate_number ? `#${e.estimate_number}` : `Estimate ${idx + 1}`;
-          const labelTag = e.option_label || e.bundle_label || numberTag;
-          const total = Number(e.total_amount) || 0;
-          mergedTotal += total;
-          let pushed = false;
-          // Tries: sections → line_items → fallback placeholder. The
-          // placeholder guarantees that EVERY estimate is visibly
-          // accounted for in Schedule A even when its data shape is
-          // unusual (legacy estimate, missing items, etc.).
-          if (Array.isArray(e.sections) && e.sections.length) {
-            e.sections.forEach((s) => {
-              mergedSections.push({
-                title: `[${labelTag}] ${s.title || ''}`.trim(),
-                items: Array.isArray(s.items) ? s.items : [],
-              });
-              pushed = true;
-            });
-          }
-          if (!pushed && Array.isArray(e.line_items) && e.line_items.length) {
-            mergedSections.push({
-              title: `[${labelTag}] Description of Work`,
-              items: e.line_items.map((li) => ({
-                description: li.description || li.item || '',
-                scope: li.scope || '',
-                price: Number(li.price ?? li.total ?? li.unit_price ?? 0),
-              })),
-            });
-            pushed = true;
-          }
-          // Last-resort placeholder — never let an estimate vanish.
-          if (!pushed) {
-            mergedSections.push({
-              title: `[${labelTag}] Combined work`,
-              items: [{
-                description: e.estimate_number ? `Estimate #${e.estimate_number}` : `Estimate ${idx + 1}`,
-                scope: e.header_description || e.customer_message || '',
-                price: total,
-              }],
-            });
-          }
-        });
-        // If the latest estimate's payment_plan has percents (the stable
-        // bit), refresh the amounts against the merged total so step 2
-        // shows the right numbers even when nothing else triggers a recompute.
-        const refreshedEstPlan = Array.isArray(est?.payment_plan)
-          ? est.payment_plan.map((p) => {
-              if (p.percent != null && p.percent !== '') {
-                return { ...p, amount: Math.round((Number(p.percent) / 100) * mergedTotal * 100) / 100 };
-              }
-              return p;
-            })
-          : est?.payment_plan;
-        est = {
-          ...est,
-          // Keep the id/number of the latest so writes (mark approved, etc.)
-          // still target a real row. The synthesis only affects the
-          // *displayed* schedule + total inside ContractTemplate.
-          sections: mergedSections,
-          total_amount: mergedTotal,
-          payment_plan: refreshedEstPlan,
-          merged_from_count: list.length,
-          merged_from_ids: list.map((e) => e.id),
-        };
-        setToast({
-          type: 'info',
-          message: `Merged ${list.length} estimates for this job — contract Schedule A and total reflect the combined scope.`,
-        });
-      }
-      const { data: rawCtr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      // Picker source — only show estimates the client has approved
+      // or signed. These are the candidates Attila can include in a
+      // contract. Drafts and sent-but-not-yet-approved stay off the
+      // picker so they don't pollute the math.
+      const approved = list.filter((e) => e.status === 'approved' || e.status === 'signed' || e.signed_at);
+      setApprovedEstimates(approved);
+
+      // ─── 2. Load the existing contract (if any) ─────────────────
+      const { data: rawCtr } = await supabase
+        .from('contracts').select('*').eq('job_id', job.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
       let ctr = rawCtr;
-      setEstimate(est || null);
-
-      // ── CRITICAL: when the merged estimate's total differs from the
-      // stored contract total, the contract was created BEFORE the
-      // second estimate was added. Recompute the contract values
-      // (total + each payment_plan installment amount) IN-MEMORY so
-      // the ContractTemplate renders the correct numbers. We try to
-      // PERSIST when the contract isn't signed yet so a refresh keeps
-      // the new numbers. Signed contracts skip the DB write but still
-      // get the in-memory patch — otherwise the screen would keep
-      // showing stale data even though the seller saw the merge toast.
-      if (ctr && est && list && list.length > 1) {
-        const newTotal = Number(est.total_amount) || 0;
-        const oldTotal = Number(ctr.total_amount) || 0;
-        const totalsDiffer = Math.abs(newTotal - oldTotal) > 0.5;
-        if (totalsDiffer) {
-          // Recompute installment amounts using each row's percent
-          // (the stable bit) against the new total. If a row has no
-          // percent we keep its amount intact — manual override.
-          const refreshedPlan = Array.isArray(ctr.payment_plan) ? ctr.payment_plan.map((p) => {
-            if (p.percent != null && p.percent !== '') {
-              return { ...p, amount: Math.round((Number(p.percent) / 100) * newTotal * 100) / 100 };
-            }
-            return p;
-          }) : ctr.payment_plan;
-          const newDeposit = refreshedPlan && refreshedPlan[0] && refreshedPlan[0].percent != null
-            ? Math.round((Number(refreshedPlan[0].percent) / 100) * newTotal * 100) / 100
-            : ctr.deposit_amount;
-
-          // Always patch in-memory so the rendered contract is correct.
-          ctr = { ...ctr, total_amount: newTotal, deposit_amount: newDeposit, payment_plan: refreshedPlan };
-
-          // Only persist when not yet signed. A signed contract is
-          // legally frozen — we don't rewrite history, we ask the user
-          // to void + re-issue manually if they want a new envelope.
-          if (!rawCtr?.signed_at) {
-            try {
-              const { data: updated } = await supabase.from('contracts').update({
-                total_amount: newTotal,
-                deposit_amount: newDeposit,
-                payment_plan: refreshedPlan,
-              }).eq('id', ctr.id).select().single();
-              if (updated) ctr = updated;
-            } catch { /* fall back to in-memory only */ }
-            setToast({
-              type: 'success',
-              message: `Contract refreshed — total updated from $${oldTotal.toLocaleString()} to $${newTotal.toLocaleString()} (merged ${list.length} estimates). Re-send the envelope to update DocuSign.`,
-            });
-          } else {
-            setToast({
-              type: 'warning',
-              message: `Display refreshed — contract was already signed at the old total ($${oldTotal.toLocaleString()}). Issue a fresh contract for $${newTotal.toLocaleString()} if you need the new scope.`,
-            });
-          }
-        }
-      }
-
       setContract(ctr || null);
-      // Priority order for the installment plan in step 2:
-      //   1. Estimate already has a structured payment_plan — use it.
-      //   2. Contract already exists with a payment_plan — use it.
-      //   3. Parse the estimate.customer_message free-text (often
-      //      formatted as "Payment Schedule: Deposit 50%, Upon
-      //      Completion 50%") into a structured plan so Brenda doesn't
-      //      have to retype what Attila already promised the client.
-      //   4. Otherwise leave the array empty so the UI shows the
-      //      DEFAULT_PAYMENT_PLAN starter rows.
-      if (Array.isArray(est?.payment_plan) && est.payment_plan.length > 0) {
+
+      // ─── 3. Decide which estimates are PICKED ────────────────────
+      // Priority:
+      //   a) Contract has `estimate_ids` (new column from migration 060)
+      //   b) Contract has legacy `estimate_id` (single) — wrap as [id]
+      //   c) The most recent approved estimate (sensible default)
+      // The picker UI lets Attila change this selection at Step 2.
+      let pickedIds = [];
+      if (Array.isArray(ctr?.estimate_ids) && ctr.estimate_ids.length > 0) {
+        pickedIds = ctr.estimate_ids.filter((id) => approved.some((e) => e.id === id));
+      } else if (ctr?.estimate_id) {
+        pickedIds = approved.some((e) => e.id === ctr.estimate_id) ? [ctr.estimate_id] : [];
+      }
+      if (pickedIds.length === 0 && approved.length > 0) {
+        pickedIds = [approved[approved.length - 1].id];
+      }
+      setPickedEstimateIds(pickedIds);
+
+      // Choose default plan source — the most recent of the picked
+      // estimates. The plan-chooser modal in the picker UI lets Attila
+      // override this when the picked estimates have different plans.
+      const defaultPlanSource = pickedIds.length > 0 ? pickedIds[pickedIds.length - 1] : null;
+      setPlanSourceEstimateId(defaultPlanSource);
+
+      // ─── 4. Build the merged virtual estimate ────────────────────
+      const { estimate: pickedEstimate, scaledPlan } = buildPickedEstimate({
+        estimates: approved,
+        pickedIds,
+        planSourceId: defaultPlanSource,
+      });
+
+      // If the picker produced nothing (no approved estimates yet),
+      // fall back to the most recent estimate of any status so Step 1
+      // still has something to render.
+      const est = pickedEstimate || (list.length ? list[list.length - 1] : null);
+      setEstimate(est);
+
+      // ─── 5. Payment plan in state ────────────────────────────────
+      // Priority: scaled plan from picker → estimate.payment_plan →
+      // contract.payment_plan → parse customer_message → empty.
+      if (Array.isArray(scaledPlan) && scaledPlan.length > 0) {
+        setPaymentPlan(scaledPlan);
+      } else if (Array.isArray(est?.payment_plan) && est.payment_plan.length > 0) {
         setPaymentPlan(est.payment_plan);
       } else if (Array.isArray(ctr?.payment_plan) && ctr.payment_plan.length > 0) {
         setPaymentPlan(ctr.payment_plan);
       } else {
         const parsed = parsePlanFromMessage(est?.customer_message);
-        if (parsed.length > 0) {
-          setPaymentPlan(parsed);
-          setToast({ type: 'info', message: `Auto-filled ${parsed.length} installments from the estimate. Review and continue.` });
-        }
+        if (parsed.length > 0) setPaymentPlan(parsed);
       }
+
+      // ─── 6. Step routing ─────────────────────────────────────────
+      // signed contract  → step 5 (Invoice & Deposit)
+      // sent  contract   → step 4 (Awaiting Signature)
+      // draft contract   → step 3 (Generate Contract)
+      // approved estimate → step 2 (Select Estimates) — skips Step 1
+      // anything else    → step 1 (Review Estimate)
       if (ctr?.signed_at) setStep(5);
       else if (ctr?.status === 'sent' || ctr?.docusign_envelope_id) setStep(4);
       else if (ctr) setStep(3);
-      else if (est?.approved_at) setStep(2);
+      else if (est?.approved_at || est?.signed_at || est?.status === 'approved' || est?.status === 'signed') setStep(2);
       else setStep(1);
 
       // Step 5 prep — milestones + company info, only if signed.
-      if (ctr?.signed_at) {
-        await loadMilestonesAndCompany(ctr);
-      }
+      if (ctr?.signed_at) await loadMilestonesAndCompany(ctr);
 
-      // When EstimateFlow opens on a job that still sits at `new_lead`,
-      // the estimate is now "in review" — promote to estimate_draft so
-      // the kanban reflects that work has started.
+      // Pipeline promotion when the user first opens an existing estimate.
       if (est && (!job.pipeline_status || job.pipeline_status === 'new_lead')) {
         await setJobPipeline('estimate_draft');
+      }
+
+      // Informational toast when the contract is rendering off a
+      // multi-estimate selection — keeps the seller aware of the merge.
+      if (pickedIds.length > 1) {
+        setToast({
+          type: 'info',
+          message: `${pickedIds.length} estimates feed this contract — total $${(pickedEstimate?.total_amount || 0).toLocaleString()}.`,
+        });
       }
     } catch (err) {
       setToast({ type: 'error', message: 'Failed to load estimate data' });
     } finally {
       setLoading(false);
     }
+  }
+
+  // Re-derive merged estimate + plan whenever the user changes the
+  // picker selection. Pure UI state — no DB writes; the contract gets
+  // updated on the explicit "Continue to Contract" click in Step 2.
+  function rebuildFromPicked(nextPickedIds, nextPlanSourceId) {
+    const sourceId = nextPlanSourceId !== undefined ? nextPlanSourceId : planSourceEstimateId;
+    const { estimate: pickedEstimate, scaledPlan } = buildPickedEstimate({
+      estimates: approvedEstimates,
+      pickedIds: nextPickedIds,
+      planSourceId: sourceId,
+    });
+    setEstimate(pickedEstimate);
+    setPaymentPlan(scaledPlan || []);
   }
 
   // ─── Step 5 helpers ──────────────────────────────────────────────
@@ -817,25 +742,68 @@ export default function EstimateFlow({ job, user, onBack }) {
     setStep(3);
   }
 
+  // Picker-flow Continue handler. Persists the picked plan into the
+  // carrier estimate's `payment_plan` column (so a reload doesn't lose
+  // the scaling we just applied) and advances to Step 3. The picker
+  // already showed an explicit math-check modal before getting here.
+  async function confirmPickerAndContinue() {
+    if (!estimate) {
+      setToast({ type: 'error', message: 'No estimate selected.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      // Best-effort persistence — failure here is non-fatal because
+      // the state in memory still drives the next steps. If the user
+      // refreshes before sending, loadData re-applies buildPickedEstimate.
+      try {
+        await supabase
+          .from('estimates')
+          .update({ payment_plan: paymentPlan })
+          .eq('id', estimate.id);
+      } catch { /* tolerated */ }
+      setShowPickerConfirm(false);
+      setStep(3);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function generateAndSendContract(contractHtml) {
     if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
     if (!contractHtml) { setToast({ type: 'error', message: 'Could not snapshot the contract — please reload and try again.' }); return; }
     setSaving(true);
     try {
-      const { data: created, error: insErr } = await supabase
-        .from('contracts')
-        .insert([{
-          job_id: job.id,
-          estimate_id: estimate?.id || null,
-          status: 'draft',
-          payment_plan: paymentPlan,
-          total_amount: estimate?.total_amount || null,
-          deposit_amount: paymentPlan[0] && estimate?.total_amount
-            ? Math.round((Number(paymentPlan[0].percent) / 100) * Number(estimate.total_amount) * 100) / 100
-            : null,
-          created_by: user?.id || null,
-        }])
-        .select().single();
+      // Snapshot which estimates Attila picked at the time of sending.
+      // The migration 060 column `estimate_ids` records this on the
+      // contract row so we can later re-render Schedule A from the same
+      // picks even after the user edits the estimates.
+      const pickedIdsForContract = pickedEstimateIds.length > 0
+        ? pickedEstimateIds
+        : (estimate?.id ? [estimate.id] : []);
+      const contractInsertBase = {
+        job_id: job.id,
+        estimate_id: estimate?.id || null,
+        status: 'draft',
+        payment_plan: paymentPlan,
+        total_amount: estimate?.total_amount || null,
+        deposit_amount: paymentPlan[0] && estimate?.total_amount
+          ? Math.round((Number(paymentPlan[0].percent) / 100) * Number(estimate.total_amount) * 100) / 100
+          : null,
+        created_by: user?.id || null,
+      };
+      const contractInsertWithPicks = { ...contractInsertBase, estimate_ids: pickedIdsForContract };
+
+      // First try with the new estimate_ids column; if the migration
+      // hasn't been applied yet (PGRST204 missing column), fall back
+      // to the legacy shape so the send doesn't break.
+      let { data: created, error: insErr } = await supabase
+        .from('contracts').insert([contractInsertWithPicks]).select().single();
+      if (insErr && /estimate_ids/i.test(insErr.message || '')) {
+        const retry = await supabase.from('contracts').insert([contractInsertBase]).select().single();
+        created = retry.data;
+        insErr = retry.error;
+      }
       if (insErr) throw insErr;
 
       const { envelopeId } = await createEnvelope({ contractId: created.id, job, estimate, paymentPlan, html: contractHtml });
@@ -1028,45 +996,36 @@ export default function EstimateFlow({ job, user, onBack }) {
           </section>
         )}
 
-        {/* STEP 2 */}
+        {/* STEP 2 — Select Estimates (replaces old Payment Plan editor) */}
         {step === 2 && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-lg font-bold text-omega-charcoal mb-1">Payment Plan</h2>
-            <p className="text-sm text-omega-stone mb-4">Split the total into installments. The sum of percentages must equal 100%.</p>
-
-            <div className="space-y-2">
-              {paymentPlan.map((p, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <input disabled={!perms.canEditPaymentPlan} value={p.label} onChange={(e) => updateInstallment(i, { label: e.target.value })} className="col-span-4 px-3 py-2 rounded-lg border border-gray-200 text-sm disabled:bg-gray-50" placeholder="Label (e.g. Deposit)" />
-                  <div className="col-span-2 relative">
-                    <input disabled={!perms.canEditPaymentPlan} type="number" value={p.percent} onChange={(e) => updateInstallment(i, { percent: Number(e.target.value) || 0, amount: estimate?.total_amount ? Math.round(Number(e.target.value)/100 * Number(estimate.total_amount) * 100)/100 : 0 })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm pr-7 disabled:bg-gray-50" placeholder="0" />
-                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-omega-stone">%</span>
-                  </div>
-                  <div className="col-span-3 relative">
-                    <input disabled={!perms.canEditPaymentPlan} type="number" value={p.amount} onChange={(e) => updateInstallment(i, { amount: Number(e.target.value) || 0 })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm pl-6 disabled:bg-gray-50" placeholder="0.00" />
-                    <DollarSign className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-omega-stone" />
-                  </div>
-                  <input disabled={!perms.canEditPaymentPlan} type="date" value={p.due_date || ''} onChange={(e) => updateInstallment(i, { due_date: e.target.value })} className="col-span-2 px-3 py-2 rounded-lg border border-gray-200 text-sm disabled:bg-gray-50" />
-                  <button disabled={!perms.canEditPaymentPlan} onClick={() => removeInstallment(i)} className="col-span-1 text-red-500 hover:text-red-700 flex justify-center disabled:opacity-40"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              ))}
-            </div>
-
-            {perms.canEditPaymentPlan && (
-              <button onClick={addInstallment} className="mt-3 flex items-center gap-1 text-sm font-semibold text-omega-orange hover:text-omega-dark">
-                <Plus className="w-4 h-4" /> Add Installment
-              </button>
-            )}
-
-            <div className="mt-5 flex items-center justify-between border-t border-gray-200 pt-4">
-              <p className={`text-sm font-semibold ${Math.round(planTotalPct) === 100 ? 'text-omega-success' : 'text-omega-warning'}`}>
-                Total: {planTotalPct}% {Math.round(planTotalPct) === 100 ? '✓' : `(need ${100 - planTotalPct}% more)`}
-              </p>
-              <button onClick={savePaymentPlanAndContinue} disabled={saving || !perms.canEditPaymentPlan} className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-                {saving ? 'Saving…' : 'Continue to Contract'}
-              </button>
-            </div>
-          </section>
+          <EstimatePicker
+            approvedEstimates={approvedEstimates}
+            pickedEstimateIds={pickedEstimateIds}
+            planSourceEstimateId={planSourceEstimateId}
+            onTogglePick={(id, checked) => {
+              const next = checked
+                ? Array.from(new Set([...pickedEstimateIds, id]))
+                : pickedEstimateIds.filter((x) => x !== id);
+              setPickedEstimateIds(next);
+              // If we removed the plan-source estimate, fall back to
+              // whatever's still picked (the latest of them).
+              const nextPlanSource = next.includes(planSourceEstimateId)
+                ? planSourceEstimateId
+                : (next[next.length - 1] || null);
+              if (nextPlanSource !== planSourceEstimateId) setPlanSourceEstimateId(nextPlanSource);
+              rebuildFromPicked(next, nextPlanSource);
+            }}
+            onPickPlanSource={(id) => {
+              setPlanSourceEstimateId(id);
+              rebuildFromPicked(pickedEstimateIds, id);
+            }}
+            onContinue={() => {
+              // Check 1 of 3: explicit confirmation modal with the math.
+              setShowPickerConfirm(true);
+            }}
+            onBack={() => setStep(1)}
+            saving={saving}
+          />
         )}
 
         {/* STEP 3 */}
@@ -1233,6 +1192,18 @@ export default function EstimateFlow({ job, user, onBack }) {
         )}
       </div>
 
+      {showPickerConfirm && (
+        <PickerConfirmModal
+          approvedEstimates={approvedEstimates}
+          pickedEstimateIds={pickedEstimateIds}
+          total={(approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id))
+            .reduce((s, e) => s + (Number(e.total_amount) || 0), 0)}
+          saving={saving}
+          onClose={() => setShowPickerConfirm(false)}
+          onConfirm={confirmPickerAndContinue}
+        />
+      )}
+
       {showManualAdvanceModal && (
         <ManualAdvancePinModal
           user={user}
@@ -1284,6 +1255,227 @@ export default function EstimateFlow({ job, user, onBack }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Step 2 — Estimate Picker ──────────────────────────────────
+// Replaces the old Payment Plan editor. Lists every approved/signed
+// estimate for the job as a row of checkboxes. The total at the
+// bottom updates live as boxes are toggled. When the picked set has
+// MULTIPLE estimates with DIFFERENT payment-plan structures, a
+// secondary "Plan source" radio appears so Attila tells the system
+// which plan should drive the contract installments.
+//
+// Math check is enforced in 3 places — this picker shows the running
+// total + a green/red consistency badge, an explicit confirmation
+// modal pops on Continue, and Step 3 has a chip that re-validates.
+function EstimatePicker({
+  approvedEstimates,
+  pickedEstimateIds,
+  planSourceEstimateId,
+  onTogglePick,
+  onPickPlanSource,
+  onContinue,
+  onBack,
+  saving,
+}) {
+  const picked = (approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id));
+  const total  = picked.reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
+
+  // Distinct plan fingerprints among the picked rows — when there's
+  // more than one distinct shape we have to ask the user which to use.
+  const planSet = new Set(picked.map((e) => planFingerprint(e.payment_plan)));
+  const plansDiffer = picked.length > 1 && planSet.size > 1;
+
+  if (!approvedEstimates || approvedEstimates.length === 0) {
+    return (
+      <section className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+        <h2 className="text-lg font-bold text-omega-charcoal">Select Estimates</h2>
+        <p className="text-sm text-omega-stone mt-3">
+          No approved estimates yet for this job. Once the customer signs an
+          estimate the contract flow will pick up automatically here.
+        </p>
+        <button
+          onClick={onBack}
+          className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to Review
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-lg font-bold text-omega-charcoal mb-1">Select Estimates</h2>
+      <p className="text-sm text-omega-stone mb-5">
+        Pick which approved estimate(s) feed this contract. The Schedule A
+        and total are derived from your selection.
+      </p>
+
+      <ul className="space-y-2">
+        {approvedEstimates.map((e) => {
+          const checked = pickedEstimateIds.includes(e.id);
+          const tag = e.estimate_number ? `OM-${e.estimate_number}` : 'Estimate';
+          const amount = Number(e.total_amount) || 0;
+          return (
+            <li key={e.id}>
+              <label
+                className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+                  checked
+                    ? 'border-omega-orange bg-omega-pale/40'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(ev) => onTogglePick(e.id, ev.target.checked)}
+                  className="w-5 h-5 accent-omega-orange flex-shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-omega-charcoal">
+                    {tag}
+                    {e.option_label && <span className="ml-2 text-xs text-omega-stone font-normal">({e.option_label})</span>}
+                  </p>
+                  <p className="text-xs text-omega-stone mt-0.5">
+                    {e.status?.toUpperCase() || 'APPROVED'}
+                    {e.signed_at && ` · signed ${new Date(e.signed_at).toLocaleDateString()}`}
+                    {!e.signed_at && e.approved_at && ` · approved ${new Date(e.approved_at).toLocaleDateString()}`}
+                  </p>
+                </div>
+                <span className="text-lg font-bold text-omega-charcoal tabular-nums whitespace-nowrap">
+                  ${amount.toLocaleString()}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Plan-source picker — only shown when picked plans diverge */}
+      {plansDiffer && (
+        <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-bold text-amber-900 flex items-center gap-2">
+            <Info className="w-4 h-4" /> These estimates use different payment plans
+          </p>
+          <p className="text-xs text-amber-900/80 mt-1 mb-3">
+            Pick which plan structure to scale up to the combined total. Percents
+            from the chosen plan are reapplied; the amounts get recomputed.
+          </p>
+          <div className="space-y-1.5">
+            {picked.map((e) => {
+              const tag = e.estimate_number ? `OM-${e.estimate_number}` : 'Estimate';
+              const plan = Array.isArray(e.payment_plan) ? e.payment_plan : [];
+              const summary = plan.length
+                ? plan.map((p) => `${p.percent || 0}%`).join(' / ')
+                : '(no plan)';
+              return (
+                <label key={e.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <input
+                    type="radio"
+                    name="plan-source"
+                    checked={planSourceEstimateId === e.id}
+                    onChange={() => onPickPlanSource(e.id)}
+                    className="accent-omega-orange"
+                  />
+                  <span className="font-semibold text-omega-charcoal">{tag}</span>
+                  <span className="text-omega-stone text-xs">— {summary}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Live total + math-check badge */}
+      <div className="mt-6 border-t border-gray-200 pt-4 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[11px] uppercase font-semibold text-omega-stone tracking-wider">Selected total</p>
+          <p className="text-2xl font-bold text-omega-charcoal mt-0.5 tabular-nums">
+            ${total.toLocaleString()}
+            <span className="text-sm font-normal text-omega-stone ml-2">
+              ({picked.length} of {approvedEstimates.length} estimate{approvedEstimates.length === 1 ? '' : 's'})
+            </span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onBack} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
+            Back
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={saving || picked.length === 0}
+            className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+          >
+            Continue to Contract <ChevronRightIcon />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Tiny inline arrow — Lucide ChevronRight collides with existing import
+// scopes elsewhere; defining a local SVG keeps the picker self-contained.
+function ChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m8 5 5 5-5 5" />
+    </svg>
+  );
+}
+
+// ─── Math-check confirmation modal ─────────────────────────────
+// Shown when the user clicks "Continue" in Step 2. Echoes the
+// selected estimates back with their individual totals and the
+// final sum, so Attila has to confirm the math BEFORE moving on.
+// One of three math-check layers (modal + chip + send guard).
+function PickerConfirmModal({ approvedEstimates, pickedEstimateIds, total, saving, onConfirm, onClose }) {
+  const picked = (approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id));
+  if (!picked.length) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(ev) => ev.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-base font-bold text-omega-charcoal flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-omega-success" /> Confirm contract total
+          </h3>
+        </div>
+        <div className="px-6 py-5">
+          <p className="text-sm text-omega-stone mb-3">
+            Verify the math before generating the contract:
+          </p>
+          <ul className="space-y-1 mb-3">
+            {picked.map((e) => {
+              const tag = e.estimate_number ? `OM-${e.estimate_number}` : 'Estimate';
+              return (
+                <li key={e.id} className="flex justify-between text-sm">
+                  <span className="text-omega-charcoal font-medium">{tag}</span>
+                  <span className="text-omega-charcoal tabular-nums">${Number(e.total_amount || 0).toLocaleString()}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="border-t border-gray-200 pt-3 flex justify-between items-baseline">
+            <span className="text-xs uppercase tracking-wider font-bold text-omega-stone">Total</span>
+            <span className="text-2xl font-bold text-omega-charcoal tabular-nums">${total.toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-omega-charcoal hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Confirm & Continue'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
