@@ -151,7 +151,69 @@ export default function EstimateFlow({ job, user, onBack }) {
   async function loadData() {
     setLoading(true);
     try {
-      const { data: est } = await supabase.from('estimates').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      // Pull EVERY non-rejected estimate for the job, oldest first.
+      // When the seller built two (or more) estimates that the client
+      // wants combined into a single contract, we merge them into a
+      // virtual estimate below so the contract Schedule A includes
+      // ALL line items and the total is the sum.
+      const { data: allEstimates } = await supabase
+        .from('estimates')
+        .select('*')
+        .eq('job_id', job.id)
+        .not('status', 'in', '(rejected,changes_requested)')
+        .order('created_at', { ascending: true });
+      const list = allEstimates || [];
+      // Default to the most recent — preserves the old behavior when
+      // only one estimate exists.
+      let est = list.length ? list[list.length - 1] : null;
+      // When there's more than one we synthesize a merged estimate.
+      // Sections are concatenated (each section gets prefixed with the
+      // estimate's bundle/option label so the contract reader can tell
+      // what came from where); total_amount is summed. Everything else
+      // (payment_plan, customer_message, estimate_number) is taken from
+      // the most recent row so existing UI keeps making sense.
+      if (list.length > 1) {
+        const mergedSections = [];
+        let mergedTotal = 0;
+        list.forEach((e, idx) => {
+          const tag = e.option_label || e.bundle_label || `Estimate ${idx + 1}`;
+          const total = Number(e.total_amount) || 0;
+          mergedTotal += total;
+          if (Array.isArray(e.sections) && e.sections.length) {
+            e.sections.forEach((s) => {
+              mergedSections.push({
+                title: e.option_label || e.bundle_label
+                  ? `[${tag}] ${s.title || ''}`.trim()
+                  : (s.title || ''),
+                items: s.items || [],
+              });
+            });
+          } else if (Array.isArray(e.line_items) && e.line_items.length) {
+            mergedSections.push({
+              title: tag,
+              items: e.line_items.map((li) => ({
+                description: li.description || li.item || '',
+                scope: li.scope || '',
+                price: Number(li.price ?? li.total ?? li.unit_price ?? 0),
+              })),
+            });
+          }
+        });
+        est = {
+          ...est,
+          // Keep the id/number of the latest so writes (mark approved, etc.)
+          // still target a real row. The synthesis only affects the
+          // *displayed* schedule + total inside ContractTemplate.
+          sections: mergedSections,
+          total_amount: mergedTotal,
+          merged_from_count: list.length,
+          merged_from_ids: list.map((e) => e.id),
+        };
+        setToast({
+          type: 'info',
+          message: `Merged ${list.length} estimates for this job — contract Schedule A and total reflect the combined scope.`,
+        });
+      }
       const { data: ctr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
       setEstimate(est || null);
       setContract(ctr || null);
