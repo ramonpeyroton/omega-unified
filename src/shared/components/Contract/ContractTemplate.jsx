@@ -356,24 +356,24 @@ export default function ContractTemplate({
   }, [job?.address]);
 
   const schedule = useMemo(() => readScheduleA(estimate), [estimate]);
-  // Total is computed defensively as the MAX of three sources:
-  //   1. Sum of paymentPlan installment amounts (most reliable — every
-  //      merge / recompute flow refreshes these).
-  //   2. Sum of Schedule A line item prices.
-  //   3. estimate.total_amount field.
-  // When EstimateFlow merges two estimates the paymentPlan amounts are
-  // refreshed first; relying on (1) makes the contract immune to any
-  // state-sync race where estimate.total_amount lags behind.
+  // Total comes from estimate.total_amount (which is the merged sum
+  // of every selected estimate's total). The previous Math.max defense
+  // was over-eager — if a stale section price-sum was higher than the
+  // real total, Math.max would surface the wrong number. The merge in
+  // EstimateFlow already guarantees estimate.total_amount is correct,
+  // so we just trust it. If it's somehow missing we fall back to the
+  // schedule sum, then the payment plan sum.
   const totalAmount = useMemo(() => {
-    const sumFromPlan = Array.isArray(paymentPlan)
-      ? paymentPlan.reduce((s, p) => s + (Number(p?.amount) || 0), 0)
-      : 0;
+    const fromEstimate = Number(estimate?.total_amount) || 0;
+    if (fromEstimate > 0) return fromEstimate;
     const sumFromSchedule = schedule.reduce(
       (acc, s) => acc + s.items.reduce((sum, it) => sum + (it.price || 0), 0),
       0
     );
-    const fromEstimate = Number(estimate?.total_amount) || 0;
-    return Math.max(sumFromPlan, sumFromSchedule, fromEstimate);
+    if (sumFromSchedule > 0) return sumFromSchedule;
+    return Array.isArray(paymentPlan)
+      ? paymentPlan.reduce((s, p) => s + (Number(p?.amount) || 0), 0)
+      : 0;
   }, [estimate, schedule, paymentPlan]);
 
   async function downloadPDF() {
