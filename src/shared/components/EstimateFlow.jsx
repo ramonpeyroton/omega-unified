@@ -217,8 +217,58 @@ export default function EstimateFlow({ job, user, onBack }) {
           message: `Merged ${list.length} estimates for this job — contract Schedule A and total reflect the combined scope.`,
         });
       }
-      const { data: ctr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: rawCtr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      let ctr = rawCtr;
       setEstimate(est || null);
+
+      // ── CRITICAL: when the merged estimate's total differs from the
+      // stored contract total, the contract was created BEFORE the
+      // second estimate was added. Recompute the contract values
+      // (total + each payment_plan installment amount) in-memory so
+      // the ContractTemplate renders the correct numbers. We also
+      // PERSIST the patch back to the contracts row so a refresh
+      // doesn't undo it and the eventual DocuSign envelope is sent
+      // with the right numbers. Only safe when contract is not yet
+      // signed (otherwise we don't touch signed contracts).
+      if (ctr && est && list && list.length > 1) {
+        const newTotal = Number(est.total_amount) || 0;
+        const oldTotal = Number(ctr.total_amount) || 0;
+        const totalsDiffer = Math.abs(newTotal - oldTotal) > 0.5;
+        const canPatch = !ctr.signed_at;
+        if (totalsDiffer && canPatch) {
+          // Recompute installment amounts using each row's percent
+          // (the stable bit) against the new total. If a row has no
+          // percent we keep its amount intact — manual override.
+          const refreshedPlan = Array.isArray(ctr.payment_plan) ? ctr.payment_plan.map((p) => {
+            if (p.percent != null && p.percent !== '') {
+              return { ...p, amount: Math.round((Number(p.percent) / 100) * newTotal * 100) / 100 };
+            }
+            return p;
+          }) : ctr.payment_plan;
+          const newDeposit = refreshedPlan && refreshedPlan[0] && refreshedPlan[0].percent != null
+            ? Math.round((Number(refreshedPlan[0].percent) / 100) * newTotal * 100) / 100
+            : ctr.deposit_amount;
+
+          // Persist so a refresh keeps the new numbers.
+          try {
+            const { data: updated } = await supabase.from('contracts').update({
+              total_amount: newTotal,
+              deposit_amount: newDeposit,
+              payment_plan: refreshedPlan,
+            }).eq('id', ctr.id).select().single();
+            if (updated) ctr = updated;
+          } catch {
+            // If the DB update fails we still patch the in-memory copy
+            // so the UI shows the right number; just won't survive a reload.
+            ctr = { ...ctr, total_amount: newTotal, deposit_amount: newDeposit, payment_plan: refreshedPlan };
+          }
+          setToast({
+            type: 'success',
+            message: `Contract refreshed — total updated from $${oldTotal.toLocaleString()} to $${newTotal.toLocaleString()} (merged ${list.length} estimates). Re-send the envelope to update DocuSign.`,
+          });
+        }
+      }
+
       setContract(ctr || null);
       // Priority order for the installment plan in step 2:
       //   1. Estimate already has a structured payment_plan — use it.
