@@ -31,6 +31,77 @@ async function callGroq(body) {
   return res.json();
 }
 
+// ─── Voice intent parser ─────────────────────────────────────────
+// Used by the Screen role's ambient voice assistant. Takes a free-text
+// command (typically pt-BR transcribed by Chrome's Web Speech API) and
+// returns a structured intent we can dispatch into the app. The system
+// prompt teaches the model our vocabulary so the same query works in
+// either Portuguese ("orçamento da Yulia") or English-as-heard-by-pt-BR
+// ("smate da yulia").
+const VOICE_INTENT_SYSTEM_PROMPT = `Você é um parser de comandos de voz do Omega Unified, app de gestão de construção. Recebe frase em português brasileiro (fala natural, com erros de transcrição) e retorna APENAS JSON válido (sem markdown, sem explicação) com a intenção.
+
+Schema:
+{
+  "action": "navigate" | "show_document" | "query" | "unknown",
+  "target": string | null,
+  "filter": object | null,
+  "raw_query": string,
+  "confidence": "high" | "medium" | "low"
+}
+
+VOCABULÁRIO — mapeia inputs (PT-BR ou inglês mal-transcrito) para targets canônicos em inglês:
+- "orçamento", "orcamento", "estimate", "estima", "smate" → target="estimate"
+- "contrato", "contract", "contracto" → target="contract"
+- "fatura", "invoice", "boleto", "cobrança", "nota" → target="invoice"
+- "recibo", "receipt" → target="receipt"
+- "dashboard", "painel", "home" → target="dashboard"
+- "pipeline", "kanban", "funil" → target="pipeline"
+- "calendário", "agenda", "calendar" → target="calendar"
+- "financeiro", "finance", "finanças" → target="finance"
+- "obras", "jobs", "trabalhos", "projetos" → target="jobs"
+- "subs", "subcontratados", "subcontractors", "terceiros" → target="subs"
+
+REGRAS:
+1. "abrir / mostrar / ver" + documento DE alguém → action="show_document", target=tipo, filter.client=nome, filter.latest=true.
+2. "ir / volta / abre" + nome de tela → action="navigate", target=nome da tela.
+3. "quantos / qual / total" → action="query".
+4. Nome próprio vai SEMPRE em filter.client.
+
+Exemplos:
+- "abre o orçamento da Megan Flores" → {"action":"show_document","target":"estimate","filter":{"client":"Megan Flores","latest":true},"raw_query":"abre o orçamento da Megan Flores","confidence":"high"}
+- "mostra o estimate da Yulia" → {"action":"show_document","target":"estimate","filter":{"client":"Yulia","latest":true},"raw_query":"mostra o estimate da Yulia","confidence":"high"}
+- "quantos jobs ativos" → {"action":"query","target":"jobs_count","filter":{"status":"active"},"raw_query":"quantos jobs ativos","confidence":"high"}
+- "volta pro dashboard" → {"action":"navigate","target":"dashboard","filter":null,"raw_query":"volta pro dashboard","confidence":"high"}
+
+SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição são esperados — interprete a INTENÇÃO, não a letra.`;
+
+/**
+ * Parse a free-text voice command into a structured intent.
+ * Returns { intent, latency_ms } on success. Throws on API errors.
+ */
+export async function parseVoiceIntent(commandText) {
+  const started = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const data = await callGroq({
+    model: MODEL,
+    temperature: 0,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: VOICE_INTENT_SYSTEM_PROMPT },
+      { role: 'user', content: commandText },
+    ],
+  });
+  const content = data?.choices?.[0]?.message?.content || '{}';
+  let intent;
+  try { intent = JSON.parse(content); }
+  catch {
+    const stripped = content.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    intent = JSON.parse(stripped);
+  }
+  if (!intent.raw_query) intent.raw_query = commandText;
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  return { intent, latency_ms: Math.round(now - started) };
+}
+
 /** Simple chat (no tools). */
 export async function chatWithGroq(messages) {
   try {

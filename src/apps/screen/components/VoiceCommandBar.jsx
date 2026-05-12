@@ -1,26 +1,55 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, X, Loader2, AlertTriangle, FileText, FileSignature, DollarSign, HardHat, Calendar } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Mic, MicOff, X, Loader2, AlertTriangle, FileText, FileSignature,
+  DollarSign, HardHat, Calendar,
+} from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabase';
+import { parseVoiceIntent } from '../../../shared/lib/groq';
 
-// Voice command bar designed for the TV dashboard. Targeted at the
-// Firestick remote's voice button — the Alexa transcription lands
-// in this input when it's focused, and Enter triggers our local
-// parser + result card.
+// ─── Ambient voice assistant for the TV dashboard ──────────────
+// Two modes coexist:
+//   1. WAKE WORD (Chrome desktop): continuous Web Speech recognition
+//      listening for "Omegatron". When the wake word lands, we
+//      buffer the trailing command, wait for a silent pause, then
+//      send the command to Groq for intent parsing.
+//   2. MANUAL INPUT (Firestick / fallback): the bottom of the bar
+//      exposes a focusable text field — the Alexa keyboard writes
+//      the transcript into it and we auto-submit on detected paste.
+// Both paths converge on `runIntent({ action, target, filter })`
+// which fans out to Supabase queries and renders the result card.
 //
-// Why an input + Enter loop instead of the Web Speech API? The page
-// can't access the Firestick remote's microphone directly. Alexa's
-// speech-to-text is what makes voice work, and that only writes into
-// the currently focused field. So we keep the input always focused.
-//
-// Commands supported (regex-matched, case-insensitive, accent-stripped):
-//   * "ultimo|last estimate (de|of|for|do|da) <name>"
-//   * "ultimo|last contract (de|of|for|do|da) <name>"
-//   * "obras|jobs (de|of) hoje|today|in progress|em andamento"
-//   * "pagamentos atrasados|overdue payments|past due"
-//   * "total a receber|outstanding|receivable"
-//   * <name>          — bare name shows the client summary
-// Anything else falls into "I didn't catch that" mode.
+// Notes:
+//   * Groq key comes from VITE_GROQ_API_KEY (same env var Jarvis uses).
+//   * Mic permission needs HTTPS — works on Vercel deploys, not on
+//     plain file:// loads.
 
+// Same wake-word variants as the standalone POC. Normalize() below
+// strips accents so "ômegatron" still matches "omegatron".
+const WAKE_WORDS = [
+  'omegatron', 'omega tron', 'ômega tron',
+  'ô megatron', 'ô mega tron', 'mega tron',
+];
+
+const POST_DETECTION_COOLDOWN_MS = 3000;
+const SILENCE_TIMEOUT_MS = 1600;
+const MAX_BUFFER_MS = 8000;
+const MIN_WORDS_TO_FIRE = 1;
+const VOICE_JUMP_THRESHOLD = 8;       // chars added in one event
+const AUTO_SUBMIT_DELAY_MS = 900;     // pause before firing manual input
+
+// pt-BR Chrome mangles English construction terms. Pre-translate the
+// most common mis-hearings to their Portuguese canonical form before
+// sending to Groq.
+const TRANSCRIPTION_FIXES = [
+  { from: /\b(smate|estima|estimat|estimete|esteimate|estimeite|stimate|stime|s mate)\b/gi, to: 'orcamento' },
+  { from: /\b(estimate)\b/gi, to: 'orcamento' },
+  { from: /\b(contract|contracto|contracts)\b/gi, to: 'contrato' },
+  { from: /\b(invoice|involce|in voice)\b/gi, to: 'fatura' },
+  { from: /\b(deshboard|desh board|deshibord)\b/gi, to: 'dashboard' },
+  { from: /\b(pipe line|piplaine|paipalain)\b/gi, to: 'pipeline' },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────
 function normalize(s) {
   return String(s || '')
     .toLowerCase()
@@ -43,130 +72,134 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// Returns one of:
-//   { kind: 'estimate_for', name }
-//   { kind: 'contract_for', name }
-//   { kind: 'today_jobs' }
-//   { kind: 'overdue_payments' }
-//   { kind: 'receivable_total' }
-//   { kind: 'client_summary', name }
-//   null
-function parseCommand(raw) {
-  const text = normalize(raw);
-  if (!text) return null;
-
-  // last/ultimo estimate ...
-  const estMatch = text.match(/(?:last|ultimo|latest)\s+(?:estimate|estimates)\s+(?:de|do|da|of|for|para|pra)?\s*(.+)/);
-  if (estMatch && estMatch[1]) return { kind: 'estimate_for', name: estMatch[1] };
-
-  // last/ultimo contract ...
-  const ctrMatch = text.match(/(?:last|ultimo|latest)\s+(?:contract|contracts|contrato|contratos)\s+(?:de|do|da|of|for|para|pra)?\s*(.+)/);
-  if (ctrMatch && ctrMatch[1]) return { kind: 'contract_for', name: ctrMatch[1] };
-
-  // jobs today / obras de hoje / in progress
-  if (/\b(?:jobs?\s+today|obras?\s+(?:de\s+)?hoje|in\s+progress|em\s+andamento|today'?s?\s+jobs?)\b/.test(text)) {
-    return { kind: 'today_jobs' };
+function findWakeWord(normalizedText) {
+  for (const w of WAKE_WORDS) {
+    const nw = normalize(w);
+    const i = normalizedText.indexOf(nw);
+    if (i >= 0) return { index: i, word: nw };
   }
-
-  // overdue payments / pagamentos atrasados / past due
-  if (/\b(?:overdue|past\s+due|atrasad(?:os|as)|pagamentos?\s+atrasad)/.test(text)) {
-    return { kind: 'overdue_payments' };
-  }
-
-  // total a receber / outstanding / receivable
-  if (/\b(?:total\s+a\s+receber|outstanding|receivable|a\s+receber|recebimentos?)/.test(text)) {
-    return { kind: 'receivable_total' };
-  }
-
-  // Just a name? Treat as client summary.
-  return { kind: 'client_summary', name: text };
+  return null;
 }
 
-// Fuzzy-match a normalized name string against jobs.client_name.
-// Returns up to 3 jobs whose normalized client_name contains every
-// token of the query (no exact-substring requirement so word order
-// is flexible). Names are tokenized so "yulia stanv" matches
-// "Yuliya Stanvilaski" even with mis-transcribed surnames.
+function extractCommand(raw) {
+  const norm = normalize(raw);
+  const match = findWakeWord(norm);
+  if (!match) return '';
+  let tail = norm.slice(match.index + match.word.length).trim();
+  tail = tail.replace(/^(e |ai |olha |por favor |por favor, |pf |faz |faça )/g, '').trim();
+  for (const { from, to } of TRANSCRIPTION_FIXES) tail = tail.replace(from, to);
+  return tail;
+}
+
+// Map a Groq intent into one of the local query "kinds" the result
+// card already knows how to render. Returns null when the intent is
+// "unknown" or has no usable target.
+function intentToQuery(intent) {
+  if (!intent || intent.action === 'unknown' || intent.confidence === 'low') return null;
+  const { action, target, filter } = intent;
+  const client = filter?.client || filter?.name;
+
+  if (action === 'show_document') {
+    if (target === 'estimate' && client) return { kind: 'estimate_for', name: client };
+    if (target === 'contract' && client) return { kind: 'contract_for', name: client };
+    if (target === 'invoice'  && client) return { kind: 'invoice_for',  name: client };
+    if (client) return { kind: 'client_summary', name: client };
+  }
+  if (action === 'query') {
+    if (target === 'jobs_count' || target === 'jobs') return { kind: 'today_jobs' };
+    if (target === 'overdue' || target === 'overdue_payments') return { kind: 'overdue_payments' };
+    if (target === 'receivable_total' || target === 'receivable') return { kind: 'receivable_total' };
+  }
+  if (action === 'navigate') {
+    // The Screen role is read-only — we can't actually navigate to
+    // other apps. We surface a friendly "navigation requested" card
+    // so the user knows the voice was heard, but can't act on it.
+    return { kind: 'navigate_unavailable', target: target || 'screen' };
+  }
+  return null;
+}
+
+// ─── Supabase fetchers (unchanged shapes feeding the ResultCard) ──
 async function findClientJobs(nameQuery) {
   const tokens = normalize(nameQuery).split(' ').filter((t) => t.length >= 2);
   if (tokens.length === 0) return [];
-  // Pull a manageable slice — we filter client-side because Postgres
-  // ILIKE doesn't strip accents and we want to be tolerant of those.
   const { data } = await supabase
     .from('jobs')
     .select('id, client_name, address, city, service, pipeline_status, salesperson_name, updated_at')
     .order('updated_at', { ascending: false })
     .limit(400);
-  const rows = (data || []).filter((j) => {
+  return (data || []).filter((j) => {
     const hay = normalize(j.client_name || '');
     return tokens.every((t) => hay.includes(t));
-  });
-  // Boost: jobs whose first token matches the first name strongly.
-  return rows.slice(0, 5);
+  }).slice(0, 5);
 }
 
+// ════════════════════════════════════════════════════════════════
+// Component
+// ════════════════════════════════════════════════════════════════
 export default function VoiceCommandBar() {
-  const [text, setText]       = useState('');
+  // ─── State ─────────────────────────────────────────────────────
+  const [voiceState, setVoiceState] = useState('idle'); // idle | listening | wake | parsing | done | error
+  const [voiceMicAllowed, setVoiceMicAllowed] = useState(false);
+  const [voiceWebSupported, setVoiceWebSupported] = useState(true);
+  const [transcript, setTranscript] = useState({ final: '', interim: '' });
+  const [currentCommand, setCurrentCommand] = useState('');
   const [running, setRunning] = useState(false);
-  const [result, setResult]   = useState(null); // { type, ... } or { error }
-  const [autoStatus, setAutoStatus] = useState(null); // 'listening' | 'submitting' | null
-  const inputRef = useRef(null);
-  const clearTimerRef = useRef(null);
-  // For auto-submit after voice transcription: track text length so we
-  // can detect a sudden jump (voice / paste) vs character-by-character
-  // typing. A jump triggers an auto-submit after a short debounce so
-  // the user doesn't have to press Next + Go after speaking.
-  const prevLenRef = useRef(0);
+  const [result, setResult] = useState(null);
+  const [manualText, setManualText] = useState('');
+  const [autoStatus, setAutoStatus] = useState(null);
+
+  // Refs (state that doesn't trigger re-renders)
+  const recognitionRef = useRef(null);
+  const recognitionShouldRunRef = useRef(false);
+  const lastDetectionAtRef = useRef(0);
+  const bufferingRef = useRef(false);
+  const bufferedCommandRef = useRef('');
+  const silenceTimerRef = useRef(null);
+  const maxWaitTimerRef = useRef(null);
+  const restartingAfterFireRef = useRef(false);
+  const manualInputRef = useRef(null);
+  const prevManualLenRef = useRef(0);
   const autoSubmitTimerRef = useRef(null);
-  const VOICE_JUMP_THRESHOLD = 8;       // chars added in one event
-  const AUTO_SUBMIT_DELAY_MS = 900;     // pause before firing
+  const clearResultTimerRef = useRef(null);
 
-  // Keep the input focused so the Firestick voice transcription lands
-  // here. Re-focuses on result close / dismiss too.
+  // ─── Auto-clear result after 45s ──────────────────────────────
   useEffect(() => {
-    const f = () => inputRef.current?.focus();
-    f();
-    const t = setInterval(f, 4000); // gentle re-focus in case TV remote stole focus
-    return () => clearInterval(t);
-  }, []);
-
-  // Auto-clear result after 45s so the TV stays useful.
-  useEffect(() => {
-    if (clearTimerRef.current) { clearTimeout(clearTimerRef.current); clearTimerRef.current = null; }
+    if (clearResultTimerRef.current) clearTimeout(clearResultTimerRef.current);
     if (!result) return;
-    clearTimerRef.current = setTimeout(() => setResult(null), 45_000);
-    return () => clearTimeout(clearTimerRef.current);
+    clearResultTimerRef.current = setTimeout(() => setResult(null), 45_000);
+    return () => clearTimeout(clearResultTimerRef.current);
   }, [result]);
 
-  async function runCommand(rawText) {
-    const cmd = parseCommand(rawText);
-    if (!cmd) {
-      setResult({ kind: 'unknown', text: rawText });
+  // ─── runIntent: query Supabase + render the result card ───────
+  const runIntent = useCallback(async (rawText, intent) => {
+    const query = intentToQuery(intent);
+    if (!query) {
+      setResult({ kind: 'unknown', text: rawText, intent });
       return;
     }
     setRunning(true);
     try {
-      if (cmd.kind === 'estimate_for' || cmd.kind === 'contract_for' || cmd.kind === 'client_summary') {
-        const jobs = await findClientJobs(cmd.name);
-        if (jobs.length === 0) {
-          setResult({ kind: 'not_found', name: cmd.name });
-          return;
-        }
-        if (jobs.length > 1) {
-          setResult({ kind: 'ambiguous', jobs, name: cmd.name });
-          return;
-        }
+      if (query.kind === 'estimate_for' || query.kind === 'contract_for' || query.kind === 'invoice_for' || query.kind === 'client_summary') {
+        const jobs = await findClientJobs(query.name);
+        if (jobs.length === 0) { setResult({ kind: 'not_found', name: query.name }); return; }
+        if (jobs.length > 1)   { setResult({ kind: 'ambiguous', jobs, name: query.name }); return; }
         const job = jobs[0];
-        if (cmd.kind === 'estimate_for') {
-          const { data: est } = await supabase
-            .from('estimates').select('*').eq('job_id', job.id)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+        if (query.kind === 'estimate_for') {
+          const { data: est } = await supabase.from('estimates').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
           setResult({ kind: 'estimate', job, est });
-        } else if (cmd.kind === 'contract_for') {
-          const { data: ctr } = await supabase
-            .from('contracts').select('*').eq('job_id', job.id)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        } else if (query.kind === 'contract_for') {
+          const { data: ctr } = await supabase.from('contracts').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
           setResult({ kind: 'contract', job, ctr });
+        } else if (query.kind === 'invoice_for') {
+          // Most recent paid/sent milestone for the job.
+          const { data: contracts } = await supabase.from('contracts').select('id').eq('job_id', job.id);
+          const ids = (contracts || []).map((c) => c.id);
+          const { data: milestones } = ids.length
+            ? await supabase.from('payment_milestones').select('*').in('contract_id', ids).order('order_idx', { ascending: true })
+            : { data: [] };
+          setResult({ kind: 'invoice', job, milestones: milestones || [] });
         } else {
           const [{ data: est }, { data: ctr }] = await Promise.all([
             supabase.from('estimates').select('id, status, total_amount, signed_at').eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
@@ -177,242 +210,328 @@ export default function VoiceCommandBar() {
         return;
       }
 
-      if (cmd.kind === 'today_jobs') {
-        const { data } = await supabase
-          .from('jobs')
-          .select('id, client_name, address, city, pipeline_status, pm_name')
-          .in('pipeline_status', ['in_progress', 'in-progress'])
-          .order('updated_at', { ascending: false })
-          .limit(20);
+      if (query.kind === 'today_jobs') {
+        const { data } = await supabase.from('jobs').select('id, client_name, address, city, pipeline_status, pm_name').in('pipeline_status', ['in_progress', 'in-progress']).order('updated_at', { ascending: false }).limit(20);
         setResult({ kind: 'today_jobs', rows: data || [] });
         return;
       }
-
-      if (cmd.kind === 'overdue_payments') {
+      if (query.kind === 'overdue_payments') {
         const today = new Date(); today.setHours(0, 0, 0, 0);
-        const { data } = await supabase
-          .from('payment_milestones')
-          .select('id, label, due_amount, received_amount, due_date, job_id, status')
-          .neq('status', 'paid')
-          .order('due_date', { ascending: true })
-          .limit(50);
-        const overdue = (data || []).filter((m) => {
-          if (!m.due_date) return false;
-          const d = new Date(m.due_date); d.setHours(0, 0, 0, 0);
-          return d < today;
-        });
+        const { data } = await supabase.from('payment_milestones').select('id, label, due_amount, received_amount, due_date, job_id, status').neq('status', 'paid').order('due_date', { ascending: true }).limit(50);
+        const overdue = (data || []).filter((m) => { if (!m.due_date) return false; const d = new Date(m.due_date); d.setHours(0,0,0,0); return d < today; });
         const jobIds = [...new Set(overdue.map((m) => m.job_id).filter(Boolean))];
-        const { data: jobs } = jobIds.length
-          ? await supabase.from('jobs').select('id, client_name').in('id', jobIds)
-          : { data: [] };
+        const { data: jobs } = jobIds.length ? await supabase.from('jobs').select('id, client_name').in('id', jobIds) : { data: [] };
         const jobsById = Object.fromEntries((jobs || []).map((j) => [j.id, j]));
         const total = overdue.reduce((s, m) => s + Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0)), 0);
         setResult({ kind: 'overdue', rows: overdue, jobsById, total });
         return;
       }
-
-      if (cmd.kind === 'receivable_total') {
-        const { data } = await supabase
-          .from('payment_milestones')
-          .select('due_amount, received_amount, status');
-        const total = (data || []).reduce((s, m) => {
-          if (m.status === 'paid') return s;
-          return s + Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0));
-        }, 0);
+      if (query.kind === 'receivable_total') {
+        const { data } = await supabase.from('payment_milestones').select('due_amount, received_amount, status');
+        const total = (data || []).reduce((s, m) => m.status === 'paid' ? s : s + Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0)), 0);
         setResult({ kind: 'receivable_total', total });
         return;
       }
+      if (query.kind === 'navigate_unavailable') {
+        setResult({ kind: 'navigate_unavailable', target: query.target });
+        return;
+      }
     } catch (err) {
+      console.error('[voice] runIntent error', err);
       setResult({ kind: 'error', message: err?.message || 'Lookup failed' });
     } finally {
       setRunning(false);
     }
-  }
+  }, []);
 
-  function onSubmit(ev) {
-    ev?.preventDefault();
-    // Cancel any pending auto-submit — user committed manually.
-    if (autoSubmitTimerRef.current) {
-      clearTimeout(autoSubmitTimerRef.current);
-      autoSubmitTimerRef.current = null;
+  // ─── Dispatch a raw command text — parse intent then run ──────
+  const dispatchCommand = useCallback(async (rawText) => {
+    if (!rawText) return;
+    setCurrentCommand(rawText);
+    setVoiceState('parsing');
+    try {
+      const { intent } = await parseVoiceIntent(rawText);
+      console.log('[voice] intent', intent);
+      setVoiceState('done');
+      await runIntent(rawText, intent);
+    } catch (err) {
+      console.error('[voice] parse error', err);
+      setVoiceState('error');
+      setResult({ kind: 'error', message: err?.message || 'Parse failed' });
+    } finally {
+      // Drop back to listening after a short hold so the user can read
+      // the result before the mic gets hot again.
+      setTimeout(() => setVoiceState((s) => (s === 'parsing' || s === 'wake' ? s : (recognitionShouldRunRef.current ? 'listening' : 'idle'))), 2500);
     }
-    setAutoStatus(null);
-    const raw = text.trim();
-    if (!raw) return;
-    void runCommand(raw);
-  }
+  }, [runIntent]);
 
-  // Auto-submit detector: voice transcription / paste lands as a large
-  // jump in the input value. Manual typing changes 1 char at a time.
-  // When we see a jump, schedule an auto-submit; further jumps reset
-  // the timer so progressive transcriptions still wait for the final
-  // chunk before firing.
-  function onInputChange(ev) {
+  // ─── Wake-word + buffering pipeline ─────────────────────────
+  const resetBuffer = useCallback(() => {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (maxWaitTimerRef.current) { clearTimeout(maxWaitTimerRef.current); maxWaitTimerRef.current = null; }
+    bufferingRef.current = false;
+    bufferedCommandRef.current = '';
+  }, []);
+
+  const resetRecognitionState = useCallback(() => {
+    if (!recognitionRef.current) return;
+    restartingAfterFireRef.current = true;
+    try { recognitionRef.current.abort(); } catch {}
+    setTranscript({ final: '', interim: '' });
+  }, []);
+
+  const fireBufferedCommand = useCallback((reason) => {
+    const command = bufferedCommandRef.current.trim();
+    console.log(`[voice] fire reason=${reason} command="${command}"`);
+    resetBuffer();
+    resetRecognitionState();
+    if (!command) { if (recognitionShouldRunRef.current) setVoiceState('listening'); return; }
+    const wordCount = command.split(/\s+/).filter(Boolean).length;
+    if (wordCount < MIN_WORDS_TO_FIRE) { if (recognitionShouldRunRef.current) setVoiceState('listening'); return; }
+    lastDetectionAtRef.current = Date.now();
+    dispatchCommand(command);
+  }, [dispatchCommand, resetBuffer, resetRecognitionState]);
+
+  const handleRecognitionResult = useCallback((event) => {
+    let finalText = '', interimText = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const r = event.results[i];
+      const t = r[0]?.transcript || '';
+      if (r.isFinal) finalText += t + ' '; else interimText += t + ' ';
+    }
+    finalText = finalText.trim();
+    interimText = interimText.trim();
+    setTranscript({ final: finalText, interim: interimText });
+
+    const combined = (finalText + ' ' + interimText).trim();
+    const norm = normalize(combined);
+    const wake = findWakeWord(norm);
+    if (!wake) return;
+
+    const sinceLast = Date.now() - lastDetectionAtRef.current;
+    if (sinceLast < POST_DETECTION_COOLDOWN_MS) return;
+
+    if (!bufferingRef.current) {
+      bufferingRef.current = true;
+      setVoiceState('wake');
+      maxWaitTimerRef.current = setTimeout(() => fireBufferedCommand('max-wait'), MAX_BUFFER_MS);
+    }
+    const fresh = extractCommand(combined).trim();
+    if (fresh && fresh !== bufferedCommandRef.current) {
+      bufferedCommandRef.current = fresh;
+      setCurrentCommand(fresh);
+    }
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => fireBufferedCommand('silence'), SILENCE_TIMEOUT_MS);
+    if (finalText && findWakeWord(normalize(finalText))) fireBufferedCommand('final');
+  }, [fireBufferedCommand]);
+
+  const startListening = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVoiceWebSupported(false); return; }
+    if (!recognitionRef.current) {
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = 'pt-BR';
+      rec.onstart  = () => { console.log('[voice] start'); setVoiceMicAllowed(true); if (recognitionShouldRunRef.current) setVoiceState('listening'); };
+      rec.onresult = handleRecognitionResult;
+      rec.onerror  = (ev) => {
+        console.warn('[voice] error', ev.error);
+        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+          recognitionShouldRunRef.current = false;
+          setVoiceMicAllowed(false);
+          setVoiceState('error');
+        }
+      };
+      rec.onend = () => {
+        console.log('[voice] end' + (restartingAfterFireRef.current ? ' (after fire)' : ''));
+        if (recognitionShouldRunRef.current) {
+          restartingAfterFireRef.current = false;
+          try { rec.start(); } catch (e) { setTimeout(() => { try { rec.start(); } catch {} }, 250); }
+        } else {
+          restartingAfterFireRef.current = false;
+          setVoiceState('idle');
+        }
+      };
+      recognitionRef.current = rec;
+    }
+    recognitionShouldRunRef.current = true;
+    try { recognitionRef.current.start(); } catch {}
+  }, [handleRecognitionResult]);
+
+  const stopListening = useCallback(() => {
+    recognitionShouldRunRef.current = false;
+    resetBuffer();
+    if (recognitionRef.current) try { recognitionRef.current.stop(); } catch {}
+    setVoiceState('idle');
+  }, [resetBuffer]);
+
+  // ─── Auto-start wake listening on mount (TV expects ambient) ──
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVoiceWebSupported(false); return; }
+    startListening();
+    return () => { recognitionShouldRunRef.current = false; if (recognitionRef.current) try { recognitionRef.current.abort(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Manual input fallback (Firestick / no-mic devices) ───────
+  function onManualChange(ev) {
     const next = ev.target.value;
-    const delta = next.length - prevLenRef.current;
-    prevLenRef.current = next.length;
-    setText(next);
-
-    if (delta >= VOICE_JUMP_THRESHOLD && next.trim().length > 0) {
+    const delta = next.length - prevManualLenRef.current;
+    prevManualLenRef.current = next.length;
+    setManualText(next);
+    if (delta >= VOICE_JUMP_THRESHOLD && next.trim()) {
       if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
       setAutoStatus('listening');
       autoSubmitTimerRef.current = setTimeout(() => {
         autoSubmitTimerRef.current = null;
-        // Re-read latest value from the input — state may have advanced
-        // again during the debounce window.
-        const latest = (inputRef.current?.value || '').trim();
-        if (!latest) { setAutoStatus(null); return; }
-        setAutoStatus('submitting');
-        void runCommand(latest).finally(() => setAutoStatus(null));
+        setAutoStatus(null);
+        manualSubmit();
       }, AUTO_SUBMIT_DELAY_MS);
     } else if (delta <= 0) {
-      // User deleted or cleared — cancel any pending auto-submit.
-      if (autoSubmitTimerRef.current) {
-        clearTimeout(autoSubmitTimerRef.current);
-        autoSubmitTimerRef.current = null;
-        setAutoStatus(null);
-      }
+      if (autoSubmitTimerRef.current) { clearTimeout(autoSubmitTimerRef.current); autoSubmitTimerRef.current = null; setAutoStatus(null); }
     }
+  }
+  function manualSubmit(ev) {
+    ev?.preventDefault();
+    const v = (manualText || '').trim();
+    if (!v) return;
+    // Allow a manual command with OR without wake word — strip wake if present.
+    const norm = normalize(v);
+    const wake = findWakeWord(norm);
+    const cmd = wake ? extractCommand(v) : v;
+    setManualText('');
+    prevManualLenRef.current = 0;
+    setAutoStatus(null);
+    dispatchCommand(cmd);
   }
 
   function dismiss() {
-    if (autoSubmitTimerRef.current) {
-      clearTimeout(autoSubmitTimerRef.current);
-      autoSubmitTimerRef.current = null;
-    }
-    setAutoStatus(null);
-    prevLenRef.current = 0;
-    setText('');
     setResult(null);
-    inputRef.current?.focus();
+    setCurrentCommand('');
+    setTranscript({ final: '', interim: '' });
+    if (recognitionShouldRunRef.current) setVoiceState('listening');
+    else setVoiceState('idle');
   }
 
-  // Esc clears the result without losing focus.
-  useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape') dismiss(); }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // ─── Render ───────────────────────────────────────────────────
+  const stateStyle = (() => {
+    switch (voiceState) {
+      case 'listening': return { color: '#22c55e', label: 'Ouvindo — diga "Omegatron…"', emoji: '🟢' };
+      case 'wake':      return { color: '#f97316', label: 'Capturando comando…', emoji: '🎤' };
+      case 'parsing':   return { color: '#3b82f6', label: 'Processando…', emoji: '💭' };
+      case 'done':      return { color: '#22c55e', label: 'Pronto', emoji: '✅' };
+      case 'error':     return { color: '#ef4444', label: 'Erro', emoji: '❌' };
+      default:          return { color: '#8b95b8', label: 'Inativo', emoji: '⚪' };
+    }
+  })();
 
   return (
-    <div className="bg-omega-charcoal/95 backdrop-blur border-b border-white/10 px-6 py-4">
-      <form onSubmit={onSubmit} className="flex items-center gap-3 max-w-5xl mx-auto">
-        <div className="w-12 h-12 rounded-2xl bg-omega-orange/20 border border-omega-orange flex items-center justify-center flex-shrink-0">
-          <Mic className="w-6 h-6 text-omega-orange" />
-        </div>
-        <input
-          ref={inputRef}
-          value={text}
-          onChange={onInputChange}
-          placeholder="Press the mic on the Firestick remote and speak…  (e.g., 'last estimate Yulia')"
-          className={`flex-1 px-5 py-3 rounded-2xl bg-white/5 border-2 ${
-            autoStatus ? 'border-omega-orange shadow-[0_0_0_4px_rgba(249,115,22,0.2)]' : 'border-white/10 focus:border-omega-orange'
-          } text-2xl text-white placeholder:text-white/40 focus:outline-none transition-all`}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        {/* Visible feedback after voice transcription — replaces the
-            extra Next + Go presses on Firestick by auto-submitting
-            once the input has been stable for ~900ms. */}
-        {autoStatus === 'listening' && (
-          <span className="px-3 py-1.5 rounded-full bg-omega-orange/20 border border-omega-orange text-omega-orange text-xs font-bold uppercase tracking-wider animate-pulse whitespace-nowrap">
-            Sending…
+    <div className="relative">
+      {/* Compact status strip — narrow, doesn't dominate the dashboard. */}
+      <div className="px-6 py-2 flex items-center gap-3 bg-black/30 backdrop-blur border-b border-white/[0.06] text-white">
+        <div className="flex items-center gap-2 text-xs">
+          <span className={`inline-flex w-2 h-2 rounded-full ${voiceState === 'listening' ? 'animate-pulse' : ''}`} style={{ background: stateStyle.color }} />
+          <span style={{ color: stateStyle.color }} className="font-semibold tracking-wider uppercase text-[10px]">
+            {stateStyle.label}
           </span>
-        )}
-        {autoStatus === 'submitting' && (
-          <Loader2 className="w-5 h-5 animate-spin text-omega-orange" />
-        )}
-        {text && (
-          <button
-            type="button"
-            onClick={() => { setText(''); inputRef.current?.focus(); }}
-            className="px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={running || !text.trim()}
-          className="px-6 py-3 rounded-2xl bg-omega-orange hover:bg-omega-dark text-white text-lg font-bold disabled:opacity-50"
-        >
-          {running ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Go'}
-        </button>
-      </form>
+        </div>
 
+        {currentCommand && voiceState !== 'idle' && voiceState !== 'listening' && (
+          <div className="flex-1 min-w-0 text-sm truncate text-white/80">
+            "<span className="text-white font-semibold">{currentCommand}</span>"
+          </div>
+        )}
+
+        {!currentCommand && transcript.interim && (
+          <div className="flex-1 min-w-0 text-sm truncate text-white/40 italic">
+            {transcript.interim}
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {!voiceWebSupported && (
+            <span className="text-[10px] text-white/40 uppercase tracking-wider">Web Speech indisponível</span>
+          )}
+          {voiceWebSupported && (
+            <button
+              onClick={() => recognitionShouldRunRef.current ? stopListening() : startListening()}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-white/60 hover:text-white hover:bg-white/10"
+              title={recognitionShouldRunRef.current ? 'Parar de ouvir' : 'Começar a ouvir'}
+            >
+              {recognitionShouldRunRef.current ? <><MicOff className="w-3 h-3" /> Stop</> : <><Mic className="w-3 h-3" /> Listen</>}
+            </button>
+          )}
+
+          {/* Manual input — small, only shows when expanded or no mic */}
+          <form onSubmit={manualSubmit} className="flex items-center gap-1">
+            <input
+              ref={manualInputRef}
+              value={manualText}
+              onChange={onManualChange}
+              placeholder='ou digite: "abre o orçamento da Yulia"'
+              className={`w-64 px-3 py-1 rounded-md bg-white/5 border ${autoStatus ? 'border-omega-orange' : 'border-white/10 focus:border-omega-orange'} text-[12px] text-white placeholder:text-white/30 focus:outline-none transition-colors`}
+            />
+            {autoStatus && <Loader2 className="w-3 h-3 animate-spin text-omega-orange" />}
+          </form>
+        </div>
+      </div>
+
+      {/* Result overlay — full-width card hanging below the strip. */}
       {result && (
-        <div className="mt-4 max-w-5xl mx-auto">
-          <ResultCard result={result} onDismiss={dismiss} />
+        <div className="absolute inset-x-4 top-12 z-40">
+          <ResultCard result={result} running={running} onDismiss={dismiss} />
         </div>
       )}
     </div>
   );
 }
 
-function ResultCard({ result, onDismiss }) {
+// ════════════════════════════════════════════════════════════════
+// ResultCard — TV-optimized large readable result display
+// ════════════════════════════════════════════════════════════════
+function ResultCard({ result, running, onDismiss }) {
   const baseCls = 'relative rounded-3xl bg-white text-omega-charcoal shadow-2xl p-6';
-
   const close = (
-    <button
-      onClick={onDismiss}
-      className="absolute top-3 right-3 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 inline-flex items-center justify-center text-omega-stone"
-    >
+    <button onClick={onDismiss} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 inline-flex items-center justify-center text-omega-stone">
       <X className="w-4 h-4" />
     </button>
   );
+
+  if (running) {
+    return (
+      <div className={baseCls}>
+        {close}
+        <div className="flex items-center gap-3"><Loader2 className="w-5 h-5 animate-spin text-omega-orange" /><p className="text-base font-semibold">Buscando…</p></div>
+      </div>
+    );
+  }
 
   if (result.kind === 'unknown') {
     return (
       <div className={`${baseCls} bg-amber-50`}>
         {close}
         <AlertTriangle className="w-6 h-6 text-amber-600 mb-2" />
-        <p className="text-xl font-bold">I didn't catch that.</p>
+        <p className="text-xl font-bold">Não entendi.</p>
         <p className="text-sm text-omega-stone mt-1">Heard: "{result.text}"</p>
-        <p className="text-sm text-omega-stone mt-3">
-          Try: <em>"last estimate Yulia"</em>, <em>"jobs today"</em>, <em>"overdue payments"</em>, <em>"total receivable"</em>.
-        </p>
+        <p className="text-sm text-omega-stone mt-3">Tente: <em>"abre o orçamento da Yulia"</em>, <em>"obras de hoje"</em>, <em>"pagamentos atrasados"</em>, <em>"total a receber"</em>.</p>
       </div>
     );
   }
-
-  if (result.kind === 'not_found') {
-    return (
-      <div className={`${baseCls} bg-red-50`}>
-        {close}
-        <p className="text-xl font-bold text-red-900">No client found matching "{result.name}"</p>
-        <p className="text-sm text-red-800/70 mt-1">Try the first name, or check the spelling.</p>
-      </div>
-    );
-  }
-
-  if (result.kind === 'ambiguous') {
-    return (
-      <div className={`${baseCls}`}>
-        {close}
-        <p className="text-xl font-bold">Multiple matches for "{result.name}"</p>
-        <ul className="mt-3 space-y-1 text-base">
-          {result.jobs.map((j) => (
-            <li key={j.id} className="text-omega-charcoal">• {j.client_name} <span className="text-omega-stone text-sm">— {j.address || j.city || '—'}</span></li>
-          ))}
-        </ul>
-        <p className="text-xs text-omega-stone mt-3">Add the last name or city to narrow down.</p>
-      </div>
-    );
-  }
+  if (result.kind === 'not_found')  return (<div className={`${baseCls} bg-red-50`}>{close}<p className="text-xl font-bold text-red-900">Cliente não encontrado: "{result.name}"</p><p className="text-sm text-red-800/70 mt-1">Tente o primeiro nome ou verifique a grafia.</p></div>);
+  if (result.kind === 'ambiguous')  return (<div className={baseCls}>{close}<p className="text-xl font-bold">Múltiplos clientes com "{result.name}"</p><ul className="mt-3 space-y-1 text-base">{result.jobs.map((j) => <li key={j.id}>• {j.client_name} <span className="text-omega-stone text-sm">— {j.address || j.city || '—'}</span></li>)}</ul></div>);
+  if (result.kind === 'error')      return (<div className={`${baseCls} bg-red-50`}>{close}<p className="text-xl font-bold text-red-900">Erro</p><p className="text-sm text-red-800/70 mt-1">{result.message}</p></div>);
+  if (result.kind === 'navigate_unavailable') return (<div className={`${baseCls} bg-blue-50`}>{close}<p className="text-xl font-bold text-blue-900">Navegação requested: {result.target}</p><p className="text-sm text-blue-800/70 mt-1">Screen mode is read-only. Use a sales/admin device to navigate.</p></div>);
 
   if (result.kind === 'estimate') {
     const { job, est } = result;
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center">
-            <FileText className="w-5 h-5 text-omega-orange" />
-          </div>
-          <div>
-            <p className="text-3xl font-bold leading-none">{job.client_name}</p>
-            <p className="text-sm text-omega-stone mt-1">{job.address || job.city || '—'}</p>
-          </div>
+          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center"><FileText className="w-5 h-5 text-omega-orange" /></div>
+          <div><p className="text-3xl font-bold leading-none">{job.client_name}</p><p className="text-sm text-omega-stone mt-1">{job.address || job.city || '—'}</p></div>
         </div>
         {est ? (
           <div className="mt-4 grid grid-cols-3 gap-3">
@@ -423,26 +542,17 @@ function ResultCard({ result, onDismiss }) {
             <KpiBlock label="Sent" value={fmtDate(est.sent_at)} />
             <KpiBlock label="Signed" value={est.signed_at ? fmtDate(est.signed_at) : '—'} />
           </div>
-        ) : (
-          <p className="text-base text-omega-stone mt-4">No estimate found for this client yet.</p>
-        )}
+        ) : <p className="text-base text-omega-stone mt-4">Sem orçamento para este cliente.</p>}
       </div>
     );
   }
-
   if (result.kind === 'contract') {
     const { job, ctr } = result;
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center">
-            <FileSignature className="w-5 h-5 text-omega-orange" />
-          </div>
-          <div>
-            <p className="text-3xl font-bold leading-none">{job.client_name}</p>
-            <p className="text-sm text-omega-stone mt-1">{job.address || job.city || '—'}</p>
-          </div>
+          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center"><FileSignature className="w-5 h-5 text-omega-orange" /></div>
+          <div><p className="text-3xl font-bold leading-none">{job.client_name}</p><p className="text-sm text-omega-stone mt-1">{job.address || job.city || '—'}</p></div>
         </div>
         {ctr ? (
           <div className="mt-4 grid grid-cols-3 gap-3">
@@ -453,46 +563,52 @@ function ResultCard({ result, onDismiss }) {
             <KpiBlock label="Signed" value={ctr.signed_at ? fmtDate(ctr.signed_at) : '—'} />
             <KpiBlock label="DocuSign" value={(ctr.docusign_status || '—').toUpperCase()} />
           </div>
-        ) : (
-          <p className="text-base text-omega-stone mt-4">No contract yet for this client.</p>
-        )}
+        ) : <p className="text-base text-omega-stone mt-4">Sem contrato.</p>}
       </div>
     );
   }
-
+  if (result.kind === 'invoice') {
+    const { job, milestones } = result;
+    const total = milestones.reduce((s, m) => s + (Number(m.due_amount) || 0), 0);
+    const received = milestones.reduce((s, m) => s + (Number(m.received_amount) || 0), 0);
+    const balance = total - received;
+    return (
+      <div className={baseCls}>{close}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center"><DollarSign className="w-5 h-5 text-omega-orange" /></div>
+          <div><p className="text-3xl font-bold leading-none">{job.client_name}</p><p className="text-sm text-omega-stone mt-1">{job.address || '—'}</p></div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <KpiBlock label="Total" value={money(total)} accent />
+          <KpiBlock label="Recebido" value={money(received)} />
+          <KpiBlock label="Saldo" value={money(balance)} />
+        </div>
+        <p className="text-xs text-omega-stone mt-3">{milestones.length} parcela{milestones.length === 1 ? '' : 's'}</p>
+      </div>
+    );
+  }
   if (result.kind === 'client') {
     const { job, est, ctr } = result;
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <p className="text-3xl font-bold leading-none">{job.client_name}</p>
-        <p className="text-sm text-omega-stone mt-1">
-          {job.address || job.city || '—'}
-          {job.service && ` · ${job.service}`}
-          {job.salesperson_name && ` · ${job.salesperson_name}`}
-        </p>
+        <p className="text-sm text-omega-stone mt-1">{job.address || job.city || '—'}{job.service && ` · ${job.service}`}{job.salesperson_name && ` · ${job.salesperson_name}`}</p>
         <div className="mt-4 grid grid-cols-3 gap-3">
-          <KpiBlock label="Last Estimate" value={est?.total_amount ? money(est.total_amount) : '—'} sub={est?.signed_at ? `Signed ${fmtDate(est.signed_at)}` : (est?.status || '').toUpperCase()} accent={!!est?.signed_at} />
-          <KpiBlock label="Contract" value={ctr?.total_amount ? money(ctr.total_amount) : '—'} sub={ctr?.signed_at ? `Signed ${fmtDate(ctr.signed_at)}` : (ctr?.status || '').toUpperCase()} accent={!!ctr?.signed_at} />
+          <KpiBlock label="Última Estimate" value={est?.total_amount ? money(est.total_amount) : '—'} sub={est?.signed_at ? `Signed ${fmtDate(est.signed_at)}` : (est?.status || '').toUpperCase()} accent={!!est?.signed_at} />
+          <KpiBlock label="Contrato" value={ctr?.total_amount ? money(ctr.total_amount) : '—'} sub={ctr?.signed_at ? `Signed ${fmtDate(ctr.signed_at)}` : (ctr?.status || '').toUpperCase()} accent={!!ctr?.signed_at} />
           <KpiBlock label="Pipeline" value={(job.pipeline_status || '—').replace(/_/g, ' ').toUpperCase()} />
         </div>
       </div>
     );
   }
-
   if (result.kind === 'today_jobs') {
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center">
-            <HardHat className="w-5 h-5 text-omega-orange" />
-          </div>
-          <p className="text-3xl font-bold leading-none">Jobs in progress · {result.rows.length}</p>
+          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center"><HardHat className="w-5 h-5 text-omega-orange" /></div>
+          <p className="text-3xl font-bold leading-none">Obras ativas · {result.rows.length}</p>
         </div>
-        {result.rows.length === 0 ? (
-          <p className="text-base text-omega-stone mt-3">No jobs currently in progress.</p>
-        ) : (
+        {result.rows.length === 0 ? <p className="text-base text-omega-stone mt-3">Nenhuma obra em andamento.</p> : (
           <ul className="mt-4 grid grid-cols-2 gap-2 text-base">
             {result.rows.slice(0, 10).map((j) => (
               <li key={j.id} className="px-4 py-2 rounded-xl bg-omega-cloud">
@@ -505,23 +621,14 @@ function ResultCard({ result, onDismiss }) {
       </div>
     );
   }
-
   if (result.kind === 'overdue') {
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <p className="text-3xl font-bold leading-none">Overdue · {money(result.total)}</p>
-            <p className="text-sm text-omega-stone mt-1">{result.rows.length} milestone{result.rows.length === 1 ? '' : 's'} past due</p>
-          </div>
+          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-red-600" /></div>
+          <div><p className="text-3xl font-bold leading-none">Atrasados · {money(result.total)}</p><p className="text-sm text-omega-stone mt-1">{result.rows.length} parcela{result.rows.length === 1 ? '' : 's'} vencida{result.rows.length === 1 ? '' : 's'}</p></div>
         </div>
-        {result.rows.length === 0 ? (
-          <p className="text-base text-omega-success mt-3">No overdue payments. 🎉</p>
-        ) : (
+        {result.rows.length === 0 ? <p className="text-base text-omega-success mt-3">Sem atrasos. 🎉</p> : (
           <ul className="mt-3 space-y-1 text-base">
             {result.rows.slice(0, 6).map((m) => (
               <li key={m.id} className="flex justify-between items-center px-3 py-1.5 rounded bg-red-50">
@@ -534,33 +641,18 @@ function ResultCard({ result, onDismiss }) {
       </div>
     );
   }
-
   if (result.kind === 'receivable_total') {
     return (
-      <div className={baseCls}>
-        {close}
+      <div className={baseCls}>{close}
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
-            <DollarSign className="w-5 h-5 text-green-700" />
-          </div>
-          <p className="text-3xl font-bold leading-none">Outstanding receivable</p>
+          <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center"><DollarSign className="w-5 h-5 text-green-700" /></div>
+          <p className="text-3xl font-bold leading-none">Total a receber</p>
         </div>
         <p className="text-7xl font-extrabold mt-4 text-omega-charcoal tabular-nums">{money(result.total)}</p>
-        <p className="text-sm text-omega-stone mt-2">Sum of all unpaid milestones across active jobs.</p>
+        <p className="text-sm text-omega-stone mt-2">Soma de todas as parcelas em aberto.</p>
       </div>
     );
   }
-
-  if (result.kind === 'error') {
-    return (
-      <div className={`${baseCls} bg-red-50`}>
-        {close}
-        <p className="text-xl font-bold text-red-900">Something went wrong</p>
-        <p className="text-sm text-red-800/70 mt-1">{result.message}</p>
-      </div>
-    );
-  }
-
   return null;
 }
 
