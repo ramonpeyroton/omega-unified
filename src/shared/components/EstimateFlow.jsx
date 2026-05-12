@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, Check, Trash2, Plus, Send, FileText, DollarSign, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper } from 'lucide-react';
+import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper } from 'lucide-react';
 import { validateUserPinDetailed } from '../lib/userPin';
 import { supabase } from '../lib/supabase';
 import { createEnvelope, getEnvelopeStatus, downloadSignedDocument } from '../lib/docusign';
@@ -710,38 +710,6 @@ export default function EstimateFlow({ job, user, onBack }) {
     setToast({ type: 'success', message: 'Change request sent' });
   }
 
-  const planTotalPct = useMemo(
-    () => paymentPlan.reduce((sum, p) => sum + (Number(p.percent) || 0), 0),
-    [paymentPlan]
-  );
-
-  function addInstallment() {
-    if (!perms.canEditPaymentPlan) return;
-    setPaymentPlan((prev) => [...prev, { label: `Installment ${prev.length + 1}`, percent: 0, amount: 0, due_date: '' }]);
-  }
-  function updateInstallment(i, patch) {
-    if (!perms.canEditPaymentPlan) return;
-    setPaymentPlan((prev) => prev.map((p, idx) => idx === i ? { ...p, ...patch } : p));
-  }
-  function removeInstallment(i) {
-    if (!perms.canEditPaymentPlan) return;
-    setPaymentPlan((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  async function savePaymentPlanAndContinue() {
-    if (!perms.canEditPaymentPlan) return;
-    if (Math.round(planTotalPct) !== 100) {
-      setToast({ type: 'warning', message: `Payment plan must total 100% (currently ${planTotalPct}%)` });
-      return;
-    }
-    setSaving(true);
-    const { data, error } = await supabase.from('estimates').update({ payment_plan: paymentPlan }).eq('id', estimate.id).select().single();
-    setSaving(false);
-    if (error) { setToast({ type: 'error', message: error.message }); return; }
-    setEstimate(data);
-    setStep(3);
-  }
-
   // Picker-flow Continue handler. Persists the picked plan into the
   // carrier estimate's `payment_plan` column (so a reload doesn't lose
   // the scaling we just applied) and advances to Step 3. The picker
@@ -772,6 +740,29 @@ export default function EstimateFlow({ job, user, onBack }) {
   async function generateAndSendContract(contractHtml) {
     if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
     if (!contractHtml) { setToast({ type: 'error', message: 'Could not snapshot the contract — please reload and try again.' }); return; }
+    // ─── Math-check guard — third of 3 layers ──────────────────
+    // Hard-block the send if the numbers don't tie out. Computed in
+    // dollars with a 1-dollar tolerance to absorb rounding noise on
+    // percent → amount conversions.
+    {
+      const sumOfPicked = (approvedEstimates || [])
+        .filter((e) => pickedEstimateIds.includes(e.id))
+        .reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
+      const sumOfPlan = Array.isArray(paymentPlan)
+        ? paymentPlan.reduce((s, p) => s + (Number(p?.amount) || 0), 0)
+        : 0;
+      const estTotal = Number(estimate?.total_amount) || 0;
+      const refTotal = sumOfPicked > 0 ? sumOfPicked : estTotal;
+      const planMismatch = refTotal > 0 && Math.abs(sumOfPlan - refTotal) > 1;
+      const estMismatch  = sumOfPicked > 0 && estTotal > 0 && Math.abs(estTotal - sumOfPicked) > 1;
+      if (planMismatch || estMismatch) {
+        setToast({
+          type: 'error',
+          message: `Math check failed. Picked $${sumOfPicked.toLocaleString()} · plan $${sumOfPlan.toLocaleString()} · estimate $${estTotal.toLocaleString()}. Re-pick estimates or refresh the page before sending.`,
+        });
+        return;
+      }
+    }
     setSaving(true);
     try {
       // Snapshot which estimates Attila picked at the time of sending.
@@ -1035,6 +1026,34 @@ export default function EstimateFlow({ job, user, onBack }) {
               <h2 className="text-lg font-bold text-omega-charcoal">Generate Contract</h2>
               {contract && <StatusBadge status={contract.docusign_status || contract.status} />}
             </div>
+
+            {/* Math-check chip — second of 3 layers. Shows live whether
+                (sum of picked estimates) === (sum of payment plan
+                installments) === (estimate.total_amount). Green when
+                everything ties out, red when any of them diverge. */}
+            <MathCheckChip
+              estimate={estimate}
+              paymentPlan={paymentPlan}
+              approvedEstimates={approvedEstimates}
+              pickedEstimateIds={pickedEstimateIds}
+            />
+
+            {/* Re-pick estimates — only while contract isn't signed.
+                Double confirmation: a small warning appears under the
+                button asking the seller to confirm before navigating
+                back to Step 2 (which voids any pending envelope). */}
+            {!contract?.signed_at && perms.canSendContract && (
+              <RePickEstimatesButton
+                hasEnvelope={!!contract?.docusign_envelope_id}
+                onConfirm={() => {
+                  // Going back to Step 2 lets Attila change the picked
+                  // estimates. The in-memory state survives the trip,
+                  // and saving via the picker confirm flow re-derives
+                  // everything fresh.
+                  setStep(2);
+                }}
+              />
+            )}
 
             {/* Sales gated message — shown above the editable contract so
                 the seller knows they can review but Operations sends. */}
@@ -1475,6 +1494,118 @@ function PickerConfirmModal({ approvedEstimates, pickedEstimateIds, total, savin
             {saving ? 'Saving…' : 'Confirm & Continue'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Math-check chip (Step 3 header) ───────────────────────────
+// Second of 3 math-check layers. Shows a green badge when the
+// numbers all tie out, red when any source diverges. Compares:
+//   * Sum of picked estimates' total_amount
+//   * Sum of paymentPlan installment amounts
+//   * estimate.total_amount (the merged value EstimateFlow passes
+//     into ContractTemplate)
+// Tolerance: $1, to absorb rounding noise on percent → amount.
+function MathCheckChip({ estimate, paymentPlan, approvedEstimates, pickedEstimateIds }) {
+  const sumOfPicked = (approvedEstimates || [])
+    .filter((e) => (pickedEstimateIds || []).includes(e.id))
+    .reduce((s, e) => s + (Number(e.total_amount) || 0), 0);
+  const sumOfPlan = Array.isArray(paymentPlan)
+    ? paymentPlan.reduce((s, p) => s + (Number(p?.amount) || 0), 0)
+    : 0;
+  const estTotal = Number(estimate?.total_amount) || 0;
+
+  // When the user is on a legacy contract with no picked ids, fall
+  // back to comparing just plan vs estimate.
+  const refTotal = sumOfPicked > 0 ? sumOfPicked : estTotal;
+  if (refTotal === 0) return null;
+
+  const planOk = Math.abs(sumOfPlan - refTotal) <= 1;
+  const estOk  = sumOfPicked === 0 || Math.abs(estTotal - sumOfPicked) <= 1;
+  const allOk  = planOk && estOk;
+
+  return (
+    <div
+      className={`mb-4 px-4 py-3 rounded-xl border flex items-start gap-3 ${
+        allOk
+          ? 'bg-green-50 border-green-300 text-green-900'
+          : 'bg-red-50 border-red-300 text-red-900'
+      }`}
+      role="status"
+    >
+      {allOk ? (
+        <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+      ) : (
+        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+      )}
+      <div className="text-sm flex-1">
+        <p className="font-semibold leading-snug">
+          {allOk ? 'Math check passed' : 'Math check FAILED'}
+        </p>
+        <p className="text-xs mt-1 leading-relaxed">
+          {pickedEstimateIds?.length > 0 && (
+            <>{pickedEstimateIds.length} estimate{pickedEstimateIds.length === 1 ? '' : 's'} = <strong>${sumOfPicked.toLocaleString()}</strong>{' · '}</>
+          )}
+          {paymentPlan?.length > 0 && (
+            <>{paymentPlan.length} installment{paymentPlan.length === 1 ? '' : 's'} = <strong>${sumOfPlan.toLocaleString()}</strong>{' · '}</>
+          )}
+          estimate total = <strong>${estTotal.toLocaleString()}</strong>
+        </p>
+        {!allOk && (
+          <p className="text-xs mt-1 font-medium">
+            Re-pick estimates or refresh the page to recompute before sending.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Re-pick Estimates button (Step 3) ─────────────────────────
+// Lets Attila go back to Step 2 to change the selection. Two-click
+// confirmation when an envelope is already pending — that envelope
+// must be voided manually in DocuSign after the re-pick. We never
+// auto-void here because that's a destructive action that should
+// happen explicitly in DocuSign's UI with a reason attached.
+function RePickEstimatesButton({ hasEnvelope, onConfirm }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setConfirming(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-omega-orange/40 hover:border-omega-orange text-omega-orange hover:bg-omega-pale text-xs font-semibold"
+          title="Go back to Step 2 and change which estimates feed this contract"
+        >
+          <RotateCw className="w-3.5 h-3.5" /> Re-pick estimates
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+      <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 text-sm text-amber-900">
+        <p className="font-semibold">Are you sure?</p>
+        <p className="text-xs mt-0.5">
+          Going back to Select Estimates means you'll need to send a new envelope.
+          {hasEnvelope && ' The current envelope must be voided in DocuSign first — we do not void it for you.'}
+        </p>
+      </div>
+      <div className="flex gap-1.5 flex-shrink-0">
+        <button
+          onClick={() => setConfirming(false)}
+          className="px-3 py-1.5 rounded-lg text-omega-stone hover:bg-amber-100 text-xs font-semibold"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => { setConfirming(false); onConfirm(); }}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+        >
+          <RotateCw className="w-3.5 h-3.5" /> Yes, re-pick
+        </button>
       </div>
     </div>
   );
