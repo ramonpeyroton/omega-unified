@@ -321,7 +321,10 @@
   // After we successfully process a wake word, suppress further
   // detections for this long. Stops the loop where the interim
   // transcript keeps matching the same wake word every 200ms.
-  const POST_DETECTION_COOLDOWN_MS = 2000;
+  // Tuned to comfortably cover Groq round-trip (~500ms) + display
+  // hold (2.5s) so the user has time to read the result before the
+  // mic is hot again.
+  const POST_DETECTION_COOLDOWN_MS = 3000;
 
   // Maximum entries kept in the live detection log.
   const LOG_MAX = 10;
@@ -380,6 +383,16 @@
   let bufferedCommand = "";         // best-known command text so far
   let silenceTimerId = null;        // resets on every new transcript update
   let maxWaitTimerId = null;        // one-shot cap, never resets
+  // Tracks how many result-list entries the engine had already produced
+  // at the moment of the last fire. Future onresult events only consider
+  // results with index >= this — without this, the Web Speech engine
+  // keeps replaying the same accumulated transcript (including the
+  // already-processed wake word) and re-fires every couple seconds.
+  let lastFireResultBoundary = 0;
+  // True while we're explicitly aborting recognition to clear its
+  // accumulated transcript. Lets onend skip its noisy "restart deferred"
+  // warning and just restart cleanly.
+  let restartingAfterFire = false;
 
   // DOM handles
   const $ = (id) => document.getElementById(id);
@@ -715,15 +728,19 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição s�
   /**
    * Fire the buffered command and reset state. Called when either
    * silence elapses, the engine marks the result final, or the
-   * hard cap kicks in.
+   * hard cap kicks in. AFTER firing we ALWAYS abort + auto-restart
+   * the speech engine so its accumulated transcript is cleared —
+   * otherwise the engine keeps replaying the same wake-word match
+   * on every subsequent result event.
    */
   function fireBufferedCommand(reason) {
     const command = bufferedCommand.trim();
     console.log(`[fire] reason=${reason}, command="${command}"`);
     resetBuffer();
+    // Always reset the engine's transcript memory after a fire,
+    // regardless of whether the command was valid or not.
+    resetRecognitionState();
     if (!command) {
-      // Wake word fired but no actual command attached. Drop back to
-      // listening instead of bothering Groq with empty text.
       if (recognitionShouldRun) setState("listening");
       return;
     }
@@ -734,6 +751,22 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição s�
       return;
     }
     processCommand(command, "voice");
+  }
+
+  /**
+   * Abort the current recognition session so the next start() comes
+   * up with an empty results array. The onend handler will see
+   * `restartingAfterFire=true` and start it again immediately.
+   * Also clears the live transcript display so the user sees a
+   * clean slate.
+   */
+  function resetRecognitionState() {
+    if (!recognition) return;
+    restartingAfterFire = true;
+    lastFireResultBoundary = 0;
+    try { recognition.abort(); } catch (e) { console.warn("[recognition] abort failed", e); }
+    // Clear UI as well so the next speech starts fresh.
+    renderTranscript({ finalText: "", interimText: "", wakeMatch: null });
   }
 
   /**
@@ -772,12 +805,17 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição s�
       return;
     }
 
-    // Cooldown — ignore new wake hits in the 2s after a fire.
+    // Cooldown — ignore new wake hits in the 2s after a fire. This
+    // catches stale events that arrive while the abort+restart is
+    // still in flight (between fire and the engine's onend firing).
     const sinceLast = Date.now() - lastDetectionAt;
     if (sinceLast < POST_DETECTION_COOLDOWN_MS) {
-      // Stay quiet — don't even start buffering.
+      console.log(`[cooldown] ${POST_DETECTION_COOLDOWN_MS - sinceLast}ms remaining`);
       return;
     }
+    // Belt-and-suspenders: if we're parsing or showing a result,
+    // don't open a new buffer until we return to the listening state.
+    if (appState === "parsing" || appState === "done") return;
 
     // ── Enter buffering (first hit) ──
     if (!buffering) {
@@ -841,12 +879,15 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição s�
     };
 
     rec.onend = () => {
-      console.log("[recognition] ended");
+      console.log("[recognition] ended" + (restartingAfterFire ? " (after fire)" : ""));
       // Web Speech in Chrome sometimes stops itself after a long silence.
       // Auto-restart while the user still wants us listening.
       if (recognitionShouldRun) {
-        restartCount += 1;
-        els.restartCount.textContent = restartCount;
+        if (!restartingAfterFire) {
+          restartCount += 1;
+          els.restartCount.textContent = restartCount;
+        }
+        restartingAfterFire = false;
         try {
           rec.start();
         } catch (e) {
@@ -855,6 +896,7 @@ SEMPRE retorne JSON válido. NUNCA texto fora do JSON. Erros de transcrição s�
           setTimeout(() => { try { rec.start(); } catch {} }, 250);
         }
       } else {
+        restartingAfterFire = false;
         setState("idle");
       }
     };
