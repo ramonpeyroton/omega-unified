@@ -229,21 +229,48 @@ function permsFor(role) {
 
 function Stepper({ current }) {
   return (
-    <div className="flex items-center justify-between gap-2 p-4 bg-white rounded-xl border border-gray-200">
-      {STEPS.map((s, i) => (
-        <div key={s.id} className="flex-1 flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
-            current > s.id ? 'bg-omega-success text-white border-omega-success' :
-            current === s.id ? 'bg-omega-orange text-white border-omega-orange' :
-            'bg-white text-omega-stone border-gray-300'
-          }`}>
-            {current > s.id ? <Check className="w-4 h-4" /> : s.id}
+    <>
+      {/* Mobile stepper — compact progress bar */}
+      <div className="sm:hidden bg-white rounded-xl border border-gray-200 px-4 py-3">
+        <div className="flex items-center gap-3 mb-2.5">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-omega-orange text-white border-2 border-omega-orange flex-shrink-0">
+            {current}
           </div>
-          <p className={`text-xs font-semibold whitespace-nowrap ${current === s.id ? 'text-omega-charcoal' : 'text-omega-stone'}`}>{s.label}</p>
-          {i < STEPS.length - 1 && <div className={`flex-1 h-0.5 ${current > s.id ? 'bg-omega-success' : 'bg-gray-200'}`} />}
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] text-omega-stone uppercase tracking-wider">Step {current} of {STEPS.length}</p>
+            <p className="text-sm font-bold text-omega-charcoal leading-tight">{STEPS[current - 1]?.label}</p>
+          </div>
+          {current < STEPS.length && (
+            <p className="text-[10px] text-omega-stone text-right flex-shrink-0">
+              Next:<br /><span className="font-semibold text-omega-charcoal">{STEPS[current]?.label}</span>
+            </p>
+          )}
         </div>
-      ))}
-    </div>
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-omega-orange rounded-full transition-all duration-300"
+            style={{ width: `${((current - 1) / (STEPS.length - 1)) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Desktop stepper — full horizontal */}
+      <div className="hidden sm:flex items-center justify-between gap-2 p-4 bg-white rounded-xl border border-gray-200">
+        {STEPS.map((s, i) => (
+          <div key={s.id} className="flex-1 flex items-center gap-2">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
+              current > s.id ? 'bg-omega-success text-white border-omega-success' :
+              current === s.id ? 'bg-omega-orange text-white border-omega-orange' :
+              'bg-white text-omega-stone border-gray-300'
+            }`}>
+              {current > s.id ? <Check className="w-4 h-4" /> : s.id}
+            </div>
+            <p className={`text-xs font-semibold whitespace-nowrap ${current === s.id ? 'text-omega-charcoal' : 'text-omega-stone'}`}>{s.label}</p>
+            {i < STEPS.length - 1 && <div className={`flex-1 h-0.5 ${current > s.id ? 'bg-omega-success' : 'bg-gray-200'}`} />}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -934,12 +961,12 @@ export default function EstimateFlow({ job, user, onBack }) {
         <p className="text-sm text-omega-stone">{job.address || job.city || ''}</p>
       </header>
 
-      <div className="p-6 md:p-8 space-y-6">
+      <div className="p-4 md:p-8 space-y-4 md:space-y-6">
         <Stepper current={step} />
 
         {/* STEP 1 */}
         {step === 1 && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
+          <section className="bg-white rounded-xl border border-gray-200 p-4 md:p-6">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-lg font-bold text-omega-charcoal">Review Estimate</h2>
               {estimate && <StatusBadge status={estimate.status} />}
@@ -1051,22 +1078,19 @@ export default function EstimateFlow({ job, user, onBack }) {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex justify-end gap-2 mt-6 flex-wrap">
-                    <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Reject</button>
-                    <button onClick={() => setShowChangeModal(true)} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-info hover:bg-blue-900 text-white text-sm font-semibold disabled:opacity-60">
-                      <MessageSquare className="w-4 h-4" /> Request Changes
+                  <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mt-6">
+                    <button onClick={approveEstimate} disabled={saving || !perms.canEditEstimate} className="order-first sm:order-last px-4 py-3 sm:py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
+                      {saving ? 'Saving…' : 'Approve Estimate'}
                     </button>
-                    {/* Send to Client — only when estimate hasn't been sent yet.
-                        Moves pipeline to estimate_sent so the client-side team
-                        knows the estimate is now with the client. */}
                     {estimate.status !== 'sent' && (
-                      <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
+                      <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="px-4 py-3 sm:py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
                         {saving ? 'Sending…' : 'Send to Client'}
                       </button>
                     )}
-                    <button onClick={approveEstimate} disabled={saving || !perms.canEditEstimate} className="px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-                      {saving ? 'Saving…' : 'Approve Estimate'}
+                    <button onClick={() => setShowChangeModal(true)} disabled={saving} className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-xl bg-omega-info hover:bg-blue-900 text-white text-sm font-semibold disabled:opacity-60">
+                      <MessageSquare className="w-4 h-4" /> Request Changes
                     </button>
+                    <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-3 sm:py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Reject</button>
                   </div>
                 )}
               </>
@@ -1109,7 +1133,7 @@ export default function EstimateFlow({ job, user, onBack }) {
 
         {/* STEP 3 */}
         {step === 3 && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
+          <section className="bg-white rounded-xl border border-gray-200 p-4 md:p-6">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-lg font-bold text-omega-charcoal">Generate Contract</h2>
               {contract && <StatusBadge status={contract.docusign_status || contract.status} />}
@@ -1205,7 +1229,7 @@ export default function EstimateFlow({ job, user, onBack }) {
 
         {/* STEP 4 — Awaiting Signature */}
         {step === 4 && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
+          <section className="bg-white rounded-xl border border-gray-200 p-4 md:p-6">
             <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
               <h2 className="text-lg font-bold text-omega-charcoal">Awaiting Signature</h2>
               {contract && <StatusBadge status={contract.docusign_status || contract.status} />}
@@ -1828,7 +1852,7 @@ function Step5Invoices({
   }
 
   return (
-    <section className="bg-white rounded-xl border border-gray-200 p-6">
+    <section className="bg-white rounded-xl border border-gray-200 p-4 md:p-6">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h2 className="text-lg font-bold text-omega-charcoal">Invoice &amp; Deposit</h2>
         {milestones.length > 0 && (
@@ -1876,36 +1900,57 @@ function Step5Invoices({
           No installments found yet. The DocuSign webhook materializes them on signing — try refreshing in a few seconds.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-omega-stone uppercase text-xs tracking-wider border-b border-gray-200">
-              <tr>
-                <th className="px-3 py-2 text-left w-10">#</th>
-                <th className="px-3 py-2 text-left">Installment</th>
-                <th className="px-3 py-2 text-right">Amount</th>
-                <th className="px-3 py-2 text-left">Due Date</th>
-                <th className="px-3 py-2 text-center">Status</th>
-                <th className="px-3 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {milestones.map((m, idx) => (
-                <MilestoneRow
-                  key={m.id}
-                  index={idx + 1}
-                  milestone={m}
-                  perms={perms}
-                  isSending={sendingMilestoneId === m.id}
-                  isConfirmingResend={confirmResendId === m.id}
-                  onConfirmResendChange={onConfirmResendChange}
-                  onSend={onSend}
-                  onMarkReceived={onMarkReceived}
-                  onUpdateDueDate={onUpdateDueDate}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-omega-stone uppercase text-xs tracking-wider border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-left w-10">#</th>
+                  <th className="px-3 py-2 text-left">Installment</th>
+                  <th className="px-3 py-2 text-right">Amount</th>
+                  <th className="px-3 py-2 text-left">Due Date</th>
+                  <th className="px-3 py-2 text-center">Status</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {milestones.map((m, idx) => (
+                  <MilestoneRow
+                    key={m.id}
+                    index={idx + 1}
+                    milestone={m}
+                    perms={perms}
+                    isSending={sendingMilestoneId === m.id}
+                    isConfirmingResend={confirmResendId === m.id}
+                    onConfirmResendChange={onConfirmResendChange}
+                    onSend={onSend}
+                    onMarkReceived={onMarkReceived}
+                    onUpdateDueDate={onUpdateDueDate}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="sm:hidden space-y-3">
+            {milestones.map((m, idx) => (
+              <MilestoneCard
+                key={m.id}
+                index={idx + 1}
+                milestone={m}
+                perms={perms}
+                isSending={sendingMilestoneId === m.id}
+                isConfirmingResend={confirmResendId === m.id}
+                onConfirmResendChange={onConfirmResendChange}
+                onSend={onSend}
+                onMarkReceived={onMarkReceived}
+                onUpdateDueDate={onUpdateDueDate}
+              />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );
@@ -2035,5 +2080,101 @@ function MilestoneRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+// Mobile card view for a single milestone (used in Step 5 on small screens).
+function MilestoneCard({
+  index, milestone, perms, isSending, isConfirmingResend,
+  onConfirmResendChange, onSend, onMarkReceived, onUpdateDueDate,
+}) {
+  const status = effectiveStatus(milestone);
+  const isFirst = index === 1;
+  const sentAt = milestone.invoice_sent_at ? new Date(milestone.invoice_sent_at) : null;
+  const remaining = Number(milestone.due_amount || 0) - Number(milestone.received_amount || 0);
+  const isPaid = milestone.status === 'paid';
+  const canSend = perms.canSendInvoice && !!milestone.due_date && !isSending && !isPaid;
+
+  const statusPill = isPaid ? (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold"><CheckCircle2 className="w-3 h-3" /> Received</span>
+  ) : milestone.status === 'partial' ? (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">Partial</span>
+  ) : status === 'overdue' ? (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-800 text-xs font-semibold"><AlertTriangle className="w-3 h-3" /> Overdue</span>
+  ) : sentAt ? (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">Sent</span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">Pending</span>
+  );
+
+  return (
+    <div className={`rounded-xl border p-4 ${isPaid ? 'border-green-200 bg-green-50' : status === 'overdue' ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+      {/* Top row: label + amount */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div>
+          <p className="text-sm font-bold text-omega-charcoal">
+            #{index} · {milestone.label || `Installment ${index}`}
+            {isFirst && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-omega-orange/10 text-omega-orange tracking-wider">Deposit</span>}
+          </p>
+          {sentAt && <p className="text-xs text-omega-stone mt-0.5">Sent {sentAt.toLocaleDateString()}</p>}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-base font-black text-omega-charcoal tabular-nums">${Number(milestone.due_amount || 0).toLocaleString()}</p>
+          {statusPill}
+        </div>
+      </div>
+
+      {/* Due date */}
+      <div className="mb-3">
+        <label className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold block mb-1">Due Date</label>
+        <input
+          type="date"
+          value={milestone.due_date || ''}
+          onChange={(e) => onUpdateDueDate(milestone.id, e.target.value)}
+          disabled={!perms.canSendInvoice || isPaid}
+          className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-omega-orange disabled:bg-gray-50 disabled:text-omega-stone"
+        />
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-col gap-2">
+        {!isPaid && (
+          <>
+            {sentAt ? (
+              isConfirmingResend ? (
+                <div className="flex gap-2">
+                  <button onClick={() => onSend(milestone, true)} disabled={isSending}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold disabled:opacity-60">
+                    <RotateCw className="w-4 h-4" /> {isSending ? 'Resending…' : 'Confirm Resend'}
+                  </button>
+                  <button onClick={() => onConfirmResendChange(null)}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-omega-stone">Cancel</button>
+                </div>
+              ) : (
+                <button onClick={() => onConfirmResendChange(milestone.id)}
+                  className="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-amber-300 text-amber-700 text-sm font-semibold">
+                  <RotateCw className="w-4 h-4" /> Resend Invoice
+                </button>
+              )
+            ) : (
+              <button onClick={() => onSend(milestone, false)} disabled={!canSend}
+                title={!milestone.due_date ? 'Set a due date first' : ''}
+                className="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                <Send className="w-4 h-4" /> {isSending ? 'Sending…' : 'Send Invoice'}
+              </button>
+            )}
+            <button onClick={() => onMarkReceived(milestone)} disabled={!perms.canSendInvoice || remaining <= 0}
+              className="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-omega-success hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+              <CheckCircle2 className="w-4 h-4" /> Mark as Received
+            </button>
+          </>
+        )}
+        {isPaid && (
+          <div className="flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold text-omega-success">
+            <CheckCircle2 className="w-4 h-4" /> Payment Received
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
