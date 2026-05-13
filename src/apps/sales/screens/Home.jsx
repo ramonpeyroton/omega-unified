@@ -109,18 +109,53 @@ const NAV_ITEMS = [
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },
 ];
 
+// ─── Mobile bottom navigation bar ──────────────────────────────────
+// Shown only on sm and below (hidden sm:hidden). 5 items: Home,
+// Pipeline, + New Job (centre FAB), Calendar, Leads.
+function MobileBottomBar({ activeId, onNavigate, notifCount }) {
+  const items = [
+    { id: 'home',     icon: HomeIcon,     label: 'Home' },
+    { id: 'pipeline', icon: GitBranch,    label: 'Pipeline' },
+    { id: 'new-job',  icon: PlusCircle,   label: 'New Job',  fab: true },
+    { id: 'calendar', icon: CalendarIcon, label: 'Calendar' },
+    { id: 'leads',    icon: ClipboardList,label: 'Leads' },
+  ];
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex sm:hidden safe-bottom">
+      {items.map(({ id, icon: Icon, label, fab }) => (
+        <button
+          key={id}
+          onClick={() => onNavigate(id)}
+          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 ${
+            fab
+              ? 'relative'
+              : activeId === id
+                ? 'text-omega-orange'
+                : 'text-omega-stone'
+          }`}
+        >
+          {fab ? (
+            <span className="w-12 h-12 rounded-full bg-omega-orange flex items-center justify-center shadow-lg -mt-5">
+              <Icon className="w-6 h-6 text-white" />
+            </span>
+          ) : (
+            <Icon className="w-5 h-5" />
+          )}
+          <span className={`text-[10px] font-semibold ${fab ? 'text-omega-orange mt-0.5' : ''}`}>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  // Pulls the profile photo (and refresh fn for after Edit Profile)
-  // from the same shared hook every other role's sidebar uses, so
-  // Attila's Salesman tile shows his real photo instead of an
-  // initial-on-orange square.
   const { photoUrl, refresh } = useUserProfile(user);
   const userName = user?.name || '';
 
   return (
-    <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col min-h-screen">
+    <aside className="hidden sm:flex w-56 flex-shrink-0 bg-omega-charcoal flex-col min-h-screen">
       <div className="px-5 py-6 border-b border-white/10">
         <Logo size="sm" dark />
       </div>
@@ -200,26 +235,30 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkC
   const positive = deltaPct >= 0;
   const Arrow = positive ? TrendingUp : TrendingDown;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-4 sm:p-5">
-      <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <Icon className={`w-5 h-5 ${iconColor}`} />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-3 sm:p-5">
+      <div className="flex items-start gap-2 sm:gap-3">
+        <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${iconColor}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-omega-stone font-semibold">{label}</p>
-          <p className="text-2xl font-black text-omega-charcoal tabular-nums leading-tight mt-0.5">
+          <p className="text-[10px] sm:text-xs text-omega-stone font-semibold leading-tight">{label}</p>
+          <p className="text-xl sm:text-2xl font-black text-omega-charcoal tabular-nums leading-tight mt-0.5">
             {value}
           </p>
           {Number.isFinite(deltaPct) && (
-            <p className={`text-[11px] font-semibold inline-flex items-center gap-0.5 mt-1 ${
+            <p className={`text-[10px] sm:text-[11px] font-semibold inline-flex items-center gap-0.5 mt-1 ${
               positive ? 'text-emerald-600' : 'text-red-600'
             }`}>
               <Arrow className="w-3 h-3" />
-              {Math.abs(Math.round(deltaPct))}% <span className="text-omega-stone font-medium">vs last month</span>
+              {Math.abs(Math.round(deltaPct))}%
+              <span className="text-omega-stone font-medium hidden sm:inline"> vs last month</span>
             </p>
           )}
         </div>
-        <Sparkline color={sparkColor} />
+        {/* Sparkline hidden on mobile to save space */}
+        <div className="hidden sm:block">
+          <Sparkline color={sparkColor} />
+        </div>
       </div>
     </div>
   );
@@ -411,9 +450,30 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     <div className="flex min-h-screen bg-omega-cloud">
       <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
 
-      <main className="flex-1 min-w-0">
-        {/* Top bar: greeting + notifications + sign out */}
-        <header className="bg-omega-cloud px-6 sm:px-10 pt-8 pb-4 flex items-start justify-between gap-4 flex-wrap">
+      <main className="flex-1 min-w-0 pb-16 sm:pb-0">
+        {/* ── Mobile-only top bar ──────────────────────────────── */}
+        <header className="sm:hidden sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-omega-stone font-semibold">{getGreeting()},</p>
+            <p className="text-base font-black text-omega-charcoal truncate leading-tight">
+              {user?.name || 'there'} 👋
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('notifications')}
+            className="relative p-2 rounded-xl bg-omega-cloud border border-gray-100"
+          >
+            <Bell className="w-5 h-5 text-omega-charcoal" />
+            {notifCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                {notifCount > 9 ? '9+' : notifCount}
+              </span>
+            )}
+          </button>
+        </header>
+
+        {/* ── Desktop top bar ──────────────────────────────────── */}
+        <header className="hidden sm:flex bg-omega-cloud px-6 sm:px-10 pt-8 pb-4 items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl sm:text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
               {getGreeting()}, {user?.name || 'there'} <span className="inline-block">👋</span>
@@ -445,9 +505,9 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           </div>
         </header>
 
-        <div className="px-6 sm:px-10 pb-10 space-y-6">
-          {/* KPIs */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="px-4 sm:px-10 pb-10 space-y-4 sm:space-y-6 pt-4 sm:pt-0">
+          {/* KPIs — 2 cols on mobile, 4 on desktop */}
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <KpiCard
               icon={TrendingUp}
               iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A"
@@ -481,20 +541,20 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           {/* Big New Job CTA */}
           <button
             onClick={() => onNavigate('new-job')}
-            className="w-full bg-omega-orange hover:bg-omega-dark text-white rounded-2xl p-5 flex items-center gap-4 shadow-lg shadow-omega-orange/25 transition-colors"
+            className="w-full bg-omega-orange hover:bg-omega-dark text-white rounded-2xl p-4 sm:p-5 flex items-center gap-3 sm:gap-4 shadow-lg shadow-omega-orange/25 transition-colors"
           >
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-              <PlusCircle className="w-6 h-6" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+              <PlusCircle className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="flex-1 text-left">
-              <p className="text-base font-bold">New Job</p>
-              <p className="text-sm text-white/85">Start a new client consultation</p>
+              <p className="text-sm sm:text-base font-bold">New Job</p>
+              <p className="text-xs sm:text-sm text-white/85">Start a new client consultation</p>
             </div>
             <ArrowRight className="w-5 h-5" />
           </button>
 
           {/* Three columns: pipeline overview · upcoming · recent leads */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
             {/* Pipeline overview */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
               <div className="flex items-center justify-between mb-4">
@@ -635,6 +695,9 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           </div>
         </div>
       </main>
+
+      {/* Mobile bottom navigation — hidden on sm+ (sidebar takes over) */}
+      <MobileBottomBar activeId="home" onNavigate={onNavigate} notifCount={notifCount} />
     </div>
   );
 }
