@@ -366,12 +366,13 @@ function DroppableColumn({ columnId, children, isOver }) {
 // ─── Mobile list card ─────────────────────────────────────────────
 // Compact single-row card for the mobile list view. No cover photo,
 // just the key info: name, address, service badge, time, amount.
-function MobileJobCard({ job, estByJob, coiWarningByJob, costByJob, hasUnread, onOpen }) {
+function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob, hasUnread, onOpen }) {
   const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
   const address = [job.address, job.city].filter(Boolean).join(', ');
-  const est = estByJob[job.id];
-  const cost = costByJob[job.id];
-  const amount = Number(est?.total_amount) || Number(cost?.estimated_revenue) || 0;
+  const est    = estByJob[job.id];
+  const cost   = costByJob[job.id];
+  const anyEst = anyEstByJob[job.id];
+  const amount = Number(est?.total_amount) || Number(cost?.estimated_revenue) || Number(anyEst?.total_amount) || 0;
   const leadSource = (job.lead_source || '').trim();
 
   return (
@@ -529,6 +530,7 @@ function MobilePipelineView({
                       key={job.id}
                       job={job}
                       estByJob={estByJob}
+                      anyEstByJob={anyEstByJob}
                       costByJob={costByJob}
                       coiWarningByJob={coiWarningByJob}
                       hasUnread={isJobUnread(job, lastReadByJob[job.id])}
@@ -720,17 +722,27 @@ export default function PipelineKanban({
     }
   }
 
-  // Most recent APPROVED/SIGNED estimate per job — used for column
-  // totals. Drafts and sent-but-not-approved estimates intentionally
-  // do NOT count, since the customer hasn't agreed to the number yet.
-  // For early-stage cards without an approved estimate we fall back
-  // to job_costs.estimated_revenue (manual entry from Job Costing)
-  // in the totals reducer further below.
+  // Most recent APPROVED/SIGNED estimate per job — primary source for
+  // column totals (client already agreed to this number).
   const APPROVED_STATUSES = new Set(['approved', 'signed']);
   const estByJob = useMemo(() => {
     const map = {};
     estimates.forEach((e) => {
       if (!APPROVED_STATUSES.has(e.status)) return;
+      if (!map[e.job_id] || new Date(e.created_at) > new Date(map[e.job_id].created_at)) {
+        map[e.job_id] = e;
+      }
+    });
+    return map;
+  }, [estimates]);
+
+  // Latest estimate of ANY status — last-resort fallback for jobs that
+  // predate job_costs (migration 050) and were created before the
+  // approved-estimate requirement was enforced. Ensures old cards
+  // still surface a dollar value in the column totals.
+  const anyEstByJob = useMemo(() => {
+    const map = {};
+    estimates.forEach((e) => {
       if (!map[e.job_id] || new Date(e.created_at) > new Date(map[e.job_id].created_at)) {
         map[e.job_id] = e;
       }
@@ -801,19 +813,23 @@ export default function PipelineKanban({
     visibleJobs.forEach((j) => {
       const key = COLUMN_BY_ID[j.pipeline_status] ? j.pipeline_status : 'new_lead';
       grouped[key].push(j);
-      // Priority: latest estimate.total_amount → job_costs.estimated_revenue
-      // (manual entry from the Financials > Job Costing tab) → 0. Keeps the
-      // column total honest for early leads where the estimate isn't built
-      // yet but the seller already eyeballed a ballpark.
-      const est = estByJob[j.id];
-      const cost = costByJob[j.id];
-      const amount = Number(est?.total_amount)
+      // 3-tier priority:
+      //  1. Latest approved/signed estimate → client agreed on this number.
+      //  2. job_costs.estimated_revenue    → manually entered in Financials.
+      //  3. Latest estimate (any status)   → fallback for jobs created before
+      //     migration 050 that have neither an approved estimate nor a
+      //     job_costs row (avoids showing $0 on old cards).
+      const est     = estByJob[j.id];
+      const cost    = costByJob[j.id];
+      const anyEst  = anyEstByJob[j.id];
+      const amount  = Number(est?.total_amount)
         || Number(cost?.estimated_revenue)
+        || Number(anyEst?.total_amount)
         || 0;
       totals[key] += amount;
     });
     return { jobsByColumn: grouped, totalsByColumn: totals };
-  }, [visibleJobs, estByJob, costByJob]);
+  }, [visibleJobs, estByJob, costByJob, anyEstByJob]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
   // The drag target (`event.over.id`) can be either a column id or
