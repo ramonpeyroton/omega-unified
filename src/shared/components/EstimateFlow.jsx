@@ -909,6 +909,8 @@ export default function EstimateFlow({ job, user, onBack }) {
         setContract(data);
         if (!wasSigned && data.status === 'signed') {
           setStep(5);
+          // Advance the pipeline card to "Contract Signed" column
+          await supabase.from('jobs').update({ pipeline_status: 'contract_signed' }).eq('id', job.id);
           await loadMilestonesAndCompany(data);
           logAudit({ user, action: 'contract.sign', entityType: 'contract', entityId: data.id, details: { job_id: job.id } });
           notify({ recipientRole: 'owner', title: 'Contract signed', message: `${job.client_name || 'Client'} signed — $${Number(data.total_amount || 0).toLocaleString()}`, type: 'contract', jobId: job.id });
@@ -1346,7 +1348,7 @@ export default function EstimateFlow({ job, user, onBack }) {
               const { data, error } = await supabase.from('contracts').update(patch).eq('id', contract.id).select().single();
               if (error) throw error;
               setContract(data);
-              await supabase.from('jobs').update({ status: 'contracted' }).eq('id', job.id);
+              await supabase.from('jobs').update({ pipeline_status: 'contract_signed' }).eq('id', job.id);
               logAudit({ user, action: 'contract.manual_sign', entityType: 'contract', entityId: contract.id, details: { job_id: job.id } });
               setShowManualAdvanceModal(false);
               setStep(5);
