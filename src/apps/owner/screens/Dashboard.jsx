@@ -1001,9 +1001,7 @@ export default function Dashboard({ user, onSelectJob }) {
         <p className="text-[11px] text-omega-stone text-center pt-2">
           All data is updated as of {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
         </p>
-      </div>{/* end desktop inner */}
-      </div>{/* end desktop wrapper */}
-
+      </div>
     </div>
   );
 }
