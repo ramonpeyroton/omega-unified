@@ -1038,15 +1038,15 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
           </button>
         </div>
 
-        {/* 2×3 KPI grid */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* 6 KPIs numa linha — scroll horizontal */}
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
           {kpis.map((k) => {
             const positive = k.delta?.positive !== false;
             const Arrow = k.delta ? (positive ? TrendingUp : TrendingDown) : null;
             return (
-              <div key={k.label} className={`${k.negative ? 'bg-red-600' : k.color} rounded-2xl p-3`}>
-                <p className="text-white/70 text-[9px] font-bold uppercase tracking-wide leading-tight">{k.label}</p>
-                <p className="text-white text-base font-black mt-1 leading-none tabular-nums">{k.value}</p>
+              <div key={k.label} className={`${k.negative ? 'bg-red-600' : k.color} rounded-2xl p-3 flex-shrink-0 w-28`}>
+                <p className="text-white/70 text-[9px] font-bold uppercase tracking-wide leading-tight line-clamp-2">{k.label}</p>
+                <p className="text-white text-sm font-black mt-1 leading-none tabular-nums">{k.value}</p>
                 {k.delta && Number.isFinite(k.delta.raw) && (
                   <div className={`flex items-center gap-0.5 mt-1 ${positive ? 'text-white/80' : 'text-red-200'}`}>
                     {Arrow && <Arrow className="w-2.5 h-2.5" />}
