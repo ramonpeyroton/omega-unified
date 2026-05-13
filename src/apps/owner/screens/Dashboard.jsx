@@ -126,7 +126,7 @@ function latestEstimateByJob(estimates) {
   return map;
 }
 
-export default function Dashboard({ user, onSelectJob }) {
+export default function Dashboard({ user, onSelectJob, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
@@ -762,6 +762,7 @@ export default function Dashboard({ user, onSelectJob }) {
         closeRateDelta={closeRateDelta}
         lastMonthAbbr={lastMonthAbbr}
         onSelectJob={onSelectJob}
+        onNavigate={onNavigate}
         onRefresh={() => setRefreshTick((t) => t + 1)}
       />
 
@@ -1007,7 +1008,7 @@ export default function Dashboard({ user, onSelectJob }) {
 }
 
 // ─── Mobile Owner Dashboard ───────────────────────────────────────
-function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRateDelta, lastMonthAbbr, onSelectJob, onRefresh }) {
+function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRateDelta, lastMonthAbbr, onSelectJob, onNavigate, onRefresh }) {
   const kpis = [
     { label: 'Revenue MTD',     value: fmtMoney(data.revenueMTD),       color: 'bg-omega-orange',  delta: revenueDelta },
     { label: 'Profit MTD',      value: fmtMoney(data.profitMTD),        color: 'bg-emerald-600',   delta: profitDelta,
@@ -1072,8 +1073,15 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                 blue:  { bg: 'bg-blue-50',   border: 'border-blue-200',  text: 'text-blue-700',  badge: 'bg-blue-600' },
               };
               const t = toneMap[a.tone] || toneMap.amber;
+              // overdueInvoices alert links directly to Finance screen
+              const navTarget = a.id === 'overdueInvoices' ? 'finance' : null;
+              const Tag = navTarget ? 'button' : 'div';
               return (
-                <div key={a.id} className={`flex items-center gap-3 p-3 rounded-xl border ${t.bg} ${t.border}`}>
+                <Tag
+                  key={a.id}
+                  onClick={navTarget ? () => onNavigate?.(navTarget) : undefined}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left ${t.bg} ${t.border} ${navTarget ? 'active:opacity-80 cursor-pointer' : ''}`}
+                >
                   <span className={`w-8 h-8 rounded-lg ${t.badge} text-white flex items-center justify-center font-black text-sm flex-shrink-0`}>
                     {a.count}
                   </span>
@@ -1081,7 +1089,8 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                     <p className={`text-sm font-bold truncate ${t.text}`}>{a.title}</p>
                     <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
                   </div>
-                </div>
+                  {navTarget && <ArrowRight className={`w-4 h-4 flex-shrink-0 ${t.text}`} />}
+                </Tag>
               );
             })}
           </div>

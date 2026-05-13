@@ -105,6 +105,7 @@ export default function App({ user, onLogout }) {
           <Dashboard
             user={user}
             onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }}
+            onNavigate={navigate}
           />
         );
       case 'job-detail':
