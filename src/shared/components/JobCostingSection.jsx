@@ -83,15 +83,25 @@ export default function JobCostingSection({ job, user }) {
       setSubsTotal(subs);
       setLatestEstimateTotal(estTotal != null ? Number(estTotal) : null);
 
-      // Are there payment milestones for this job? If yes, the
-      // amount_received column is owned by the trigger.
+      // Payment milestones — count AND live sum of received_amount.
+      // When milestones exist the trigger (migration 058) owns
+      // job_costs.amount_received, but we read the live sum directly
+      // here instead of trusting the denormalized column. This ensures
+      // the field is accurate even if migration 058 hasn't been applied
+      // yet or if the trigger misfired.
+      let milestoneRcvd = null;
+      let mCount = 0;
       try {
-        const { count } = await supabase
+        const { data: mRows } = await supabase
           .from('payment_milestones')
-          .select('id', { count: 'exact', head: true })
+          .select('received_amount')
           .eq('job_id', job.id);
-        setMilestoneCount(count || 0);
-      } catch { setMilestoneCount(0); }
+        mCount = (mRows || []).length;
+        if (mCount > 0) {
+          milestoneRcvd = (mRows || []).reduce((s, r) => s + (Number(r.received_amount) || 0), 0);
+        }
+      } catch { /* payment_milestones table missing — skip */ }
+      setMilestoneCount(mCount);
 
       setRow(cost || null);
       setForm({
@@ -101,7 +111,9 @@ export default function JobCostingSection({ job, user }) {
         sub_cost: cost?.sub_cost ?? subs,
         other_costs: cost?.other_costs ?? '',
         other_costs_description: cost?.other_costs_description ?? '',
-        amount_received: cost?.amount_received ?? '',
+        // When milestones exist, always use the live sum (never trust
+        // the possibly-stale denormalized column in job_costs).
+        amount_received: milestoneRcvd !== null ? milestoneRcvd : (cost?.amount_received ?? ''),
       });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to load costing' });
@@ -141,11 +153,16 @@ export default function JobCostingSection({ job, user }) {
         sub_cost: parseNum(formToSave.sub_cost),
         other_costs: parseNum(formToSave.other_costs),
         other_costs_description: formToSave.other_costs_description || null,
-        amount_received: parseNum(formToSave.amount_received),
         gross_margin_percent: calc.margin,
         updated_at: new Date().toISOString(),
         updated_by: user?.name || null,
       };
+      // When Finance milestones exist the DB trigger (migration 058) is
+      // the authoritative owner of amount_received. Skip writing it here
+      // so a save never resets what the trigger already computed.
+      if (milestoneCount === 0) {
+        payload.amount_received = parseNum(formToSave.amount_received);
+      }
       let data, error;
       if (row?.id) {
         ({ data, error } = await supabase.from('job_costs').update(payload).eq('id', row.id).select().single());
