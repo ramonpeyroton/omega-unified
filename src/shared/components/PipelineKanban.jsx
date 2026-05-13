@@ -722,31 +722,33 @@ export default function PipelineKanban({
     }
   }
 
-  // Most recent APPROVED/SIGNED estimate per job — primary source for
-  // column totals (client already agreed to this number).
+  // SUM of all APPROVED/SIGNED estimates per job — primary source for
+  // column totals. A job can have multiple approved estimates (two
+  // separate scopes both approved by the client); we must sum them all,
+  // not pick the latest single one, or we'd show half the revenue.
+  // Stores { total_amount } so the rest of the code can use ?.total_amount.
   const APPROVED_STATUSES = new Set(['approved', 'signed']);
   const estByJob = useMemo(() => {
-    const map = {};
+    const sums = {};
     estimates.forEach((e) => {
       if (!APPROVED_STATUSES.has(e.status)) return;
-      if (!map[e.job_id] || new Date(e.created_at) > new Date(map[e.job_id].created_at)) {
-        map[e.job_id] = e;
-      }
+      sums[e.job_id] = (sums[e.job_id] || 0) + (Number(e.total_amount) || 0);
     });
+    // Wrap in { total_amount } so call-sites stay unchanged.
+    const map = {};
+    Object.entries(sums).forEach(([id, total]) => { map[id] = { total_amount: total }; });
     return map;
   }, [estimates]);
 
-  // Latest estimate of ANY status — last-resort fallback for jobs that
-  // predate job_costs (migration 050) and were created before the
-  // approved-estimate requirement was enforced. Ensures old cards
-  // still surface a dollar value in the column totals.
+  // SUM of ALL estimates (any status) — last-resort fallback for jobs
+  // that predate job_costs (migration 050). Same multi-estimate logic.
   const anyEstByJob = useMemo(() => {
-    const map = {};
+    const sums = {};
     estimates.forEach((e) => {
-      if (!map[e.job_id] || new Date(e.created_at) > new Date(map[e.job_id].created_at)) {
-        map[e.job_id] = e;
-      }
+      sums[e.job_id] = (sums[e.job_id] || 0) + (Number(e.total_amount) || 0);
     });
+    const map = {};
+    Object.entries(sums).forEach(([id, total]) => { map[id] = { total_amount: total }; });
     return map;
   }, [estimates]);
 
