@@ -264,24 +264,6 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkC
   );
 }
 
-// ─── Mobile KPI card (colored background, no sparkline) ─────────────
-function MobileKpiCard({ color, label, value, delta }) {
-  const positive = delta == null || delta >= 0;
-  const Arrow = positive ? TrendingUp : TrendingDown;
-  return (
-    <div className={`${color} rounded-2xl p-4`}>
-      <p className="text-white/70 text-[10px] font-bold uppercase tracking-wide leading-tight">{label}</p>
-      <p className="text-white text-2xl font-black mt-1 leading-none tabular-nums">{value}</p>
-      {delta != null && Number.isFinite(delta) && (
-        <div className={`flex items-center gap-0.5 mt-1.5 ${positive ? 'text-white/80' : 'text-red-200'}`}>
-          <Arrow className="w-3 h-3" />
-          <span className="text-[10px] font-bold">{Math.abs(Math.round(delta))}%</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Pipeline overview row ──────────────────────────────────────────
 function PipelineRow({ phase, count, total }) {
   return (
@@ -468,162 +450,32 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     <div className="flex min-h-screen bg-omega-cloud">
       <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
 
-      {/* ══════════════════════════════════════════════════════════
-          MOBILE LAYOUT  (sm:hidden)
-          Dark hero header + colored KPIs + pipeline chips + cards
-          ══════════════════════════════════════════════════════════ */}
-      <div className="sm:hidden flex-1 min-w-0 flex flex-col overflow-y-auto pb-16">
-
-        {/* ── Dark hero header ───────────────────────────────── */}
-        <div className="bg-omega-charcoal px-4 pt-10 pb-5">
-          <div className="flex items-start justify-between mb-5">
-            <div>
-              <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest leading-none">
-                {getGreeting()}
-              </p>
-              <h1 className="text-xl font-black text-white mt-1 leading-tight truncate">
-                {user?.name?.split(' ')[0] || 'there'} 👋
-              </h1>
-            </div>
-            <button
-              onClick={() => onNavigate('notifications')}
-              className="relative p-2 rounded-xl bg-white/10 border border-white/10 mt-1"
-            >
-              <Bell className="w-5 h-5 text-white" />
-              {notifCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
-                  {notifCount > 9 ? '9+' : notifCount}
-                </span>
-              )}
-            </button>
+      <main className="flex-1 min-w-0 pb-16 sm:pb-0">
+        {/* ── Mobile-only top bar ──────────────────────────────── */}
+        <header className="sm:hidden sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-omega-stone font-semibold">{getGreeting()},</p>
+            <p className="text-base font-black text-omega-charcoal truncate leading-tight">
+              {user?.name || 'there'} 👋
+            </p>
           </div>
-
-          {/* 2×2 colored KPI grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <MobileKpiCard color="bg-omega-orange"  label="Leads (This Month)"  value={loading ? '—' : kpis.leads.value}              delta={loading ? null : kpis.leads.delta} />
-            <MobileKpiCard color="bg-violet-600"    label="Estimates Sent"      value={loading ? '—' : kpis.estimates.value}           delta={loading ? null : kpis.estimates.delta} />
-            <MobileKpiCard color="bg-emerald-600"   label="Won"                 value={loading ? '—' : kpis.won.value}                 delta={loading ? null : kpis.won.delta} />
-            <MobileKpiCard color="bg-amber-500"     label="Sales (This Month)"  value={loading ? '—' : fmtMoneyShort(kpis.sales.value)} delta={loading ? null : kpis.sales.delta} />
-          </div>
-        </div>
-
-        {/* ── Scrollable content cards ───────────────────────── */}
-        <div className="flex-1 bg-omega-cloud px-4 py-4 space-y-3">
-
-          {/* Pipeline horizontal chip strip */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-omega-charcoal flex items-center gap-2">
-                <GitBranch className="w-4 h-4 text-omega-orange" /> Pipeline
-              </h2>
-              <button onClick={() => onNavigate('pipeline')} className="text-xs font-semibold text-omega-orange">
-                View all →
-              </button>
-            </div>
-            <div className="flex gap-2 px-3 py-3 overflow-x-auto">
-              {pipelineRows.rows.map((r) => (
-                <div key={r.phase.key} className={`flex-shrink-0 rounded-xl px-3 py-2.5 text-center min-w-[80px] ${r.phase.tint}`}>
-                  <p className="text-lg font-black leading-none">{r.count}</p>
-                  <p className="text-[9px] font-bold uppercase tracking-wide mt-1 leading-tight opacity-80">{r.phase.label}</p>
-                  {r.total > 0 && <p className="text-[10px] font-bold mt-0.5 opacity-70">{fmtMoneyShort(r.total)}</p>}
-                </div>
-              ))}
-            </div>
-            <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between">
-              <span className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">Total Pipeline Value</span>
-              <span className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoney(pipelineRows.totalValue)}</span>
-            </div>
-          </div>
-
-          {/* Upcoming activities — Today + Tomorrow */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-omega-charcoal flex items-center gap-2">
-                <CalendarIcon className="w-4 h-4 text-omega-orange" /> Activities
-              </h2>
-              <button onClick={() => onNavigate('calendar')} className="text-xs font-semibold text-omega-orange">
-                Calendar →
-              </button>
-            </div>
-            <div className="p-3 space-y-1.5">
-              {events.length === 0 ? (
-                <p className="text-xs text-omega-stone text-center py-4">Nothing upcoming</p>
-              ) : (
-                ['today', 'tomorrow'].map((bucket) => {
-                  const list = groupedEvents[bucket];
-                  if (!list || list.length === 0) return null;
-                  return (
-                    <div key={bucket}>
-                      <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest px-1 mb-1.5 mt-1">
-                        {bucket === 'today' ? 'Today' : 'Tomorrow'}
-                      </p>
-                      {list.slice(0, 3).map((ev) => {
-                        const Icon = activityIconFor(ev.kind);
-                        return (
-                          <div key={ev.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-omega-cloud mb-1">
-                            <div className="w-8 h-8 rounded-lg bg-white text-omega-orange flex items-center justify-center flex-shrink-0 border border-gray-100">
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-omega-charcoal truncate">{ev.title}</p>
-                              <p className="text-[11px] text-omega-stone">{fmtTime(ev.starts_at)}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Recent leads */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-omega-charcoal flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-omega-orange" /> Recent Leads
-              </h2>
-              <button onClick={() => onNavigate('leads')} className="text-xs font-semibold text-omega-orange">
-                View all →
-              </button>
-            </div>
-            {recentLeads.length === 0 ? (
-              <p className="text-xs text-omega-stone text-center py-6">No new leads yet.</p>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {recentLeads.slice(0, 4).map((j) => (
-                  <li key={j.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-9 h-9 rounded-full bg-omega-pale flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-black text-omega-orange">
-                        {(j.client_name || '?')[0].toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-omega-charcoal truncate">{j.client_name || 'Untitled'}</p>
-                      <p className="text-[11px] text-omega-stone truncate">{j.service_type || j.address || '—'}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">NEW</span>
-                      <p className="text-[10px] text-omega-stone mt-0.5">{relTime(j.created_at)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+          <button
+            onClick={() => onNavigate('notifications')}
+            className="relative p-2 rounded-xl bg-omega-cloud border border-gray-100"
+          >
+            <Bell className="w-5 h-5 text-omega-charcoal" />
+            {notifCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                {notifCount > 9 ? '9+' : notifCount}
+              </span>
             )}
-          </div>
+          </button>
+        </header>
 
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════
-          DESKTOP LAYOUT  (hidden sm:flex)
-          Unchanged — sidebar + full 3-col layout
-          ══════════════════════════════════════════════════════════ */}
-      <main className="hidden sm:flex flex-1 min-w-0 flex-col">
-        <header className="bg-omega-cloud px-10 pt-8 pb-4 flex items-start justify-between gap-4 flex-wrap">
+        {/* ── Desktop top bar ──────────────────────────────────── */}
+        <header className="hidden sm:flex bg-omega-cloud px-6 sm:px-10 pt-8 pb-4 items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
               {getGreeting()}, {user?.name || 'there'} <span className="inline-block">👋</span>
             </h1>
             <p className="text-sm text-omega-stone mt-1">
@@ -653,48 +505,81 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           </div>
         </header>
 
-        <div className="px-10 pb-10 space-y-6">
-          {/* KPIs — 4 cols */}
-          <section className="grid grid-cols-4 gap-4">
-            <KpiCard icon={TrendingUp}    iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A" label="Leads (This Month)"  value={loading ? '—' : kpis.leads.value}              deltaPct={loading ? null : kpis.leads.delta} />
-            <KpiCard icon={FileText}      iconBg="bg-violet-100" iconColor="text-violet-600"   sparkColor="#8B5CF6" label="Estimates Sent"      value={loading ? '—' : kpis.estimates.value}           deltaPct={loading ? null : kpis.estimates.delta} />
-            <KpiCard icon={CalendarCheck} iconBg="bg-emerald-100" iconColor="text-emerald-600" sparkColor="#10B981" label="Won"                 value={loading ? '—' : kpis.won.value}                 deltaPct={loading ? null : kpis.won.delta} />
-            <KpiCard icon={TrendingUp}    iconBg="bg-amber-100"  iconColor="text-amber-600"    sparkColor="#F59E0B" label="Sales (This Month)"  value={loading ? '—' : fmtMoneyShort(kpis.sales.value)} deltaPct={loading ? null : kpis.sales.delta} />
+        <div className="px-4 sm:px-10 pb-10 space-y-4 sm:space-y-6 pt-4 sm:pt-0">
+          {/* KPIs — 2 cols on mobile, 4 on desktop */}
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <KpiCard
+              icon={TrendingUp}
+              iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A"
+              label="Leads (This Month)"
+              value={loading ? '—' : kpis.leads.value}
+              deltaPct={loading ? null : kpis.leads.delta}
+            />
+            <KpiCard
+              icon={FileText}
+              iconBg="bg-violet-100" iconColor="text-violet-600" sparkColor="#8B5CF6"
+              label="Estimates Sent"
+              value={loading ? '—' : kpis.estimates.value}
+              deltaPct={loading ? null : kpis.estimates.delta}
+            />
+            <KpiCard
+              icon={CalendarCheck}
+              iconBg="bg-emerald-100" iconColor="text-emerald-600" sparkColor="#10B981"
+              label="Won"
+              value={loading ? '—' : kpis.won.value}
+              deltaPct={loading ? null : kpis.won.delta}
+            />
+            <KpiCard
+              icon={TrendingUp}
+              iconBg="bg-amber-100" iconColor="text-amber-600" sparkColor="#F59E0B"
+              label="Sales (This Month)"
+              value={loading ? '—' : fmtMoneyShort(kpis.sales.value)}
+              deltaPct={loading ? null : kpis.sales.delta}
+            />
           </section>
 
-          {/* New Job CTA */}
+          {/* Big New Job CTA — desktop only; mobile uses the FAB in MobileBottomBar */}
           <button
             onClick={() => onNavigate('new-job')}
-            className="w-full bg-omega-orange hover:bg-omega-dark text-white rounded-2xl p-5 flex items-center gap-4 shadow-lg shadow-omega-orange/25 transition-colors"
+            className="hidden sm:flex w-full bg-omega-orange hover:bg-omega-dark text-white rounded-2xl p-4 sm:p-5 items-center gap-3 sm:gap-4 shadow-lg shadow-omega-orange/25 transition-colors"
           >
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-              <PlusCircle className="w-6 h-6" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+              <PlusCircle className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="flex-1 text-left">
-              <p className="text-base font-bold">New Job</p>
-              <p className="text-sm text-white/85">Start a new client consultation</p>
+              <p className="text-sm sm:text-base font-bold">New Job</p>
+              <p className="text-xs sm:text-sm text-white/85">Start a new client consultation</p>
             </div>
             <ArrowRight className="w-5 h-5" />
           </button>
 
-          {/* Three columns */}
-          <section className="grid grid-cols-3 gap-4">
+          {/* Three columns: pipeline overview · upcoming · recent leads */}
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
             {/* Pipeline overview */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
                   <GitBranch className="w-4 h-4 text-omega-orange" /> Pipeline Overview
                 </h2>
-                <button onClick={() => onNavigate('pipeline')} className="text-xs font-semibold text-omega-orange hover:text-omega-dark">
+                <button
+                  onClick={() => onNavigate('pipeline')}
+                  className="text-xs font-semibold text-omega-orange hover:text-omega-dark"
+                >
                   View full pipeline
                 </button>
               </div>
               <div className="divide-y divide-gray-100">
-                {pipelineRows.rows.map((r) => <PipelineRow key={r.phase.key} {...r} />)}
+                {pipelineRows.rows.map((r) => (
+                  <PipelineRow key={r.phase.key} {...r} />
+                ))}
               </div>
               <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between">
-                <span className="text-xs font-semibold text-omega-stone uppercase tracking-wider">Total Pipeline Value</span>
-                <span className="text-lg font-black text-omega-charcoal tabular-nums">{fmtMoney(pipelineRows.totalValue)}</span>
+                <span className="text-xs font-semibold text-omega-stone uppercase tracking-wider">
+                  Total Pipeline Value
+                </span>
+                <span className="text-lg font-black text-omega-charcoal tabular-nums">
+                  {fmtMoney(pipelineRows.totalValue)}
+                </span>
               </div>
             </div>
 
@@ -704,7 +589,10 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
                   <CalendarIcon className="w-4 h-4 text-omega-orange" /> Upcoming Activities
                 </h2>
-                <button onClick={() => onNavigate('calendar')} className="text-xs font-semibold text-omega-orange hover:text-omega-dark">
+                <button
+                  onClick={() => onNavigate('calendar')}
+                  className="text-xs font-semibold text-omega-orange hover:text-omega-dark"
+                >
                   View calendar
                 </button>
               </div>
@@ -712,22 +600,28 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 <p className="text-xs text-omega-stone py-6 text-center">No upcoming activities scheduled.</p>
               ) : (
                 <div className="space-y-4">
-                  {['today', 'tomorrow', 'later'].map((bucket) => {
+                  {(['today', 'tomorrow', 'later']).map((bucket) => {
                     const list = groupedEvents[bucket];
-                    if (!list || list.length === 0) return null;
+                    if (list.length === 0) return null;
                     const label = bucket === 'today' ? 'Today' : bucket === 'tomorrow' ? 'Tomorrow' : 'Later';
                     return (
                       <div key={bucket}>
-                        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest mb-2">{label}</p>
+                        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest mb-2">
+                          {label}
+                        </p>
                         <div className="space-y-2">
                           {list.slice(0, 3).map((ev) => {
                             const Icon = activityIconFor(ev.kind);
                             return (
                               <div key={ev.id} className="flex items-start gap-3">
-                                <span className="text-[11px] font-bold text-omega-stone tabular-nums w-12 mt-1 flex-shrink-0">{fmtTime(ev.starts_at)}</span>
+                                <span className="text-[11px] font-bold text-omega-stone tabular-nums w-12 mt-1 flex-shrink-0">
+                                  {fmtTime(ev.starts_at)}
+                                </span>
                                 <div className="flex-1 min-w-0 bg-omega-cloud rounded-xl px-3 py-2.5">
                                   <p className="text-sm font-semibold text-omega-charcoal truncate">{ev.title}</p>
-                                  {ev.notes && <p className="text-[11px] text-omega-stone truncate">{ev.notes}</p>}
+                                  {ev.notes && (
+                                    <p className="text-[11px] text-omega-stone truncate">{ev.notes}</p>
+                                  )}
                                 </div>
                                 <div className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
                                   <Icon className="w-4 h-4" />
@@ -749,7 +643,10 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 <h2 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-omega-orange" /> Recent Leads
                 </h2>
-                <button onClick={() => onNavigate('pipeline')} className="text-xs font-semibold text-omega-orange hover:text-omega-dark">
+                <button
+                  onClick={() => onNavigate('pipeline')}
+                  className="text-xs font-semibold text-omega-orange hover:text-omega-dark"
+                >
                   View all leads
                 </button>
               </div>
@@ -766,7 +663,9 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">NEW</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                          NEW
+                        </span>
                         <p className="text-[11px] text-omega-stone mt-0.5">{relTime(j.created_at)}</p>
                       </div>
                     </li>
@@ -777,7 +676,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           </section>
 
           {/* Pro Tip footer */}
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-start gap-3">
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-start gap-3 flex-wrap">
             <div className="w-9 h-9 rounded-xl bg-white text-blue-600 flex items-center justify-center flex-shrink-0">
               <Lightbulb className="w-5 h-5" />
             </div>
@@ -787,7 +686,10 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 Complete the questionnaire thoroughly — a detailed report leads to a higher close rate.
               </p>
             </div>
-            <button onClick={() => onNavigate('new-job')} className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold">
+            <button
+              onClick={() => onNavigate('new-job')}
+              className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold"
+            >
               Go to Questionnaire
             </button>
           </div>
