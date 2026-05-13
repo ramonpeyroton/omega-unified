@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Omega — Stripe Payment Flow Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #111;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    padding: 32px 16px 64px;
+    gap: 24px;
+  }
+
+  h1 {
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .subtitle { color: #888; font-size: 13px; margin-top: 4px; }
+
+  /* ── Phone frame ── */
+  .phone {
+    width: 390px;
+    max-width: 100%;
+    background: #F5F5F7;
+    border-radius: 44px;
+    overflow: hidden;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08);
+    position: relative;
+  }
+
+  /* Status bar */
+  .status-bar {
+    background: #1C1C1E;
+    padding: 12px 24px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-bar .time { font-size: 15px; font-weight: 700; }
+
+  /* ── SCREENS ── */
+  .screen { display: none; flex-direction: column; min-height: 780px; }
+  .screen.active { display: flex; }
+
+  /* Colors */
+  :root {
+    --orange: #E8732A;
+    --dark: #1C1C1E;
+    --stone: #8E8E93;
+    --cloud: #F5F5F7;
+    --white: #ffffff;
+  }
+
+  /* ── Screen 1: Finance tab with milestones ── */
+  .tab-bar {
+    background: #1C1C1E;
+    display: flex;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .tab-bar button {
+    flex: 1;
+    padding: 12px 4px 10px;
+    color: #888;
+    font-size: 12px;
+    font-weight: 600;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    transition: color 0.15s;
+  }
+  .tab-bar button.active { color: var(--orange); }
+  .tab-bar button .tab-dot {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--orange);
+    opacity: 0;
+  }
+  .tab-bar button.active .tab-dot { opacity: 1; }
+
+  .job-header {
+    background: #1C1C1E;
+    padding: 16px 20px 20px;
+    color: #fff;
+  }
+  .job-header .client { font-size: 18px; font-weight: 800; }
+  .job-header .address { font-size: 12px; color: #888; margin-top: 2px; }
+  .job-header .badge {
+    display: inline-block;
+    margin-top: 8px;
+    background: rgba(232,115,42,0.2);
+    color: var(--orange);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .screen-body { padding: 16px; flex: 1; overflow-y: auto; }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .section-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--orange);
+  }
+
+  .milestone-card {
+    background: var(--white);
+    border-radius: 16px;
+    border: 1px solid #e5e5ea;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .milestone-card .m-icon {
+    width: 40px; height: 40px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .milestone-card .m-icon.pending { background: #FFF3E0; }
+  .milestone-card .m-icon.paid    { background: #E8F5E9; }
+  .milestone-card .m-info { flex: 1; min-width: 0; }
+  .milestone-card .m-label { font-size: 13px; font-weight: 700; color: var(--dark); }
+  .milestone-card .m-meta  { font-size: 11px; color: var(--stone); margin-top: 2px; }
+  .milestone-card .m-amount { font-size: 15px; font-weight: 800; color: var(--dark); text-align: right; }
+  .milestone-card .m-status {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 6px; margin-top: 3px; text-align: right;
+  }
+  .m-status.pending { background: #FFF3E0; color: #E65100; }
+  .m-status.paid    { background: #E8F5E9; color: #2E7D32; }
+
+  .pay-btn {
+    width: 100%;
+    background: var(--orange);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s, transform 0.1s;
+    box-shadow: 0 4px 16px rgba(232,115,42,0.35);
+  }
+  .pay-btn:active { transform: scale(0.98); }
+  .pay-btn .pay-icon { font-size: 16px; }
+  .pay-btn .stripe-badge {
+    font-size: 10px;
+    background: rgba(255,255,255,0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .total-bar {
+    background: var(--white);
+    border-radius: 16px;
+    border: 1px solid #e5e5ea;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .total-bar .t-label { font-size: 12px; color: var(--stone); font-weight: 600; }
+  .total-bar .t-value { font-size: 20px; font-weight: 900; color: var(--dark); }
+  .total-bar .t-received { font-size: 12px; color: #2E7D32; font-weight: 700; }
+
+  /* ── Screen 2: Payment modal ── */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    z-index: 10;
+  }
+  .modal-sheet {
+    background: var(--white);
+    border-radius: 28px 28px 0 0;
+    padding: 0 0 32px;
+    animation: slideUp 0.3s ease;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .modal-handle {
+    width: 36px; height: 4px; background: #ddd; border-radius: 2px;
+    margin: 12px auto 0;
+  }
+  .modal-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .modal-header .mh-title { font-size: 17px; font-weight: 800; color: var(--dark); }
+  .modal-header .mh-sub   { font-size: 12px; color: var(--stone); margin-top: 2px; }
+  .modal-header .mh-amount {
+    font-size: 22px; font-weight: 900; color: var(--orange);
+    text-align: right;
+  }
+  .modal-header .mh-amount-label {
+    font-size: 10px; color: var(--stone); text-align: right; margin-top: 1px;
+  }
+
+  .modal-body { padding: 16px 20px 0; }
+
+  .field-group { margin-bottom: 14px; }
+  .field-label {
+    font-size: 11px; font-weight: 700; color: var(--stone);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .field-input {
+    width: 100%;
+    background: #F5F5F7;
+    border: 1.5px solid #e5e5ea;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 15px;
+    color: var(--dark);
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field-input:focus { border-color: var(--orange); background: #fff; }
+  .field-input.card-num { letter-spacing: 2px; font-weight: 600; }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .secure-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--stone);
+    margin: 12px 0;
+    justify-content: center;
+  }
+  .secure-note .lock { font-size: 12px; }
+
+  .stripe-logo {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #635BFF;
+    font-weight: 700;
+    justify-content: center;
+    margin-top: 2px;
+  }
+
+  .confirm-btn {
+    width: calc(100% - 40px);
+    margin: 16px 20px 0;
+    background: var(--orange);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 15px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(232,115,42,0.4);
+    transition: transform 0.1s;
+  }
+  .confirm-btn:active { transform: scale(0.98); }
+
+  /* ── Screen 3: Processing ── */
+  .processing-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px;
+    background: var(--white);
+  }
+  .spinner {
+    width: 56px; height: 56px;
+    border: 4px solid #f0f0f0;
+    border-top-color: var(--orange);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing-title { font-size: 18px; font-weight: 800; color: var(--dark); }
+  .processing-sub   { font-size: 13px; color: var(--stone); text-align: center; }
+
+  /* ── Screen 4: Success ── */
+  .success-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px;
+    background: var(--white);
+  }
+  .success-circle {
+    width: 80px; height: 80px;
+    background: #E8F5E9;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes popIn {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  .success-title { font-size: 22px; font-weight: 900; color: var(--dark); text-align: center; }
+  .success-sub   { font-size: 13px; color: var(--stone); text-align: center; line-height: 1.5; }
+  .success-amount {
+    font-size: 36px; font-weight: 900; color: #2E7D32;
+  }
+  .receipt-card {
+    width: 100%;
+    background: #F5F5F7;
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .receipt-row {
+    display: flex; justify-content: space-between;
+    font-size: 13px; padding: 5px 0;
+    border-bottom: 1px solid #e5e5ea;
+  }
+  .receipt-row:last-child { border-bottom: none; }
+  .receipt-row .r-label { color: var(--stone); font-weight: 500; }
+  .receipt-row .r-value { color: var(--dark); font-weight: 700; }
+  .done-btn {
+    width: 100%;
+    background: var(--dark);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 15px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  /* ── Screen 5: Brenda's view ── */
+  .brenda-header {
+    background: #1C1C1E;
+    padding: 20px;
+    color: #fff;
+  }
+  .brenda-header .bh-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .brenda-header .bh-title { font-size: 20px; font-weight: 900; margin-top: 2px; }
+  .notif-card {
+    background: #E8F5E9;
+    border: 1.5px solid #A5D6A7;
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .notif-icon { font-size: 24px; flex-shrink: 0; }
+  .notif-title { font-size: 14px; font-weight: 700; color: #1B5E20; }
+  .notif-sub   { font-size: 12px; color: #388E3C; margin-top: 2px; }
+  .notif-time  { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .finance-summary {
+    background: var(--white);
+    border-radius: 16px;
+    border: 1px solid #e5e5ea;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .fs-title { font-size: 13px; font-weight: 700; color: var(--dark); margin-bottom: 12px; }
+  .fs-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #f5f5f5;
+  }
+  .fs-row:last-child { border-bottom: none; }
+  .fs-label { font-size: 12px; color: var(--stone); }
+  .fs-value { font-size: 14px; font-weight: 700; color: var(--dark); }
+  .fs-value.green { color: #2E7D32; }
+  .fs-value.orange { color: var(--orange); }
+
+  /* Nav controls */
+  .nav-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .nav-btn {
+    background: #222;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .nav-btn:hover { background: #333; }
+  .nav-btn.active { background: var(--orange); border-color: var(--orange); }
+
+  .step-indicator {
+    display: flex; gap: 6px; align-items: center;
+  }
+  .step-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #333;
+    transition: all 0.2s;
+  }
+  .step-dot.active { background: var(--orange); transform: scale(1.3); }
+
+  .close-btn {
+    position: absolute;
+    top: 16px; right: 16px;
+    width: 28px; height: 28px;
+    background: #f0f0f0;
+    border: none;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20;
+  }
+</style>
+</head>
+<body>
+
+<div style="text-align:center">
+  <h1>💳 Omega × Stripe — Payment Flow</h1>
+  <p class="subtitle">Mockup interativo — clique nos botões para navegar pelas telas</p>
+</div>
+
+<!-- Step indicators -->
+<div class="step-indicator">
+  <div class="step-dot active" id="dot-0"></div>
+  <div class="step-dot" id="dot-1"></div>
+  <div class="step-dot" id="dot-2"></div>
+  <div class="step-dot" id="dot-3"></div>
+  <div class="step-dot" id="dot-4"></div>
+</div>
+
+<div class="nav-controls">
+  <button class="nav-btn active" onclick="goTo(0)">1 · Finance Tab</button>
+  <button class="nav-btn" onclick="goTo(1)">2 · Pay Now</button>
+  <button class="nav-btn" onclick="goTo(2)">3 · Processing</button>
+  <button class="nav-btn" onclick="goTo(3)">4 · Confirmed ✅</button>
+  <button class="nav-btn" onclick="goTo(4)">5 · Brenda vê 👀</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PHONE                                               -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="phone">
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <span class="time">10:42</span>
+    <span>📶 🔋</span>
+  </div>
+
+  <!-- ══ SCREEN 0: Finance tab ══ -->
+  <div class="screen active" id="screen-0">
+    <div class="job-header">
+      <div class="client">Yuliya Stanislavsky</div>
+      <div class="address">69 Stanwich Rd, Greenwich, CT</div>
+      <div class="badge">🏗 Building Plans</div>
+    </div>
+    <div class="tab-bar">
+      <button>⏱ Time</button>
+      <button class="active">$ Financials <div class="tab-dot"></div></button>
+      <button>📁 Docs</button>
+      <button>ℹ️ Details</button>
+    </div>
+
+    <div class="screen-body">
+      <!-- Total summary -->
+      <div class="total-bar">
+        <div>
+          <div class="t-label">CONTRACT VALUE</div>
+          <div class="t-value">$37,400</div>
+        </div>
+        <div style="text-align:right">
+          <div class="t-label">RECEIVED</div>
+          <div class="t-received">$0 of $37,400</div>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <div class="dot"></div>
+        Payment Milestones
+      </div>
+
+      <!-- Milestone 1 — DUE -->
+      <div class="milestone-card" style="border-color: #FFE0B2; background: #FFFBF5;">
+        <div class="m-icon pending">💰</div>
+        <div class="m-info">
+          <div class="m-label">Deposit (30%)</div>
+          <div class="m-meta">Due: May 10, 2026</div>
+        </div>
+        <div>
+          <div class="m-amount">$11,220</div>
+          <div class="m-status pending">Due now</div>
+        </div>
+      </div>
+
+      <!-- Pay Now button -->
+      <button class="pay-btn" onclick="goTo(1)">
+        <span class="pay-icon">💳</span>
+        Pay $11,220 via Card
+        <span class="stripe-badge">Stripe</span>
+      </button>
+
+      <!-- Milestone 2 -->
+      <div class="milestone-card" style="margin-top:14px">
+        <div class="m-icon pending">📅</div>
+        <div class="m-info">
+          <div class="m-label">Progress (40%)</div>
+          <div class="m-meta">Due: June 15, 2026</div>
+        </div>
+        <div>
+          <div class="m-amount">$14,960</div>
+          <div class="m-status pending">Upcoming</div>
+        </div>
+      </div>
+
+      <!-- Milestone 3 -->
+      <div class="milestone-card">
+        <div class="m-icon pending">🏁</div>
+        <div class="m-info">
+          <div class="m-label">Final Payment (30%)</div>
+          <div class="m-meta">Due upon completion</div>
+        </div>
+        <div>
+          <div class="m-amount">$11,220</div>
+          <div class="m-status pending">Upcoming</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 1: Payment modal ══ -->
+  <div class="screen" id="screen-1" style="position:relative; background:#F5F5F7;">
+    <!-- Background (blurred job view) -->
+    <div class="job-header" style="opacity:0.4">
+      <div class="client">Yuliya Stanislavsky</div>
+      <div class="address">69 Stanwich Rd, Greenwich, CT</div>
+    </div>
+    <div style="flex:1; background:#F5F5F7; opacity:0.3;"></div>
+
+    <!-- Modal overlay -->
+    <div class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <button class="close-btn" onclick="goTo(0)">✕</button>
+
+        <div class="modal-header">
+          <div>
+            <div class="mh-title">Pay Deposit</div>
+            <div class="mh-sub">Yuliya Stanislavsky · Omega Development</div>
+          </div>
+          <div>
+            <div class="mh-amount">$11,220</div>
+            <div class="mh-amount-label">30% deposit</div>
+          </div>
+        </div>
+
+        <div class="modal-body">
+          <div class="field-group">
+            <div class="field-label">Card Number</div>
+            <input class="field-input card-num" type="text" value="4242  4242  4242  4242" readonly />
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <div class="field-label">Expiry</div>
+              <input class="field-input" type="text" value="12 / 28" readonly />
+            </div>
+            <div class="field-group">
+              <div class="field-label">CVC</div>
+              <input class="field-input" type="text" value="•••" readonly />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-label">Name on Card</div>
+            <input class="field-input" type="text" value="Yuliya Stanislavsky" readonly />
+          </div>
+
+          <div class="secure-note">
+            <span class="lock">🔒</span>
+            Payments are encrypted and secure
+          </div>
+          <div class="stripe-logo">
+            Powered by <strong style="margin-left:4px">Stripe</strong>
+          </div>
+        </div>
+
+        <button class="confirm-btn" onclick="goTo(2)">
+          Pay $11,220.00
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 2: Processing ══ -->
+  <div class="screen" id="screen-2">
+    <div class="processing-screen">
+      <div class="spinner"></div>
+      <div class="processing-title">Processing payment…</div>
+      <div class="processing-sub">
+        Please don't close this screen.<br/>
+        This usually takes a few seconds.
+      </div>
+      <div style="font-size:13px; color:#888; margin-top:8px;">
+        $11,220.00 · Visa •••• 4242
+      </div>
+    </div>
+    <!-- Auto-advance after 2s -->
+    <script>
+      document.getElementById('screen-2').addEventListener('animationend', () => {});
+    </script>
+  </div>
+
+  <!-- ══ SCREEN 3: Success ══ -->
+  <div class="screen" id="screen-3">
+    <div class="success-screen">
+      <div class="success-circle">✅</div>
+      <div class="success-amount">$11,220.00</div>
+      <div class="success-title">Payment Confirmed!</div>
+      <div class="success-sub">
+        The deposit has been received.<br/>
+        A receipt was sent to yuliya@email.com
+      </div>
+
+      <div class="receipt-card">
+        <div class="receipt-row">
+          <span class="r-label">Client</span>
+          <span class="r-value">Yuliya Stanislavsky</span>
+        </div>
+        <div class="receipt-row">
+          <span class="r-label">Description</span>
+          <span class="r-value">Deposit — Building Plans</span>
+        </div>
+        <div class="receipt-row">
+          <span class="r-label">Amount</span>
+          <span class="r-value" style="color:#2E7D32">$11,220.00</span>
+        </div>
+        <div class="receipt-row">
+          <span class="r-label">Method</span>
+          <span class="r-value">Visa •••• 4242</span>
+        </div>
+        <div class="receipt-row">
+          <span class="r-label">Date</span>
+          <span class="r-value">May 13, 2026 · 10:43 AM</span>
+        </div>
+        <div class="receipt-row">
+          <span class="r-label">Status</span>
+          <span class="r-value" style="color:#2E7D32">✓ Paid</span>
+        </div>
+      </div>
+
+      <button class="done-btn" onclick="goTo(0)">Back to Job</button>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 4: Brenda's Finance view ══ -->
+  <div class="screen" id="screen-4">
+    <div class="brenda-header">
+      <div class="bh-label">Operations · Finance</div>
+      <div class="bh-title">Payments Received</div>
+    </div>
+
+    <div class="screen-body">
+
+      <!-- Notification -->
+      <div class="notif-card">
+        <div class="notif-icon">💸</div>
+        <div>
+          <div class="notif-title">Payment received — $11,220</div>
+          <div class="notif-sub">Yuliya Stanislavsky · Deposit (30%) · Visa •••• 4242</div>
+          <div class="notif-time">Just now · Processed by Stripe</div>
+        </div>
+      </div>
+
+      <!-- Finance summary updated -->
+      <div class="finance-summary">
+        <div class="fs-title">Yuliya Stanislavsky — Job Summary</div>
+        <div class="fs-row">
+          <span class="fs-label">Contract value</span>
+          <span class="fs-value">$37,400</span>
+        </div>
+        <div class="fs-row">
+          <span class="fs-label">Received</span>
+          <span class="fs-value green">$11,220 ✓</span>
+        </div>
+        <div class="fs-row">
+          <span class="fs-label">Balance due</span>
+          <span class="fs-value orange">$26,180</span>
+        </div>
+        <div class="fs-row">
+          <span class="fs-label">Next milestone</span>
+          <span class="fs-value">$14,960 · Jun 15</span>
+        </div>
+      </div>
+
+      <!-- Milestone updated -->
+      <div class="section-title">
+        <div class="dot"></div>
+        Milestones Updated Automatically
+      </div>
+
+      <div class="milestone-card" style="border-color: #A5D6A7; background: #F1F8E9;">
+        <div class="m-icon paid">✅</div>
+        <div class="m-info">
+          <div class="m-label">Deposit (30%)</div>
+          <div class="m-meta">Paid May 13, 2026 · Stripe</div>
+        </div>
+        <div>
+          <div class="m-amount">$11,220</div>
+          <div class="m-status paid">Paid</div>
+        </div>
+      </div>
+
+      <div class="milestone-card">
+        <div class="m-icon pending">📅</div>
+        <div class="m-info">
+          <div class="m-label">Progress (40%)</div>
+          <div class="m-meta">Due: June 15, 2026</div>
+        </div>
+        <div>
+          <div class="m-amount">$14,960</div>
+          <div class="m-status pending">Upcoming</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+<!-- /phone -->
+
+<script>
+  let current = 0;
+  const total = 5;
+
+  // Auto-advance screen 2 (processing) after 2 seconds
+  function startProcessingTimer() {
+    setTimeout(() => {
+      if (current === 2) goTo(3);
+    }, 2000);
+  }
+
+  function goTo(n) {
+    // Hide all
+    for (let i = 0; i < total; i++) {
+      const s = document.getElementById('screen-' + i);
+      const d = document.getElementById('dot-' + i);
+      const b = document.querySelectorAll('.nav-btn')[i];
+      if (s) s.classList.remove('active');
+      if (d) d.classList.remove('active');
+      if (b) b.classList.remove('active');
+    }
+    current = n;
+    const s = document.getElementById('screen-' + n);
+    const d = document.getElementById('dot-' + n);
+    const b = document.querySelectorAll('.nav-btn')[n];
+    if (s) s.classList.add('active');
+    if (d) d.classList.add('active');
+    if (b) b.classList.add('active');
+
+    // Scroll phone to top
+    const phone = document.querySelector('.phone');
+    if (phone) phone.scrollTop = 0;
+
+    if (n === 2) startProcessingTimer();
+  }
+</script>
+
+</body>
+</html>
