@@ -235,30 +235,36 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkC
   const positive = deltaPct >= 0;
   const Arrow = positive ? TrendingUp : TrendingDown;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-3 sm:p-5">
-      <div className="flex items-start gap-2 sm:gap-3">
-        <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${iconColor}`} />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-2 sm:p-5">
+      {/* Mobile: stacked icon + number (very compact) */}
+      <div className="flex flex-col items-center text-center sm:hidden gap-1 py-1">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${iconBg}`}>
+          <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
+        </div>
+        <p className="text-base font-black text-omega-charcoal tabular-nums leading-none">{value}</p>
+        <p className="text-[9px] text-omega-stone font-semibold leading-tight line-clamp-2">{label}</p>
+        {Number.isFinite(deltaPct) && (
+          <p className={`text-[9px] font-bold inline-flex items-center gap-0.5 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
+            <Arrow className="w-2.5 h-2.5" />{Math.abs(Math.round(deltaPct))}%
+          </p>
+        )}
+      </div>
+      {/* Desktop: original layout */}
+      <div className="hidden sm:flex items-start gap-3">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <Icon className={`w-5 h-5 ${iconColor}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] sm:text-xs text-omega-stone font-semibold leading-tight">{label}</p>
-          <p className="text-xl sm:text-2xl font-black text-omega-charcoal tabular-nums leading-tight mt-0.5">
-            {value}
-          </p>
+          <p className="text-xs text-omega-stone font-semibold leading-tight">{label}</p>
+          <p className="text-2xl font-black text-omega-charcoal tabular-nums leading-tight mt-0.5">{value}</p>
           {Number.isFinite(deltaPct) && (
-            <p className={`text-[10px] sm:text-[11px] font-semibold inline-flex items-center gap-0.5 mt-1 ${
-              positive ? 'text-emerald-600' : 'text-red-600'
-            }`}>
-              <Arrow className="w-3 h-3" />
-              {Math.abs(Math.round(deltaPct))}%
-              <span className="text-omega-stone font-medium hidden sm:inline"> vs last month</span>
+            <p className={`text-[11px] font-semibold inline-flex items-center gap-0.5 mt-1 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
+              <Arrow className="w-3 h-3" />{Math.abs(Math.round(deltaPct))}%
+              <span className="text-omega-stone font-medium"> vs last month</span>
             </p>
           )}
         </div>
-        {/* Sparkline hidden on mobile to save space */}
-        <div className="hidden sm:block">
-          <Sparkline color={sparkColor} />
-        </div>
+        <Sparkline color={sparkColor} />
       </div>
     </div>
   );
@@ -506,8 +512,8 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
         </header>
 
         <div className="px-4 sm:px-10 pb-10 space-y-4 sm:space-y-6 pt-4 sm:pt-0">
-          {/* KPIs — 2 cols on mobile, 4 on desktop */}
-          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {/* KPIs — 4 cols always (compact on mobile, full on desktop) */}
+          <section className="grid grid-cols-4 gap-2 sm:gap-4">
             <KpiCard
               icon={TrendingUp}
               iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A"
