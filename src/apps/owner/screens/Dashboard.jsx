@@ -860,7 +860,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         {/* ─── Financial Overview + Alerts ──────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-2">
-            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+            <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Financial Overview</h2>
                 <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} — Revenue, Costs, Profit by day</p>
@@ -890,7 +890,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         {/* ─── Active Jobs + Top Bottlenecks ────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-2">
-            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Active Jobs</h2>
                 <p className="text-xs text-omega-stone mt-0.5">In-progress projects ranked by contract value</p>
@@ -978,7 +978,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         {/* ─── Sales Pipeline + Salesman + Marketing ────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
                 <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} funnel</p>
@@ -1332,7 +1332,7 @@ function AlertsPanel({ alerts }) {
   };
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Alerts &amp; Notifications</h2>
         <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">{alerts.length}</span>
       </div>
@@ -1374,7 +1374,7 @@ function BottlenecksPanel({ bottlenecks }) {
   };
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Top Bottlenecks</h2>
       </div>
       <div className="p-5">
@@ -1436,7 +1436,7 @@ function ActionCenter({ actions, onNavigate }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Action Center</h2>
         <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">
           {actions.length} {actions.length === 1 ? 'item' : 'items'}
@@ -1589,7 +1589,7 @@ function SalesmanPerformance({ salesmen }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200">
         <h2 className="text-base font-bold text-omega-charcoal">Salesman Performance</h2>
       </div>
       <div className="p-5">
@@ -1662,7 +1662,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200">
         <h2 className="text-base font-bold text-omega-charcoal">Marketing Overview</h2>
       </div>
       <div className="p-5">
@@ -1746,7 +1746,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
 function CashAndPayments({ payments, totalReceivable }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200">
         <h2 className="text-base font-bold text-omega-charcoal">Cash & Payments</h2>
       </div>
       <div className="p-5">
