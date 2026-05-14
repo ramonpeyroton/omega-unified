@@ -149,7 +149,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           estimatesResp,
           expensesResp,
           eventsResp,
-          qbResp,
           milestonesResp,
           materialsResp,
           spendResp,
@@ -175,16 +174,8 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             .in('kind', ['sales_visit', 'inspection'])
             .gte('starts_at', lastStart.toISOString())
             .lt('starts_at', end.toISOString()),
-          // QuickBooks bank balance — soft fail if not connected.
-          // We don't store balances locally yet (only access tokens),
-          // so this just confirms whether QB is connected. Wiring the
-          // /api/quickbooks/balances endpoint into here is Phase 2.
-          supabase
-            .from('quickbooks_tokens')
-            .select('id, realm_id')
-            .limit(1)
-            .maybeSingle(),
-          // Payment milestones — drives the Cash & Payments block.
+          // Payment milestones — drives the Cash & Payments block
+          // and the Total Receivable KPI.
           supabase
             .from('payment_milestones')
             .select('id, job_id, due_date, due_amount, received_amount, status')
@@ -210,7 +201,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const estimates  = estimatesResp.data || [];
         const expenses   = expensesResp.data || [];
         const events     = eventsResp.data || [];
-        const qbConnected = !!qbResp.data?.realm_id;
 
         const latestEstByJob = latestEstimateByJob(estimates);
 
@@ -226,15 +216,13 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           for (const j of jobs) {
             if (!SIGNED_PHASES.has(j.pipeline_status)) continue;
             const est = latestEstByJob[j.id];
-            if (!est?.signed_at) {
-              // Fall back to job's updated_at when the signed_at
-              // field is missing on the estimate.
-              const ts = new Date(j.updated_at || j.created_at);
-              if (ts >= rangeStart && ts < rangeEnd) total += Number(est?.total_amount) || 0;
-              continue;
-            }
-            const ts = new Date(est.signed_at);
-            if (ts >= rangeStart && ts < rangeEnd) total += Number(est.total_amount) || 0;
+            // Use signed_at (DocuSign date) → estimate.created_at → job.created_at.
+            // Never use updated_at — it changes on every field edit and would
+            // re-count old jobs as this month's revenue whenever someone touches them.
+            const ts = est?.signed_at
+              ? new Date(est.signed_at)
+              : new Date(est?.created_at || j.created_at);
+            if (ts >= rangeStart && ts < rangeEnd) total += Number(est?.total_amount) || 0;
           }
           return total;
         }
@@ -274,13 +262,22 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         // (Better requires a periodic snapshot table.)
 
         // ─── Close rate: signed / (signed + rejected) MTD ───────
+        // Won: timestamp = estimate.signed_at → estimate.created_at → job.created_at
+        //      (never updated_at — any field edit would re-count old wins)
+        // Lost: updated_at is OK for rejections (last meaningful action on the job)
         function closeRateIn(rangeStart, rangeEnd) {
           let won = 0, lost = 0;
           for (const j of jobs) {
-            const ts = new Date(j.updated_at || j.created_at);
-            if (ts < rangeStart || ts >= rangeEnd) continue;
-            if (WON_PHASES.has(j.pipeline_status)) won += 1;
-            if (LOST_PHASES.has(j.pipeline_status)) lost += 1;
+            if (WON_PHASES.has(j.pipeline_status)) {
+              const est = latestEstByJob[j.id];
+              const ts = est?.signed_at
+                ? new Date(est.signed_at)
+                : new Date(est?.created_at || j.created_at);
+              if (ts >= rangeStart && ts < rangeEnd) won += 1;
+            } else if (LOST_PHASES.has(j.pipeline_status)) {
+              const ts = new Date(j.updated_at || j.created_at);
+              if (ts >= rangeStart && ts < rangeEnd) lost += 1;
+            }
           }
           const denom = won + lost;
           return denom === 0 ? 0 : (won / denom) * 100;
@@ -293,11 +290,19 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const activeJobsCount = activeJobs.filter((j) =>
           j.pipeline_status === 'in_progress' || j.pipeline_status === 'contract_signed'
         ).length;
-        const activeJobsLast = jobs.filter((j) => {
-          if (!(j.pipeline_status === 'in_progress' || j.pipeline_status === 'contract_signed')) return false;
-          const ts = new Date(j.updated_at || j.created_at);
-          return ts >= lastStart && ts < lastEnd;
-        }).length;
+        // Delta: jobs that *entered* an active phase this period,
+        // anchored to estimate.signed_at (stable) not updated_at.
+        function activeJobsStartedIn(rangeStart, rangeEnd) {
+          return jobs.filter((j) => {
+            if (j.pipeline_status !== 'in_progress' && j.pipeline_status !== 'contract_signed') return false;
+            const est = latestEstByJob[j.id];
+            const ts = est?.signed_at
+              ? new Date(est.signed_at)
+              : new Date(est?.created_at || j.created_at);
+            return ts >= rangeStart && ts < rangeEnd;
+          }).length;
+        }
+        const activeJobsLast = activeJobsStartedIn(lastStart, lastEnd);
 
         // ─── Active Jobs table (in_progress only) ───────────────
         const inProgressJobs = jobs
@@ -350,15 +355,24 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         const monthEstSent = jobs.filter((j) => {
           if (!['estimate_sent', 'estimate_negotiating', 'estimate_approved', 'contract_sent', 'contract_signed', 'in_progress', 'completed', 'estimate_rejected'].includes(j.pipeline_status)) return false;
-          const ts = new Date(j.updated_at || j.created_at);
+          // Use estimate creation date — more meaningful than job updated_at
+          const est = latestEstByJob[j.id];
+          const ts = new Date(est?.created_at || j.created_at);
           return ts >= start && ts < end;
         }).length;
 
-        const monthClosed = jobs.filter((j) => {
-          if (!WON_PHASES.has(j.pipeline_status)) return false;
-          const ts = new Date(j.updated_at || j.created_at);
-          return ts >= start && ts < end;
-        }).length;
+        // Closed this month: anchored to estimate.signed_at (stable date)
+        function closedJobsIn(rangeStart, rangeEnd) {
+          return jobs.filter((j) => {
+            if (!WON_PHASES.has(j.pipeline_status)) return false;
+            const est = latestEstByJob[j.id];
+            const ts = est?.signed_at
+              ? new Date(est.signed_at)
+              : new Date(est?.created_at || j.created_at);
+            return ts >= rangeStart && ts < rangeEnd;
+          }).length;
+        }
+        const monthClosed = closedJobsIn(start, end);
 
         // Conversion rate (closed / leads), avg deal, total pipeline.
         const conversionRate = leadsCount === 0 ? 0 : (monthClosed / leadsCount) * 100;
@@ -369,11 +383,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           const ts = fromLeadDate(j);
           return ts >= lastStart && ts < lastEnd;
         }).length;
-        const lastClosed = jobs.filter((j) => {
-          if (!WON_PHASES.has(j.pipeline_status)) return false;
-          const ts = new Date(j.updated_at || j.created_at);
-          return ts >= lastStart && ts < lastEnd;
-        }).length;
+        const lastClosed = closedJobsIn(lastStart, lastEnd);
         const lastConversion = lastLeads === 0 ? 0 : (lastClosed / lastLeads) * 100;
         const lastAvgDeal = lastClosed === 0 ? 0 : revenueLast / lastClosed;
 
@@ -390,7 +400,9 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           for (const j of jobs) {
             if (!SIGNED_PHASES.has(j.pipeline_status)) continue;
             const est = latestEstByJob[j.id];
-            const ts = est?.signed_at ? new Date(est.signed_at) : new Date(j.updated_at || j.created_at);
+            const ts = est?.signed_at
+              ? new Date(est.signed_at)
+              : new Date(est?.created_at || j.created_at);
             if (ts >= day && ts < dayEnd) revenue += Number(est?.total_amount) || 0;
           }
           let cost = 0;
@@ -406,13 +418,16 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         // ─── Phase 2: Salesman Performance ──────────────────────
         // Group MTD won jobs by assigned_to. Count + revenue + avg.
+        // Use signed_at / estimate.created_at — never updated_at.
         const salesByPerson = new Map();
         for (const j of jobs) {
           if (!WON_PHASES.has(j.pipeline_status)) continue;
-          const ts = new Date(j.updated_at || j.created_at);
+          const est = latestEstByJob[j.id];
+          const ts = est?.signed_at
+            ? new Date(est.signed_at)
+            : new Date(est?.created_at || j.created_at);
           if (ts < start || ts >= end) continue;
           const name = j.assigned_to || 'Unassigned';
-          const est = latestEstByJob[j.id];
           const amount = Number(est?.total_amount) || 0;
           const acc = salesByPerson.get(name) || { name, count: 0, revenue: 0 };
           acc.count += 1;
@@ -467,12 +482,14 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const graceDays = 3; // Brenda's overdue rule (matches Finance screen)
         const overdueThreshold = new Date(today.getTime() - graceDays * 86400000);
 
-        let dueThisWeek = 0, overdue = 0, upcoming30 = 0;
+        let dueThisWeek = 0, overdue = 0, upcoming30 = 0, totalReceivable = 0;
         for (const m of milestones) {
-          if (!m.due_date) continue;
           if (m.status === 'paid') continue;
           const remaining = (Number(m.due_amount) || 0) - (Number(m.received_amount) || 0);
           if (remaining <= 0) continue;
+          // Total receivable = everything still owed (no date filter)
+          totalReceivable += remaining;
+          if (!m.due_date) continue;
           const [yy, mm, dd] = m.due_date.split('-').map(Number);
           const dueDate = new Date(yy, mm - 1, dd);
 
@@ -528,6 +545,9 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           ['sent', 'negotiating'].includes(e.status || '')
         ).length;
 
+        // overdueInvoices intentionally excluded — overdue amount is
+        // already visible in the Cash row. Showing it again as an alert
+        // creates noise without adding actionable info.
         const alerts = [
           jobsOverBudget > 0 && {
             id: 'overBudget',
@@ -535,13 +555,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             count: jobsOverBudget,
             title: `${jobsOverBudget} ${jobsOverBudget === 1 ? 'Job' : 'Jobs'} over budget`,
             subtitle: 'Require your attention',
-          },
-          overdueMilestones.length > 0 && {
-            id: 'overdueInvoices',
-            tone: 'amber',
-            count: overdueMilestones.length,
-            title: `${overdueMilestones.length} ${overdueMilestones.length === 1 ? 'Invoice' : 'Invoices'} overdue`,
-            subtitle: `Total outstanding: ${fmtMoney(overdueAmt)}`,
           },
           negativeMargin > 0 && {
             id: 'negativeMargin',
@@ -671,21 +684,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           if (actions.length >= 10) break;
         }
 
-        // ─── Phase 2: QuickBooks balance fetch (best-effort) ────
-        let qbCash = null;
-        if (qbConnected) {
-          try {
-            const r = await fetch('/api/quickbooks/balances');
-            if (r.ok) {
-              const j = await r.json();
-              const accounts = Array.isArray(j?.accounts) ? j.accounts : [];
-              // Sum bank-type accounts; ignore credit cards / other.
-              qbCash = accounts
-                .filter((a) => (a.type || '').toLowerCase() === 'bank')
-                .reduce((s, a) => s + (Number(a.currentBalance) || 0), 0);
-            }
-          } catch { /* leave qbCash null */ }
-        }
         if (!active) return;
 
         setData({
@@ -695,7 +693,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           pipelineValue,
           closeRateMTD, closeRateLast,
           activeJobsCount, activeJobsLast,
-          qbConnected, qbCash,
+          totalReceivable,
           inProgressJobs,
           funnel: {
             leadsCount, monthAppts, monthEstSent, monthClosed,
@@ -705,7 +703,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           series,
           salesmen,
           marketing, marketingTotal, bestChannel, overallCpl, totalMarketingSpend: totalSpend,
-          payments: { dueThisWeek, overdue, upcoming30, cashInBank: qbCash },
+          payments: { dueThisWeek, overdue, upcoming30 },
           alerts,
           bottlenecks,
           actions: actions.slice(0, 8),
@@ -818,16 +816,10 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           <KpiCard
             icon={Wallet}
             iconBg="bg-violet-100" iconColor="text-violet-600"
-            label="Cash Available"
-            value={data.qbCash != null ? fmtMoney(data.qbCash) : '—'}
+            label="Total Receivable"
+            value={fmtMoney(data.totalReceivable)}
             delta={null}
-            deltaSuffix={
-              data.qbCash != null
-                ? 'QuickBooks bank accounts'
-                : data.qbConnected
-                  ? 'Refreshing…'
-                  : 'Connect QuickBooks'
-            }
+            deltaSuffix="outstanding from clients"
           />
           <KpiCard
             icon={GitBranch}
@@ -995,7 +987,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         {/* ─── Cash & Payments + Action Center ──────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <CashAndPayments payments={data.payments} qbConnected={data.qbConnected} />
+          <CashAndPayments payments={data.payments} totalReceivable={data.totalReceivable} />
           <ActionCenter actions={data.actions} />
         </section>
 
@@ -1016,7 +1008,7 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
     { label: 'Active Jobs',     value: String(data.activeJobsCount),     color: 'bg-blue-600',      delta: null },
     { label: 'Pipeline Value',  value: fmtMoney(data.pipelineValue),     color: 'bg-violet-600',    delta: null },
     { label: 'Close Rate',      value: fmtPct(data.closeRateMTD),        color: 'bg-amber-500',     delta: closeRateDelta },
-    { label: 'Cash Available',  value: data.qbCash != null ? fmtMoney(data.qbCash) : '—', color: 'bg-slate-600', delta: null },
+    { label: 'To Receive',      value: fmtMoney(data.totalReceivable),   color: 'bg-slate-600',     delta: null },
   ];
 
   return (
@@ -1072,15 +1064,11 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                 amber: { bg: 'bg-amber-50',  border: 'border-amber-200', text: 'text-amber-800', badge: 'bg-amber-500' },
                 blue:  { bg: 'bg-blue-50',   border: 'border-blue-200',  text: 'text-blue-700',  badge: 'bg-blue-600' },
               };
-              const t = toneMap[a.tone] || toneMap.amber;
-              // overdueInvoices alert links directly to Finance screen
-              const navTarget = a.id === 'overdueInvoices' ? 'finance' : null;
-              const Tag = navTarget ? 'button' : 'div';
+              const t = toneMap[a.tone] || toneMap.red;
               return (
-                <Tag
+                <div
                   key={a.id}
-                  onClick={navTarget ? () => onNavigate?.(navTarget) : undefined}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left ${t.bg} ${t.border} ${navTarget ? 'active:opacity-80 cursor-pointer' : ''}`}
+                  className={`flex items-center gap-3 p-3 rounded-xl border ${t.bg} ${t.border}`}
                 >
                   <span className={`w-8 h-8 rounded-lg ${t.badge} text-white flex items-center justify-center font-black text-sm flex-shrink-0`}>
                     {a.count}
@@ -1089,8 +1077,7 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                     <p className={`text-sm font-bold truncate ${t.text}`}>{a.title}</p>
                     <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
                   </div>
-                  {navTarget && <ArrowRight className={`w-4 h-4 flex-shrink-0 ${t.text}`} />}
-                </Tag>
+                </div>
               );
             })}
           </div>
@@ -1637,14 +1624,14 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
 }
 
 // ─── Cash & Payments block ───────────────────────────────────────
-function CashAndPayments({ payments, qbConnected }) {
+function CashAndPayments({ payments, totalReceivable }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
       <h2 className="text-base font-bold text-omega-charcoal mb-3">Cash & Payments</h2>
       <ul className="space-y-2">
-        <PayRow icon={Wallet}    iconColor="text-violet-600" label="Cash in Bank"
-          value={payments.cashInBank != null ? fmtMoney(payments.cashInBank) : '—'}
-          hint={qbConnected ? null : 'Connect QuickBooks'}
+        <PayRow icon={Wallet}    iconColor="text-violet-600" label="Total Receivable"
+          value={fmtMoney(totalReceivable)}
+          hint="outstanding from all clients"
         />
         <PayRow icon={Banknote}  iconColor="text-amber-600" label="Payments Due This Week"
           value={fmtMoney(payments.dueThisWeek)} valueClass="text-amber-700"
@@ -1652,8 +1639,7 @@ function CashAndPayments({ payments, qbConnected }) {
         <PayRow icon={DollarSign} iconColor="text-red-600"  label="Overdue Payments"
           value={fmtMoney(payments.overdue)} valueClass="text-red-700"
         />
-        <PayRow icon={TrendingUp} iconColor="text-emerald-600" label="Upcoming Receivables"
-          subtitle="Next 30 days"
+        <PayRow icon={TrendingUp} iconColor="text-emerald-600" label="Upcoming (Next 30 Days)"
           value={fmtMoney(payments.upcoming30)} valueClass="text-emerald-700"
         />
       </ul>
