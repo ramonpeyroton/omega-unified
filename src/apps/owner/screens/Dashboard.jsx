@@ -1761,11 +1761,13 @@ function PayRow({ icon: Icon, iconColor, label, subtitle, value, valueClass = 't
   );
 }
 
-// ─── Funnel — card-per-step with conversion arrows ──────────────
+// ─── Funnel — minimal rows matching the dashboard's typography ───
+// Each step: colored dot · gray label · proportional bar · charcoal number
+// Conversion % shown as a small connector between steps.
 function Funnel({ steps }) {
   const max = Math.max(1, ...steps.map((s) => s.value));
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {steps.map((s, i) => {
         const barPct   = max > 0 ? Math.max(4, Math.round((s.value / max) * 100)) : 4;
         const fromPrev = i > 0 && steps[i - 1].value > 0
@@ -1773,72 +1775,39 @@ function Funnel({ steps }) {
           : null;
         return (
           <div key={s.label}>
-            {/* ── Conversion arrow between steps ── */}
+            {/* ── Conversion connector ── */}
             {fromPrev !== null && (
-              <div className="flex items-center gap-1.5 px-3 py-1">
-                <svg width="10" height="14" className="flex-shrink-0 opacity-40">
-                  <line x1="5" y1="0" x2="5" y2="8" stroke="#6B7280" strokeWidth="1.5" />
-                  <polygon points="1,8 9,8 5,13" fill="#6B7280" />
-                </svg>
-                <span className="text-[10px] font-semibold text-omega-stone">
-                  {fromPrev}% conversion
-                </span>
+              <div className="flex items-center gap-1.5 pl-3 py-0.5">
+                <div className="w-px h-3 bg-gray-200 ml-[3px]" />
+                <span className="text-[10px] text-omega-stone">↓ {fromPrev}%</span>
               </div>
             )}
 
-            {/* ── Step card ── */}
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{ border: `1.5px solid ${s.color}30` }}
-            >
+            {/* ── Step row ── */}
+            <div className="flex items-center gap-2.5 bg-omega-cloud rounded-xl px-3 py-2.5">
+              {/* Stage color dot */}
               <div
-                className="relative flex items-center gap-3 px-3 py-2.5"
-                style={{ background: `${s.color}12` }}
-              >
-                {/* Bottom fill bar shows relative proportion */}
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: s.color }}
+              />
+
+              {/* Label */}
+              <p className="text-[11px] font-bold uppercase tracking-wider text-omega-stone flex-shrink-0">
+                {s.label}
+              </p>
+
+              {/* Proportional bar */}
+              <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden mx-1">
                 <div
-                  className="absolute bottom-0 left-0 h-[3px] rounded-full"
-                  style={{ width: `${barPct}%`, background: `${s.color}90` }}
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${barPct}%`, background: s.color }}
                 />
-
-                {/* Large number */}
-                <span
-                  className="text-3xl font-black tabular-nums leading-none flex-shrink-0 w-12 text-right"
-                  style={{ color: s.color }}
-                >
-                  {s.value}
-                </span>
-
-                {/* Divider */}
-                <div className="w-px h-7 flex-shrink-0" style={{ background: `${s.color}35` }} />
-
-                {/* Label + mini bar */}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className="text-[11px] font-bold uppercase tracking-widest leading-none"
-                    style={{ color: `${s.color}CC` }}
-                  >
-                    {s.label}
-                  </p>
-                  <div
-                    className="mt-2 h-1 rounded-full overflow-hidden"
-                    style={{ background: `${s.color}20` }}
-                  >
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${barPct}%`, background: s.color }}
-                    />
-                  </div>
-                </div>
-
-                {/* % of max step */}
-                <span
-                  className="text-[10px] font-bold flex-shrink-0 tabular-nums"
-                  style={{ color: `${s.color}80` }}
-                >
-                  {barPct}%
-                </span>
               </div>
+
+              {/* Count */}
+              <span className="text-sm font-black text-omega-charcoal tabular-nums flex-shrink-0 w-8 text-right">
+                {s.value}
+              </span>
             </div>
           </div>
         );
