@@ -104,7 +104,7 @@ export default function App({ user, onLogout }) {
         return (
           <Dashboard
             user={user}
-            onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }}
+            onSelectJob={(job) => { setFullViewJob(job); setFullViewInitialTab(null); }}
             onNavigate={navigate}
           />
         );
