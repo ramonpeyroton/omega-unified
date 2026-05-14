@@ -859,8 +859,8 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         {/* ─── Financial Overview + Alerts ──────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 lg:col-span-2">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-2">
+            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Financial Overview</h2>
                 <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} — Revenue, Costs, Profit by day</p>
@@ -871,14 +871,16 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                 <Legend color="#1F2937" label="Profit" dashed />
               </div>
             </div>
-            <FinancialChart series={data.series} />
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-              <MiniStat label="Total Revenue" value={fmtMoney(data.revenueMTD)} positive />
-              <MiniStat label="Total Costs"   value={fmtMoney(data.costsMTD)}   tone="orange" />
-              <MiniStat label="Total Profit"  value={fmtMoney(data.profitMTD)}  positive={data.profitMTD >= 0} negative={data.profitMTD < 0} />
-              <MiniStat label="Profit Margin" value={
-                data.revenueMTD === 0 ? '—' : `${((data.profitMTD / data.revenueMTD) * 100).toFixed(1)}%`
-              } positive />
+            <div className="p-5">
+              <FinancialChart series={data.series} />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                <MiniStat label="Total Revenue" value={fmtMoney(data.revenueMTD)} positive />
+                <MiniStat label="Total Costs"   value={fmtMoney(data.costsMTD)}   tone="orange" />
+                <MiniStat label="Total Profit"  value={fmtMoney(data.profitMTD)}  positive={data.profitMTD >= 0} negative={data.profitMTD < 0} />
+                <MiniStat label="Profit Margin" value={
+                  data.revenueMTD === 0 ? '—' : `${((data.profitMTD / data.revenueMTD) * 100).toFixed(1)}%`
+                } positive />
+              </div>
             </div>
           </div>
 
@@ -887,8 +889,8 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         {/* ─── Active Jobs + Top Bottlenecks ────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-2">
+            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Active Jobs</h2>
                 <p className="text-xs text-omega-stone mt-0.5">In-progress projects ranked by contract value</p>
@@ -899,6 +901,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                 </span>
               )}
             </div>
+            <div className="p-5">
             {data.inProgressJobs.length === 0 ? (
               <p className="text-sm text-omega-stone italic py-8 text-center">
                 No jobs are currently in progress.
@@ -966,6 +969,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                 </table>
               </div>
             )}
+            </div>
           </div>
 
           <BottlenecksPanel bottlenecks={data.bottlenecks} />
@@ -973,11 +977,14 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         {/* ─── Sales Pipeline + Salesman + Marketing ────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-            <div className="mb-4">
-              <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
-              <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} funnel</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
+                <p className="text-xs text-omega-stone mt-0.5">{rangeLabel(bounds.start, bounds.end)} funnel</p>
+              </div>
             </div>
+            <div className="p-5">
             <Funnel
               steps={[
                 { label: 'Leads',          value: data.funnel.leadsCount,   color: '#A78BFA' },
@@ -990,6 +997,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               <SideStatRow icon={Percent}  label="Conversion Rate" value={fmtPct(data.funnel.conversionRate)} delta={convDelta} deltaSuffix={`vs ${lastMonthAbbr}`} />
               <SideStatRow icon={GitBranch} label="Pipeline Value" value={fmtMoney(data.pipelineValue)} delta={null} deltaSuffix={`${data.funnel.leadsCount} new leads`} />
               <SideStatRow icon={Banknote}  label="Avg Deal Size"  value={fmtMoney(data.funnel.avgDealSize)} delta={avgDealDelta} deltaSuffix={`vs ${lastMonthAbbr}`} />
+            </div>
             </div>
           </div>
 
@@ -1323,11 +1331,12 @@ function AlertsPanel({ alerts }) {
     violet: { iconBg: 'bg-violet-100',  iconColor: 'text-violet-600' },
   };
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Alerts &amp; Notifications</h2>
         <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">{alerts.length}</span>
       </div>
+      <div className="p-5">
       {alerts.length === 0 ? (
         <p className="text-sm text-omega-stone italic py-6 text-center">All clear. Nothing needs your attention.</p>
       ) : (
@@ -1349,6 +1358,7 @@ function AlertsPanel({ alerts }) {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }
@@ -1363,10 +1373,11 @@ function BottlenecksPanel({ bottlenecks }) {
     violet: { iconBg: 'bg-violet-100',  iconColor: 'text-violet-600' },
   };
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Top Bottlenecks</h2>
       </div>
+      <div className="p-5">
       {bottlenecks.length === 0 ? (
         <p className="text-sm text-omega-stone italic py-6 text-center">No bottlenecks detected. 🎉</p>
       ) : (
@@ -1388,6 +1399,7 @@ function BottlenecksPanel({ bottlenecks }) {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }
@@ -1423,13 +1435,14 @@ function ActionCenter({ actions, onNavigate }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Action Center</h2>
         <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">
           {actions.length} {actions.length === 1 ? 'item' : 'items'}
         </span>
       </div>
+      <div className="p-5">
       {actions.length === 0 ? (
         <p className="text-sm text-omega-stone italic py-6 text-center">Inbox zero. Nothing pending.</p>
       ) : (
@@ -1462,6 +1475,7 @@ function ActionCenter({ actions, onNavigate }) {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }
@@ -1574,8 +1588,11 @@ function SalesmanPerformance({ salesmen }) {
   const maxRev = Math.max(1, ...salesmen.map((s) => s.revenue));
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <h2 className="text-base font-bold text-omega-charcoal mb-4">Salesman Performance</h2>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+        <h2 className="text-base font-bold text-omega-charcoal">Salesman Performance</h2>
+      </div>
+      <div className="p-5">
       {salesmen.length === 0 ? (
         <p className="text-sm text-omega-stone italic py-6 text-center">No closed deals this month.</p>
       ) : (
@@ -1627,6 +1644,7 @@ function SalesmanPerformance({ salesmen }) {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -1643,8 +1661,11 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
   let offset = 0;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <h2 className="text-base font-bold text-omega-charcoal mb-3">Marketing Overview</h2>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+        <h2 className="text-base font-bold text-omega-charcoal">Marketing Overview</h2>
+      </div>
+      <div className="p-5">
       {marketing.length === 0 ? (
         <p className="text-sm text-omega-stone italic py-6 text-center">No leads logged this month.</p>
       ) : (
@@ -1716,6 +1737,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1723,8 +1745,11 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
 // ─── Cash & Payments block ───────────────────────────────────────
 function CashAndPayments({ payments, totalReceivable }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5">
-      <h2 className="text-base font-bold text-omega-charcoal mb-3">Cash & Payments</h2>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+        <h2 className="text-base font-bold text-omega-charcoal">Cash & Payments</h2>
+      </div>
+      <div className="p-5">
       <ul className="space-y-2">
         <PayRow icon={Wallet}    iconColor="text-violet-600" label="Total Receivable"
           value={fmtMoney(totalReceivable)}
@@ -1740,6 +1765,7 @@ function CashAndPayments({ payments, totalReceivable }) {
           value={fmtMoney(payments.upcoming30)} valueClass="text-emerald-700"
         />
       </ul>
+      </div>
     </div>
   );
 }
