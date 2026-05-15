@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   RefreshCw, Calendar, TrendingUp, TrendingDown, ArrowRight, Briefcase,
   DollarSign, Banknote, Target, GitBranch, Percent, Wallet, AlertOctagon,
-  CheckCircle2,
+  CheckCircle2, X, Phone, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -165,7 +165,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         ] = await Promise.all([
           supabase
             .from('jobs')
-            .select('id, client_name, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date, assigned_to, last_touch_at')
+            .select('id, client_name, client_phone, address, city, service, pipeline_status, created_at, updated_at, lead_source, in_pipeline, phase_data, lead_date, assigned_to, last_touch_at')
             .limit(5000),
           supabase
             .from('estimates')
@@ -721,6 +721,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           series,
           salesmen,
           marketing, marketingTotal, bestChannel, overallCpl, totalMarketingSpend: totalSpend,
+          monthLeads,
           payments: { dueThisWeek, overdue, upcoming30 },
           alerts,
           bottlenecks,
@@ -1008,6 +1009,8 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             best={data.bestChannel}
             overallCpl={data.overallCpl}
             totalSpend={data.totalMarketingSpend}
+            leads={data.monthLeads || []}
+            onSelectJob={onSelectJob}
           />
         </section>
 
@@ -1652,7 +1655,35 @@ function SalesmanPerformance({ salesmen }) {
 // ─── Marketing Overview — donut by lead source ───────────────────
 const MARKETING_COLORS = ['#3B82F6', '#F97316', '#22C55E', '#A78BFA', '#F43F5E', '#FACC15', '#06B6D4', '#9CA3AF'];
 
-function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
+// Status badge config for the leads drill-down panel
+const LEAD_STATUS_META = {
+  new_lead:             { label: 'New Lead',       cls: 'bg-gray-100 text-gray-600' },
+  estimate_sent:        { label: 'Estimate Sent',  cls: 'bg-violet-100 text-violet-700' },
+  estimate_negotiating: { label: 'Negotiating',    cls: 'bg-amber-100 text-amber-700' },
+  estimate_approved:    { label: 'Approved',       cls: 'bg-emerald-100 text-emerald-700' },
+  contract_sent:        { label: 'Contract Sent',  cls: 'bg-blue-100 text-blue-700' },
+  contract_signed:      { label: 'Won',            cls: 'bg-emerald-100 text-emerald-800' },
+  in_progress:          { label: 'In Progress',    cls: 'bg-emerald-100 text-emerald-800' },
+  completed:            { label: 'Completed',      cls: 'bg-green-100 text-green-800' },
+  estimate_rejected:    { label: 'Rejected',       cls: 'bg-red-100 text-red-700' },
+};
+
+function MarketingOverview({ marketing, total, best, overallCpl, totalSpend, leads = [], onSelectJob }) {
+  const [selectedSource, setSelectedSource] = useState(null);
+
+  // Leads for the currently-selected source
+  const drillLeads = selectedSource
+    ? leads.filter((j) => (j.lead_source || 'Other') === selectedSource)
+    : [];
+
+  // Color index for the selected source
+  const selectedIdx = selectedSource
+    ? marketing.findIndex((m) => m.source === selectedSource)
+    : -1;
+  const selectedColor = selectedIdx >= 0
+    ? MARKETING_COLORS[selectedIdx % MARKETING_COLORS.length]
+    : '#3B82F6';
+
   // Donut math.
   const size = 140;
   const stroke = 22;
@@ -1661,6 +1692,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
   let offset = 0;
 
   return (
+    <>
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
       <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200">
         <h2 className="text-base font-bold text-omega-charcoal">Marketing Overview</h2>
@@ -1671,8 +1703,8 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
       ) : (
         <>
           <div className="flex items-center gap-4 mb-3">
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-              {/* Background ring */}
+            {/* Donut — each segment is clickable */}
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="cursor-pointer flex-shrink-0">
               <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f3f4f6" strokeWidth={stroke} />
               {marketing.map((m, i) => {
                 const len = (m.pct / 100) * c;
@@ -1682,22 +1714,29 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
                     cx={size / 2} cy={size / 2} r={r}
                     fill="none"
                     stroke={MARKETING_COLORS[i % MARKETING_COLORS.length]}
-                    strokeWidth={stroke}
+                    strokeWidth={stroke + (selectedSource === m.source ? 4 : 0)}
                     strokeDasharray={`${len} ${c - len}`}
                     strokeDashoffset={-offset}
                     transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                    style={{ cursor: 'pointer', opacity: selectedSource && selectedSource !== m.source ? 0.4 : 1, transition: 'opacity 0.15s, stroke-width 0.15s' }}
+                    onClick={() => setSelectedSource(selectedSource === m.source ? null : m.source)}
                   />
                 );
                 offset += len;
                 return seg;
               })}
-              {/* Center label */}
               <text x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="10" fill="#9ca3af" fontWeight="700">Total Leads</text>
               <text x={size / 2} y={size / 2 + 18} textAnchor="middle" fontSize="22" fill="#1f2937" fontWeight="900">{total}</text>
             </svg>
+            {/* Source legend rows — each row is clickable */}
             <ul className="flex-1 min-w-0 space-y-1">
               {marketing.slice(0, 6).map((m, i) => (
-                <li key={m.source} className="flex items-center gap-2 text-xs">
+                <li
+                  key={m.source}
+                  onClick={() => setSelectedSource(selectedSource === m.source ? null : m.source)}
+                  className={`flex items-center gap-2 text-xs rounded-lg px-2 py-1 cursor-pointer transition-colors group
+                    ${selectedSource === m.source ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
+                >
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: MARKETING_COLORS[i % MARKETING_COLORS.length] }} />
                   <span className="flex-1 truncate text-omega-charcoal font-semibold">{m.source}</span>
                   <span className="text-omega-stone tabular-nums whitespace-nowrap">
@@ -1705,6 +1744,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
                       <span className="text-[10px] text-omega-orange font-bold">· {fmtMoney(m.cpl)}/lead</span>
                     )}
                   </span>
+                  <ChevronRight className="w-3 h-3 text-omega-fog opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </li>
               ))}
             </ul>
@@ -1739,6 +1779,82 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend }) {
       )}
       </div>
     </div>
+
+    {/* ── Leads drill-down drawer ──────────────────────────────────── */}
+    {selectedSource && (
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/30 z-40"
+          onClick={() => setSelectedSource(null)}
+        />
+        {/* Panel */}
+        <div className="fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-200 bg-gray-50">
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: selectedColor }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-omega-stone uppercase tracking-wider">Lead Source</p>
+              <h3 className="text-base font-bold text-omega-charcoal truncate">{selectedSource}</h3>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold text-white" style={{ background: selectedColor }}>
+              {drillLeads.length} leads
+            </span>
+            <button
+              onClick={() => setSelectedSource(null)}
+              className="p-1.5 rounded-lg text-omega-stone hover:bg-gray-200 transition-colors ml-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto">
+            {drillLeads.length === 0 ? (
+              <p className="text-sm text-omega-stone italic text-center py-10">No leads found.</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {drillLeads.map((j) => {
+                  const meta = LEAD_STATUS_META[j.pipeline_status] || { label: j.pipeline_status, cls: 'bg-gray-100 text-gray-600' };
+                  const dateStr = (j.lead_date || j.created_at || '').slice(0, 10);
+                  const phone = (j.client_phone || '').replace(/^\+1/, '').replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+                  return (
+                    <li
+                      key={j.id}
+                      onClick={() => { onSelectJob?.(j); setSelectedSource(null); }}
+                      className="flex items-start gap-3 px-5 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
+                    >
+                      {/* Color dot */}
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: selectedColor }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-omega-charcoal truncate group-hover:text-omega-orange transition-colors">
+                          {j.client_name || '—'}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          {j.service && (
+                            <span className="text-[11px] text-omega-stone truncate">{j.service}</span>
+                          )}
+                          {phone && (
+                            <span className="flex items-center gap-0.5 text-[11px] text-omega-stone">
+                              <Phone className="w-2.5 h-2.5" />{phone}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-omega-fog mt-0.5">{dateStr}</p>
+                      </div>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${meta.cls}`}>
+                        {meta.label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }
 
