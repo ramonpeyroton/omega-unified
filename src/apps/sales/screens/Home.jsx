@@ -73,7 +73,8 @@ function isSameDayCT(a, b) {
 const OVERVIEW_PHASES = [
   { key: 'new_lead',             label: 'New Lead',             tint: 'bg-omega-pale text-omega-charcoal' },
   { key: 'estimate_sent',        label: 'Estimate Sent',        tint: 'bg-violet-100 text-violet-700' },
-  { key: 'estimate_negotiating', label: 'Estimate Negotiating', tint: 'bg-amber-100 text-amber-700' },
+  { key: 'estimate_negotiating', label: 'Negotiating',          tint: 'bg-amber-100 text-amber-700' },
+  { key: 'estimate_approved',    label: 'Approved',             tint: 'bg-emerald-100 text-emerald-700' },
   { key: 'contract_sent',        label: 'Contract Sent',        tint: 'bg-blue-100 text-blue-700' },
   { key: 'won',                  label: 'Won',                  tint: 'bg-emerald-100 text-emerald-800',
     matches: (j) => ['contract_signed', 'in_progress', 'completed'].includes(j.pipeline_status) },
