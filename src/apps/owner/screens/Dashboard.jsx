@@ -1014,14 +1014,14 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           />
         </section>
 
+        {/* ─── Lead Origins Heat Map ─────────────────────────────── */}
+        <LeadsHeatMap />
+
         {/* ─── Cash & Payments + Action Center ──────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <CashAndPayments payments={data.payments} totalReceivable={data.totalReceivable} />
           <ActionCenter actions={data.actions} onNavigate={onNavigate} />
         </section>
-
-        {/* ─── Lead Origins Heat Map ─────────────────────────────── */}
-        <LeadsHeatMap />
 
         <p className="text-[11px] text-omega-stone text-center pt-2">
           All data is updated as of {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
