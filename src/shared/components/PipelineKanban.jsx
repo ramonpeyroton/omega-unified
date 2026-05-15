@@ -740,15 +740,20 @@ export default function PipelineKanban({
     return map;
   }, [estimates]);
 
-  // SUM of ALL estimates (any status) — last-resort fallback for jobs
-  // that predate job_costs (migration 050). Same multi-estimate logic.
+  // LATEST estimate per job (any status) — last-resort fallback for jobs
+  // that don't have an approved/signed estimate yet (e.g. estimate_sent,
+  // new_lead). We deliberately pick the single most-recent estimate rather
+  // than summing all of them: summing would inflate the column total with
+  // old drafts, rejected versions, and multi-revision history, showing
+  // numbers that bear no relation to what's actually on the table today.
   const anyEstByJob = useMemo(() => {
-    const sums = {};
-    estimates.forEach((e) => {
-      sums[e.job_id] = (sums[e.job_id] || 0) + (Number(e.total_amount) || 0);
-    });
     const map = {};
-    Object.entries(sums).forEach(([id, total]) => { map[id] = { total_amount: total }; });
+    estimates.forEach((e) => {
+      const prev = map[e.job_id];
+      if (!prev || (e.created_at || '') > (prev.created_at || '')) {
+        map[e.job_id] = e;
+      }
+    });
     return map;
   }, [estimates]);
 
