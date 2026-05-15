@@ -13,6 +13,7 @@ import { logAudit } from '../../../shared/lib/audit';
 import { StepBadge } from '../../../shared/components/JobFullView';
 import { SERVICES as SHARED_SERVICES } from '../../../shared/data/services';
 import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES } from '../lib/leadCatalog';
+import AddressAutocomplete from '../../../shared/components/AddressAutocomplete';
 
 // Local-storage key for the Save Draft feature. Cleared on successful
 // submit so the next New Lead starts blank.
@@ -495,7 +496,23 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-3">
                 <Field label="Street Address" required>
-                  <input className={inputCls} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="123 Main St" />
+                  <AddressAutocomplete
+                    value={form.address}
+                    onChange={(val) => set('address', val)}
+                    onPlaceSelected={({ street, city, state, zip }) => {
+                      // Auto-fill all sibling location fields in one shot
+                      setForm((f) => ({
+                        ...f,
+                        address: street || f.address,
+                        // Only overwrite city/state/zip when Google returns them
+                        ...(state && STATES.find((s) => s.code === state) ? { state } : {}),
+                        ...(city ? { city } : {}),
+                        ...(zip  ? { zip  } : {}),
+                      }));
+                    }}
+                    placeholder="123 Main St"
+                    className={inputCls}
+                  />
                 </Field>
                 <Field label="Unit #" hint="Apt, Suite, Unit — leave blank for a single-family home.">
                   <input className={inputCls} value={form.unit_number} onChange={(e) => set('unit_number', e.target.value)} placeholder="Apt 4B" />

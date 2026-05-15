@@ -7,6 +7,7 @@ import * as Icons from 'lucide-react';
 import { notify } from '../../../shared/lib/notifications';
 import { formatPhoneInput, toE164 } from '../../../shared/lib/phone';
 import { createEvent } from '../../../shared/lib/calendar';
+import AddressAutocomplete from '../../../shared/components/AddressAutocomplete';
 
 // Same list as receptionist (leadCatalog.js)
 const LEAD_SOURCES = [
@@ -202,13 +203,17 @@ export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient
         <div>
           <label className={labelCls}>Property Address *</label>
           <div className="relative">
-            <MapPin className="absolute left-3.5 top-3.5 w-4 h-4 text-omega-fog pointer-events-none" />
-            <textarea
+            <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-omega-fog pointer-events-none" />
+            <AddressAutocomplete
               value={form.address}
-              onChange={(e) => set('address', e.target.value)}
+              onChange={(val) => { set('address', val); setErrors((e) => ({ ...e, address: undefined })); }}
+              onPlaceSelected={({ formatted }) => {
+                // Sales form stores the full address in one field
+                set('address', formatted);
+                setErrors((e) => ({ ...e, address: undefined }));
+              }}
               placeholder="123 Main St, Westport, CT 06880"
-              rows={3}
-              className={`w-full pl-10 pr-4 py-3 rounded-xl bg-white border text-omega-charcoal placeholder-omega-fog focus:outline-none focus:border-omega-orange transition-colors resize-none ${errors.address ? 'border-omega-danger' : 'border-gray-200'}`}
+              className={inputWithIconCls(errors.address)}
             />
           </div>
           {errors.address && <p className="text-xs text-omega-danger mt-1">{errors.address}</p>}
