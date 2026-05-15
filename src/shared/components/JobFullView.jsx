@@ -925,21 +925,15 @@ function DetailsTab({
       )}
 
       {/* ─── Client & Job Info card ─────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 sm:px-6 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
             <UserIcon className="w-4 h-4 text-omega-orange" /> Client &amp; Job Info
           </h2>
           {!editBlocked && (
             <div className="flex items-center gap-2">
               {!editing ? (
                 <>
-                  {/* Move Phase — same picker that's on the header
-                      (compact badge), surfaced here as an obvious pill
-                      so Inácio / Brenda can jump a card to any phase
-                      without dragging it across the kanban. Useful for
-                      backfilling old projects straight to "Completed"
-                      or "Estimate Rejected". */}
                   <PipelineStatusPicker
                     currentKey={job.pipeline_status || 'new_lead'}
                     user={user}
@@ -949,18 +943,18 @@ function DetailsTab({
                     label="Move Phase"
                     variant="pill"
                   />
-                  <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
+                  <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal bg-white">
                     <Edit3 className="w-4 h-4" /> Edit
                   </button>
                   {onOpenQuestionnaire && (
-                    <button onClick={onOpenQuestionnaire} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal">
+                    <button onClick={onOpenQuestionnaire} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal bg-white">
                       <ClipboardEdit className="w-4 h-4" /> Questionnaire
                     </button>
                   )}
                 </>
               ) : (
                 <>
-                  <button onClick={() => setEditing(false)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold">Cancel</button>
+                  <button onClick={() => setEditing(false)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold bg-white">Cancel</button>
                   <button onClick={saveEdits} disabled={saving} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
                     <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Changes'}
                   </button>
@@ -969,7 +963,7 @@ function DetailsTab({
             </div>
           )}
         </div>
-
+        <div className="p-4 sm:p-6">
         {!editing ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
             <Field icon={UserIcon}  label="Client"          value={job.client_name} />
@@ -1013,6 +1007,7 @@ function DetailsTab({
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* ─── Estimate + Contract summary (2 cols) ───────────────── */}
@@ -1062,19 +1057,23 @@ function DetailsTab({
           customer wants a different/larger scope than what we already
           quoted them. Their existing card stays untouched as history. */}
       {onStartNewJobForClient && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-          <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-omega-orange" /> Returning Client?
-          </h3>
-          <p className="text-xs text-omega-stone mt-1">
-            Start a brand-new job for <strong>{job.client_name || 'this client'}</strong> — different scope, fresh questionnaire and estimate. Their existing card stays as history.
-          </p>
-          <button
-            onClick={onStartNewJobForClient}
-            className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
-          >
-            <UserPlus className="w-4 h-4" /> Start New Job for this Client
-          </button>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 bg-gray-100 border-b border-gray-200">
+            <h3 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-omega-orange" /> Returning Client?
+            </h3>
+          </div>
+          <div className="p-4 sm:p-6">
+            <p className="text-xs text-omega-stone">
+              Start a brand-new job for <strong>{job.client_name || 'this client'}</strong> — different scope, fresh questionnaire and estimate. Their existing card stays as history.
+            </p>
+            <button
+              onClick={onStartNewJobForClient}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold"
+            >
+              <UserPlus className="w-4 h-4" /> Start New Job for this Client
+            </button>
+          </div>
         </div>
       )}
 
@@ -1086,14 +1085,14 @@ function DetailsTab({
           for read-only-basic (receptionist) since neither callback
           gets passed in that mode. */}
       {(onDelete || onReset) && (
-        <div className="bg-white rounded-xl border-2 border-red-200 p-4 sm:p-6">
-          <h3 className="text-base font-bold text-red-800 inline-flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" /> Danger Zone
-          </h3>
-          <p className="text-xs text-omega-stone mt-1">
-            These actions require the Owner PIN.
-          </p>
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-white rounded-xl border-2 border-red-200 overflow-hidden">
+          <div className="px-4 py-3 bg-red-50 border-b border-red-200 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600" />
+            <h3 className="text-sm font-bold text-red-800">Danger Zone</h3>
+            <span className="text-xs text-red-500 font-normal">— requires Owner PIN</span>
+          </div>
+          <div className="p-4 sm:p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {onReset && (
               <button
                 onClick={onReset}
@@ -1112,6 +1111,7 @@ function DetailsTab({
                 <Trash2 className="w-4 h-4" /> Delete Job
               </button>
             )}
+          </div>
           </div>
         </div>
       )}
@@ -1334,34 +1334,36 @@ function Field({ icon: Icon, label, value, colSpan = 1 }) {
 // "Not Created Yet" pill alongside.
 function SummaryCard({ icon: Icon, label, headline, status, subtitle, empty = false, emptyTag = 'Not Created Yet' }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
-      <div className="inline-flex items-center gap-2 mb-2">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 bg-gray-100 border-b border-gray-200 inline-flex items-center gap-2 w-full">
         {Icon && (
-          <div className="w-7 h-7 rounded-lg bg-omega-pale text-omega-orange flex items-center justify-center">
+          <div className="w-6 h-6 rounded-lg bg-white text-omega-orange flex items-center justify-center border border-gray-200">
             <Icon className="w-3.5 h-3.5" />
           </div>
         )}
-        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">{label}</p>
+        <p className="text-xs font-bold text-omega-charcoal">{label}</p>
       </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-xl font-black text-omega-charcoal tabular-nums leading-none">{headline}</p>
-        {empty ? (
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-omega-stone">{emptyTag}</span>
-        ) : status ? (
-          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-            /sign|approve|completed|paid/i.test(status)
-              ? 'bg-emerald-100 text-emerald-700'
-              : /reject|cancel/i.test(status)
-                ? 'bg-red-100 text-red-700'
-                : /sent|negotiat|pending/i.test(status)
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-omega-pale text-omega-orange'
-          }`}>
-            {status}
-          </span>
-        ) : null}
+      <div className="p-4 sm:p-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-xl font-black text-omega-charcoal tabular-nums leading-none">{headline}</p>
+          {empty ? (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-omega-stone">{emptyTag}</span>
+          ) : status ? (
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+              /sign|approve|completed|paid/i.test(status)
+                ? 'bg-emerald-100 text-emerald-700'
+                : /reject|cancel/i.test(status)
+                  ? 'bg-red-100 text-red-700'
+                  : /sent|negotiat|pending/i.test(status)
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-omega-pale text-omega-orange'
+            }`}>
+              {status}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-omega-stone mt-1.5">{subtitle}</p>
       </div>
-      <p className="text-xs text-omega-stone mt-1.5">{subtitle}</p>
     </div>
   );
 }
@@ -1435,9 +1437,9 @@ function JobNotesPanel({ jobId, user, canEdit }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
           <FileText className="w-4 h-4 text-omega-orange" /> Notes
         </h3>
         {canEdit && !composing && !missingMigration && (
@@ -1449,7 +1451,7 @@ function JobNotesPanel({ jobId, user, canEdit }) {
           </button>
         )}
       </div>
-
+      <div className="p-4 sm:p-5">
       {composing && canEdit && (
         <div className="mb-3 rounded-xl border border-omega-orange/30 bg-omega-pale/40 p-3">
           <textarea
@@ -1507,6 +1509,7 @@ function JobNotesPanel({ jobId, user, canEdit }) {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }
@@ -1544,10 +1547,13 @@ function JobActivityPanel({ jobId }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
-      <h3 className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2 mb-3">
-        <TrendingUp className="w-4 h-4 text-omega-orange" /> Activity
-      </h3>
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 bg-gray-100 border-b border-gray-200">
+        <h3 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-omega-orange" /> Activity
+        </h3>
+      </div>
+      <div className="p-4 sm:p-5">
       {loading ? (
         <p className="text-xs text-omega-stone py-6 text-center">Loading activity…</p>
       ) : rows.length === 0 ? (
@@ -1575,6 +1581,7 @@ function JobActivityPanel({ jobId }) {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }
