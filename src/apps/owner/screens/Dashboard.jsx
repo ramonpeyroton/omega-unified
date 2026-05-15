@@ -977,8 +977,9 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         </section>
 
         {/* ─── Sales Pipeline + Salesman + Marketing ────────────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+        {/* 12-col grid: Pipeline=3 (25%), Salesman=4 (33%), Marketing=5 (42%) */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-3">
             <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
@@ -1002,16 +1003,20 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             </div>
           </div>
 
-          <SalesmanPerformance salesmen={data.salesmen} />
-          <MarketingOverview
-            marketing={data.marketing}
-            total={data.marketingTotal}
-            best={data.bestChannel}
-            overallCpl={data.overallCpl}
-            totalSpend={data.totalMarketingSpend}
-            leads={data.monthLeads || []}
-            onSelectJob={onSelectJob}
-          />
+          <div className="lg:col-span-4">
+            <SalesmanPerformance salesmen={data.salesmen} />
+          </div>
+          <div className="lg:col-span-5">
+            <MarketingOverview
+              marketing={data.marketing}
+              total={data.marketingTotal}
+              best={data.bestChannel}
+              overallCpl={data.overallCpl}
+              totalSpend={data.totalMarketingSpend}
+              leads={data.monthLeads || []}
+              onSelectJob={onSelectJob}
+            />
+          </div>
         </section>
 
         {/* ─── Lead Origins Heat Map ─────────────────────────────── */}
