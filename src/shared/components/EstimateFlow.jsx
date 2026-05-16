@@ -10,6 +10,7 @@ import ContractTemplate, { buildContractDocFromDom } from './Contract/ContractTe
 import InvoiceTemplate from './Contract/InvoiceTemplate';
 import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus } from '../lib/finance';
 import { logAudit } from '../lib/audit';
+import { apiFetch } from '../lib/apiFetch.js';
 import { notify } from '../lib/notifications';
 
 // Build-time flag toggling the DocuSign send button. We deliberately
@@ -607,7 +608,7 @@ export default function EstimateFlow({ job, user, onBack }) {
         docId = doc.id;
       }
 
-      const r = await fetch('/api/send-invoice', {
+      const r = await apiFetch('/api/send-invoice', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -918,7 +919,7 @@ export default function EstimateFlow({ job, user, onBack }) {
           notify({ recipientRole: 'sales', title: 'Contract signed', message: `Your client ${job.client_name || ''} signed the contract.`, type: 'contract', jobId: job.id });
           // Save signed PDF to Documents → Contracts (fire-and-forget)
           if (contract?.docusign_envelope_id) {
-            fetch('/api/docusign/save-signed-pdf', {
+            apiFetch('/api/docusign/save-signed-pdf', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ contractId: contract.id, envelopeId: contract.docusign_envelope_id, jobId: job.id }),

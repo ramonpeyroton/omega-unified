@@ -9,6 +9,7 @@ import {
   buildMonthGrid, formatMonthCT, isoDateCT,
 } from '../../lib/calendar';
 import { logAudit } from '../../lib/audit';
+import { apiFetch } from '../../lib/apiFetch.js';
 
 const DURATION_OPTIONS = [
   { value: 15,  label: '15 minutes' },
@@ -317,7 +318,7 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
       // Email notifications via Resend (both assignee + client if job present)
       if (!skipNotify && kind === 'sales_visit') {
         try {
-          await fetch('/api/send-visit-notification', {
+          await apiFetch('/api/send-visit-notification', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

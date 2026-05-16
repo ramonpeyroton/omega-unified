@@ -1,28 +1,21 @@
 // ════════════════════════════════════════════════════════════════════
-// Groq chat client (OpenAI-compatible, direct fetch — no SDK).
+// Groq chat client — routes through /api/ai-proxy (Vercel Function).
+// The GROQ_API_KEY never appears in the browser bundle.
 // Exports:
 //   chatWithGroq(messages)
 //   chatWithGroqTools(messages, tools, toolImpls, ctx)
 // ════════════════════════════════════════════════════════════════════
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+import { apiFetch } from './apiFetch.js';
+
 const MODEL = 'llama-3.3-70b-versatile';
 const MAX_TOOL_ITERATIONS = 5;
 
-function apiKey() {
-  return import.meta.env.VITE_GROQ_API_KEY;
-}
-
 async function callGroq(body) {
-  const key = apiKey();
-  if (!key) throw new Error('Missing VITE_GROQ_API_KEY — set it in Vercel or .env.local.');
-  const res = await fetch(GROQ_URL, {
+  const res = await apiFetch('/api/ai-proxy', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'groq', ...body }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');

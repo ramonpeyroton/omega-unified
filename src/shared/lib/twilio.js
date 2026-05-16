@@ -35,6 +35,8 @@ export function waDeepLink(phone, body) {
 
 // ─── Server send ───────────────────────────────────────────────────
 
+import { apiFetch } from './apiFetch.js';
+
 /**
  * Send via the Twilio-backed serverless endpoint.
  * @param {object} opts
@@ -46,7 +48,7 @@ export function waDeepLink(phone, body) {
 export async function sendMessage({ to, body, channel = 'sms', meta, user } = {}) {
   if (!to || !body) return { ok: false, error: 'Missing "to" or "body"' };
   try {
-    const r = await fetch('/api/twilio-send', {
+    const r = await apiFetch('/api/twilio-send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

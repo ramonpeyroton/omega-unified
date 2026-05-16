@@ -20,10 +20,12 @@
 //   VITE_DOCUSIGN_BASE_URL
 //   VITE_DOCUSIGN_REDIRECT_URI
 
+import { apiFetch } from './apiFetch.js';
+
 const API_BASE = '/api/docusign';
 
 async function post(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
@@ -36,7 +38,7 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await apiFetch(`${API_BASE}${path}`);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `DocuSign request failed (${res.status})`);

@@ -14,6 +14,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
+import { apiFetch } from '../lib/apiFetch.js';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
 import { StepBadge } from './JobFullView';
@@ -589,7 +590,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       const saved = await persist();
       setEstimate(saved);
 
-      const res = await fetch('/api/send-estimate', {
+      const res = await apiFetch('/api/send-estimate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

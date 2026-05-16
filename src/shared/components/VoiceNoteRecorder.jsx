@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Loader2, Check, X, AlertCircle } from 'lucide-react';
+import { apiFetch } from '../lib/apiFetch.js';
 
 /**
  * One-tap microphone button. Records audio via MediaRecorder, POSTs
@@ -86,7 +87,7 @@ export default function VoiceNoteRecorder({
       form.append('audio', blob, `note-${Date.now()}.webm`);
       if (language) form.append('language', language);
 
-      const r = await fetch('/api/transcribe', { method: 'POST', body: form });
+      const r = await apiFetch('/api/transcribe', { method: 'POST', body: form });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data?.ok) throw new Error(data?.error || `HTTP ${r.status}`);
 

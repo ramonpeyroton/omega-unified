@@ -9,6 +9,8 @@
 // Cost (April 2026 pricing): $0.006 per minute of audio. A 30s field
 // note costs $0.003 — essentially free at Omega's volume.
 
+import { requireSecret } from './_lib/requireSecret.js';
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
 function json(res, status, body) {
@@ -73,6 +75,7 @@ export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
+  if (!requireSecret(req, res)) return;
   if (!OPENAI_API_KEY)       return json(res, 500, { ok: false, error: 'OPENAI_API_KEY missing' });
 
   const contentType = req.headers['content-type'] || '';

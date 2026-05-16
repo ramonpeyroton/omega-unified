@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/apiFetch.js';
 import Avatar, { colorFromName } from './ui/Avatar';
 
 // Backend wraps resolved Slack mentions / channel refs / keywords with
@@ -71,7 +72,7 @@ export default function ProjectChat({ job, user, onJobUpdated }) {
     if (!jobIdRef.current) return;
     if (!silent) setRefreshing(true);
     try {
-      const r = await fetch('/api/slack/get-messages', {
+      const r = await apiFetch('/api/slack/get-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId: jobIdRef.current }),
@@ -533,7 +534,7 @@ function MessageComposer({ jobId, user, onSent }) {
         fd.append('jobId', jobId);
         fd.append('text', trimmed);
         fd.append('file', file, file.name);
-        r = await fetch('/api/slack/send-message', {
+        r = await apiFetch('/api/slack/send-message', {
           method: 'POST',
           headers: {
             'x-omega-user': user?.name || '',
@@ -542,7 +543,7 @@ function MessageComposer({ jobId, user, onSent }) {
           body: fd,
         });
       } else {
-        r = await fetch('/api/slack/send-message', {
+        r = await apiFetch('/api/slack/send-message', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

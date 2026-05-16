@@ -11,6 +11,7 @@
 //   POST /api/docusign/send-reminder     → resend notification to pending signers
 
 import { json, readJson } from '../_lib/http.js';
+import { requireSecret } from '../_lib/requireSecret.js';
 import { getAccessToken } from '../_lib/docusignAuth.js';
 import { INACIO_SIG } from '../_lib/inacioSignature.js';
 import { createClient } from '@supabase/supabase-js';
@@ -455,6 +456,8 @@ async function handleSaveSignedPdf(req, res) {
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
+  if (!requireSecret(req, res)) return;
+
   const action = req.query.action;
 
   if (action === 'create-envelope')  return handleCreateEnvelope(req, res);

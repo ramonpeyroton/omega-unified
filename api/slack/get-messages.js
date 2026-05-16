@@ -20,6 +20,7 @@
 import { supabase, requireSupabase } from '../_lib/supabase.js';
 import { slack, requireSlack } from '../_lib/slack.js';
 import { json, readJson } from '../_lib/http.js';
+import { requireSecret } from '../_lib/requireSecret.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -71,6 +72,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return json(res, 405, { ok: false, error: 'Method not allowed' });
   }
+  if (!requireSecret(req, res)) return;
 
   const sb = requireSupabase();
   if (!sb.ok) return json(res, 500, sb);

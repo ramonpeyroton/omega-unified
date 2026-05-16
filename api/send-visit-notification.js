@@ -8,6 +8,7 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 import { createClient } from '@supabase/supabase-js';
+import { requireSecret } from './_lib/requireSecret.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -88,6 +89,7 @@ async function sendResendEmail({ to, subject, html, replyTo }) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
+  if (!requireSecret(req, res)) return;
   if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
 
   let body;

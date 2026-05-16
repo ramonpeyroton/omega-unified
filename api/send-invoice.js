@@ -19,6 +19,7 @@
 //   PUBLIC_APP_URL (for the logo fallback in the email body)
 
 import { createClient } from '@supabase/supabase-js';
+import { requireSecret } from './_lib/requireSecret.js';
 
 const SUPABASE_URL   = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -118,6 +119,7 @@ function renderInvoiceEmailHTML({ milestone, job, company, installmentNumber, to
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
+  if (!requireSecret(req, res)) return;
   if (!supabase)        return json(res, 500, { ok: false, error: 'Supabase not configured.' });
   if (!RESEND_API_KEY)  return json(res, 500, { ok: false, error: 'Resend not configured (RESEND_API_KEY missing).' });
 

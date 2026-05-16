@@ -153,11 +153,18 @@ async function downloadAndSaveSignedContract(contract) {
 
 function verifyHmac(req, rawBody) {
   const secret = process.env.DOCUSIGN_HMAC_SECRET;
-  if (!secret) return true; // skip when not configured
+  if (!secret) {
+    // ⚠️  HMAC secret not configured — rejecting all webhook calls.
+    // Set DOCUSIGN_HMAC_SECRET in Vercel env vars AND in DocuSign Connect
+    // (Connect → HMAC Keys → add key, paste the same value here).
+    // Until this is done the webhook will return 401 for every DocuSign event.
+    console.error('[docusign-webhook] DOCUSIGN_HMAC_SECRET is not set. Rejecting request.');
+    return false;
+  }
   const signature = req.headers['x-docusign-signature-1'];
   if (!signature) return false;
   const computed = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
-  return signature === computed;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computed));
 }
 
 async function readRawBody(req) {

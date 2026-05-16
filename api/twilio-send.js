@@ -24,6 +24,7 @@
 //                                  `message_log` table for audit.
 
 import { createClient } from '@supabase/supabase-js';
+import { requireSecret } from './_lib/requireSecret.js';
 
 const SID   = process.env.TWILIO_ACCOUNT_SID   || '';
 const TOKEN = process.env.TWILIO_AUTH_TOKEN    || '';
@@ -92,6 +93,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return json(res, 405, { ok: false, error: 'Method not allowed' });
   }
+  if (!requireSecret(req, res)) return;
 
   if (!SID || !TOKEN) {
     return json(res, 500, {

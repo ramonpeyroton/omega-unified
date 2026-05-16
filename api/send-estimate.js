@@ -14,6 +14,7 @@
 // PDF engine in the function.
 
 import { createClient } from '@supabase/supabase-js';
+import { requireSecret } from './_lib/requireSecret.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -379,12 +380,15 @@ export default async function handler(req, res) {
   const estimateId = body?.estimateId;
   if (!estimateId) return json(res, 400, { ok: false, error: 'Missing estimateId' });
 
-  // Route 2: open-tracking beacon. Vercel Hobby caps serverless
-  // functions at 12, so the EstimateView page posts to this same
-  // endpoint with `action: 'opened'` instead of a dedicated function.
+  // Route 2: open-tracking beacon. Called from the PUBLIC estimate-view
+  // page when the client opens their estimate — no secret required here.
   if (body?.action === 'opened') {
     return handleEstimateOpened(estimateId, res);
   }
+
+  // From here on: internal use only (Brenda / Attila sending an estimate).
+  // Require the shared API secret so only the app can trigger email sends.
+  if (!requireSecret(req, res)) return;
 
   // Load estimate + job + company settings in parallel.
   const { data: estimate, error: eErr } = await supabase

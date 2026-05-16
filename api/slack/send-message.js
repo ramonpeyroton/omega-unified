@@ -28,6 +28,7 @@ import formidable from 'formidable';
 import { supabase, requireSupabase } from '../_lib/supabase.js';
 import { slack, requireSlack } from '../_lib/slack.js';
 import { json, readJson } from '../_lib/http.js';
+import { requireSecret } from '../_lib/requireSecret.js';
 
 const MAX_TEXT  = 4000;                  // Slack hard cap
 const MAX_BYTES = 4 * 1024 * 1024;       // 4 MB — leaves headroom under the
@@ -46,6 +47,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return json(res, 405, { ok: false, error: 'Method not allowed' });
   }
+  if (!requireSecret(req, res)) return;
 
   const sb = requireSupabase();
   if (!sb.ok) return json(res, 500, sb);
