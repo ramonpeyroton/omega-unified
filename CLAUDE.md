@@ -509,6 +509,57 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-05-16 (Security hardening + My Leads refactor)** — Ramon + Claude (Sonnet 4.6).
+
+### Security hardening — 4 problemas identificados, 3 resolvidos (commit `c14eb60`)
+
+**Problema 1 ✅ — API keys fora do browser bundle:**
+- `VITE_ANTHROPIC_KEY` e `VITE_GROQ_API_KEY` foram removidos do client-side.
+- Novo `api/ai-proxy.js` — proxy único (1 function) que roteia por `{ provider: 'claude' | 'groq' }`. Lê `ANTHROPIC_KEY` e `GROQ_API_KEY` server-side. Mantém o limite de 12 functions do Vercel Hobby.
+- `src/shared/lib/anthropic.js` reescrito para chamar `/api/ai-proxy`.
+- `src/shared/lib/groq.js` reescrito para chamar `/api/ai-proxy`.
+
+**Problema 2 ✅ — HMAC DocuSign obrigatório:**
+- `api/docusign-webhook.js`: verificação HMAC era pulada quando `DOCUSIGN_HMAC_SECRET` não estava configurado. Agora rejeita (`return false`) se a secret não estiver configurada. Comparação atualizada para `crypto.timingSafeEqual()` (timing-safe).
+
+**Problema 4 ✅ — Shared secret token em todos os endpoints internos:**
+- Novo `api/_lib/requireSecret.js` — middleware que valida header `x-omega-secret` contra env var `OMEGA_API_SECRET`. Em dev sem a var: avisa no log e deixa passar. Em prod: 401.
+- `requireSecret` adicionado em: `twilio-send.js`, `send-estimate.js` (depois do beacon público), `send-visit-notification.js`, `transcribe.js`, `send-invoice.js`, `slack/get-messages.js`, `slack/send-message.js`, `docusign/[action].js`.
+- Novo `src/shared/lib/apiFetch.js` — wrapper de `fetch` que injeta `x-omega-secret` automaticamente. Lê `VITE_OMEGA_API_SECRET`.
+- `apiFetch` usado em: `anthropic.js`, `groq.js`, `twilio.js`, `docusign.js`, `ProjectChat.jsx`, `EstimateBuilder.jsx`, `EstimateFlow.jsx`, `Calendar/EventForm.jsx`, `VoiceNoteRecorder.jsx`.
+- **Endpoints propositalmente públicos (SEM proteção):** `api/sign-estimate.js` (clientes assinam estimates), beacon `action:'opened'` em `send-estimate.js`, `EstimateView.jsx` (página pública do cliente).
+
+**Problema 3 ⏳ — RLS real no Supabase (adiado):**
+- Depende de Supabase Auth. Adiado até Ramon ativar o Auth.
+
+**Env vars que Ramon precisa adicionar no Vercel (Settings → Environment Variables):**
+
+| Ação | Variável | Valor |
+|------|----------|-------|
+| ➕ Adicionar | `OMEGA_API_SECRET` | string longa aleatória (ex: `openssl rand -hex 32`) |
+| ➕ Adicionar | `VITE_OMEGA_API_SECRET` | **mesmo valor** que `OMEGA_API_SECRET` |
+| ➕ Adicionar | `ANTHROPIC_KEY` | mesma chave que estava em `VITE_ANTHROPIC_KEY` |
+| ➕ Adicionar | `GROQ_API_KEY` | mesma chave que estava em `VITE_GROQ_API_KEY` |
+| 🗑️ Remover | `VITE_ANTHROPIC_KEY` | não mais usado |
+| 🗑️ Remover | `VITE_GROQ_API_KEY` | não mais usado |
+| ➕ Futuro | `DOCUSIGN_HMAC_SECRET` | quando DocuSign for ativado em produção |
+
+**Migrations pendentes:** `062_user_preferences.sql` (My Leads — ainda não rodada no Supabase).
+
+---
+
+### My Leads refactor — concluído (sessão anterior)
+
+`src/apps/receptionist/screens/LeadsList.jsx` reescrito com:
+- Toggle Cards / List view.
+- Sort dropdown (modo cards, 11 opções).
+- Filter panel com chips removíveis (Status, Source, Owner, Pipeline).
+- Cards com borda esquerda colorida por status.
+- Preferências salvas em `user_preferences` (migration 062 — rodar no Supabase).
+- Default por role: `sales`/`owner` → cards; `receptionist`/`operations`/`marketing` → list.
+
+---
+
 **2026-05-05 (Finance reconstruction + Job amount received)** — Ramon + Claude (Sonnet 4.6).
 
 **Finance Screen reconstruído do zero** (`src/shared/components/Finance/FinanceScreen.jsx`):
