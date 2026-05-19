@@ -18,6 +18,8 @@ const MAX_MESSAGES_PER_RUN = 20; // safety cap per poll
  * Returns { ok, checked, processed, reason? }
  */
 export async function pollGmailInvoices() {
+  if (!supabase) return { ok: false, reason: 'supabase_not_configured', checked: 0, processed: 0 };
+
   const conn = await getConnection(null);
   if (!conn) return { ok: false, reason: 'not_connected', checked: 0, processed: 0 };
 

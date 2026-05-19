@@ -140,8 +140,13 @@ async function handleDisconnect(req, res) {
 async function handleCheck(req, res) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'POST only' });
 
-  const result = await pollGmailInvoices();
-  return json(res, result.ok ? 200 : 500, result);
+  try {
+    const result = await pollGmailInvoices();
+    return json(res, result.ok ? 200 : 500, result);
+  } catch (err) {
+    console.error('[email/check] unhandled error:', err);
+    return json(res, 500, { ok: false, reason: err?.message || String(err) });
+  }
 }
 
 // ─── Util ─────────────────────────────────────────────────────────────────────
