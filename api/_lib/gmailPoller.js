@@ -152,11 +152,12 @@ async function processMessage(msgId, accessToken, jobs, subs) {
       from, subject, snippet, base64, mimeType: att.mimeType, jobs, subs,
     });
 
+    // matched       → auto-filed (high confidence)
+    // pending_review → needs Brenda to confirm (low confidence OR no job found)
+    // unmatched is reserved for when Brenda manually dismisses from the inbox
     const status = jobId && confidence >= AUTO_MATCH_THRESHOLD
       ? 'matched'
-      : jobId
-        ? 'pending_review'
-        : 'unmatched';
+      : 'pending_review';
 
     let docId = null;
     let finalStoragePath = storagePath;
