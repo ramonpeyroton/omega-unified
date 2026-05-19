@@ -78,8 +78,14 @@ export default function EstimateView() {
     <div style={{ padding: '32px 16px', background: '#f5f5f3', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif', color: '#2C2C2A' }}>
       <div style={{ maxWidth: 780, margin: '0 auto' }}>
 
-        {/* Print button hidden on print */}
-        <div className="no-print" style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+        {/* Action buttons — hidden on print */}
+        <div className="no-print" style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            onClick={() => { try { window.close(); } catch(e) {} /* fallback: nothing — don't navigate away */ }}
+            style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid #d1d1d1', background: 'white', color: '#2C2C2A', fontWeight: 600, cursor: 'pointer' }}
+          >
+            ← Close
+          </button>
           <button
             onClick={() => window.print()}
             style={{ padding: '10px 16px', borderRadius: 8, border: 'none', background: '#E8732A', color: 'white', fontWeight: 700, cursor: 'pointer' }}

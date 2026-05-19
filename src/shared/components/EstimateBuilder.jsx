@@ -1140,7 +1140,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
           <div className="flex items-center gap-2 flex-wrap">
             {estimate?.id && (
               <button
-                onClick={() => window.open(`/estimate-view/${estimate.id}`, '_blank', 'noopener,noreferrer')}
+                onClick={() => {
+                  const w = window.open(`/estimate-view/${estimate.id}`, '_blank', 'width=960,height=800,noopener,noreferrer');
+                  // Safari iOS sometimes ignores _blank and navigates same tab — detect that and redirect instead.
+                  if (!w || w === window) window.location.href = `/estimate-view/${estimate.id}`;
+                }}
                 disabled={saving || sending}
                 className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-bold text-omega-charcoal disabled:opacity-60"
                 title="Open the customer-facing version of this estimate in a new tab"
