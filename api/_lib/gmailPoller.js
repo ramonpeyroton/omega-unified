@@ -120,7 +120,8 @@ async function processMessage(msgId, accessToken, jobs, subs) {
       return;
     }
 
-    const att = goodAttachments[0];
+    // Prefer PDF over image when both are present.
+    const att = goodAttachments.find(a => a.mimeType === 'application/pdf') || goodAttachments[0];
     let attData = att.data;
     if (!attData && att.attachmentId) {
       const attRes = await gmailGet(
@@ -136,7 +137,9 @@ async function processMessage(msgId, accessToken, jobs, subs) {
 
     // Upload to Supabase Storage right away so we never lose the file.
     const timestamp   = Date.now();
-    const storagePath = `inbox/${timestamp}-${att.filename || 'attachment.pdf'}`;
+    // Sanitize filename — remove characters Supabase Storage rejects (~ spaces etc.)
+    const safeFilename = (att.filename || 'attachment.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `inbox/${timestamp}-${safeFilename}`;
     const fileBuffer  = Buffer.from(base64, 'base64');
 
     const { error: uploadErr } = await supabase.storage
