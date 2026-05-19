@@ -103,7 +103,7 @@ export default function InvoiceInbox({ user }) {
         .from('job_documents')
         .insert([{
           job_id:      jobId,
-          folder:      'invoices',
+          folder:      'sub_invoices',
           title:       row.invoice_info?.invoice_number
             ? `Invoice ${row.invoice_info.invoice_number} — ${row.invoice_info.sub_company || row.from_address}`
             : `Invoice from ${row.invoice_info?.sub_company || row.from_address}`,

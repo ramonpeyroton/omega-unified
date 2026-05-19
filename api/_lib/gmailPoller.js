@@ -156,7 +156,7 @@ async function processMessage(msgId, accessToken, jobs, subs) {
         .from('job_documents')
         .insert([{
           job_id:      jobId,
-          folder:      'invoices',
+          folder:      'sub_invoices',
           title:       invoiceInfo?.invoice_number
             ? `Invoice ${invoiceInfo.invoice_number} — ${invoiceInfo.sub_company || from}`
             : `Invoice from ${invoiceInfo?.sub_company || from} — ${new Date().toLocaleDateString('en-US')}`,

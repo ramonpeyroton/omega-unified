@@ -55,6 +55,9 @@ const FOLDERS = [
   // carrier sends one for this project). Subcontractor COIs live on
   // the sub itself, not here.
   { id: 'coi',            label: 'COI',              icon: ShieldCheck   },
+  // Sub invoices received via email (Gmail AI) or uploaded manually.
+  // Separate from 'invoices' (client-facing billing).
+  { id: 'sub_invoices',   label: 'Sub Invoices',     icon: DollarSign    },
   // Catch-all for the legacy bulk importer — anything the AI couldn't
   // confidently place lands here so nothing gets lost.
   { id: 'other',          label: 'Other',            icon: FolderClosed  },
