@@ -100,10 +100,27 @@ async function processMessage(msgId, accessToken, jobs, subs) {
     const subject = getHeader(headers, 'Subject') || '(no subject)';
     const snippet = msg.snippet || '';
 
-    const attachments = collectAttachments(msg.payload);
-    if (attachments.length === 0) return; // no PDF/image → skip
+    const allAttachments  = collectAttachments(msg.payload, false); // all types
+    const goodAttachments = collectAttachments(msg.payload, true);  // PDF/image only
 
-    const att = attachments[0];
+    // No attachments at all → skip silently.
+    if (allAttachments.length === 0) return;
+
+    // Has attachments but none are processable by Claude → log as unmatched.
+    if (goodAttachments.length === 0) {
+      await supabase.from('email_processing_log').insert([{
+        gmail_message_id: msgId,
+        from_address:     from,
+        subject,
+        status:           'unmatched',
+        raw_snippet:      snippet.slice(0, 300),
+        attachment_name:  allAttachments[0]?.filename || null,
+        error_message:    `Attachment type not supported for AI matching: ${allAttachments.map(a => a.mimeType).join(', ')}`,
+      }]);
+      return;
+    }
+
+    const att = goodAttachments[0];
     let attData = att.data;
     if (!attData && att.attachmentId) {
       const attRes = await gmailGet(
@@ -313,22 +330,29 @@ function getHeader(headers, name) {
   return headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 }
 
-function collectAttachments(payload) {
+function collectAttachments(payload, pdfImageOnly = true) {
   if (!payload) return [];
   const parts  = payload.parts || [];
   const result = [];
 
   for (const part of parts) {
     if (part.mimeType?.startsWith('multipart/')) {
-      result.push(...collectAttachments(part));
+      result.push(...collectAttachments(part, pdfImageOnly));
       continue;
     }
     const mime    = part.mimeType || '';
     const isPdf   = mime === 'application/pdf';
     const isImage = mime.startsWith('image/');
-    if (!isPdf && !isImage) continue;
 
+    // Skip inline tiny images (e.g. email signature logos) — no filename.
+    if (isImage && !part.filename) continue;
+
+    if (pdfImageOnly && !isPdf && !isImage) continue;
+
+    // Skip attachments with no body data and no attachmentId.
     const body = part.body || {};
+    if (!body.attachmentId && !body.data) continue;
+
     result.push({
       attachmentId: body.attachmentId || null,
       data:         body.data         || null,
