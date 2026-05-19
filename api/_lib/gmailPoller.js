@@ -150,10 +150,16 @@ async function processMessage(msgId, accessToken, jobs, subs) {
       });
     if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
-    // Ask Claude to match the invoice to a job.
-    const { jobId, confidence, invoiceInfo } = await matchInvoice({
+    // Ask Claude to classify + match.
+    const { isInvoice, jobId, confidence, invoiceInfo, reason } = await matchInvoice({
       from, subject, snippet, base64, mimeType: att.mimeType, jobs, subs,
     });
+
+    // Claude determined this is NOT a subcontractor invoice — skip silently.
+    if (!isInvoice) {
+      console.log(`[gmailPoller] skipped non-invoice: ${msgId} — ${reason}`);
+      return;
+    }
 
     // matched       → auto-filed (high confidence)
     // pending_review → needs Brenda to confirm (low confidence OR no job found)
@@ -249,7 +255,7 @@ async function matchInvoice({ from, subject, snippet, base64, mimeType, jobs, su
 
   const prompt = `You are an assistant for Omega Development LLC, a construction company in Connecticut.
 
-An email arrived that likely contains a subcontractor invoice. Match it to one of the active jobs below.
+An email arrived with an attachment. First determine if this is a SUBCONTRACTOR INVOICE (a bill for labor/services performed by a sub for Omega). Then, if it is, match it to the right job.
 
 EMAIL:
 From: ${from}
@@ -262,9 +268,21 @@ ${jobsList || '(no active jobs)'}
 KNOWN SUBCONTRACTORS:
 ${subsList || '(none)'}
 
-The attached document/image is the invoice. Analyze it and return ONLY valid JSON (no markdown):
+STEP 1 — Is this a subcontractor invoice?
+Set "is_invoice": false if it is any of these:
+- A quote, proposal, or estimate (not yet billed)
+- A material purchase (Home Depot, supplier, etc.) — not labor
+- An internal Omega email or forwarded message
+- A delivery/status notification or marketing email
+- A client-facing document (warranty, completion letter, etc.)
+- Anything that is NOT a bill for subcontractor labor/services
+
+STEP 2 — If it IS an invoice, match it to a job.
+
+Return ONLY valid JSON (no markdown):
 {
-  "job_id": "the matching job uuid, or null",
+  "is_invoice": true,
+  "job_id": "matching job uuid or null",
   "confidence": 0.95,
   "reason": "short explanation",
   "invoice_info": {
@@ -307,6 +325,7 @@ Confidence guide: 0.9+ = address+sub exact match | 0.7–0.9 = sub matches, addr
     catch { parsed = JSON.parse(text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()); }
 
     return {
+      isInvoice:   parsed.is_invoice !== false, // default true if missing
       jobId:       parsed.job_id    || null,
       confidence:  parsed.confidence ?? 0,
       invoiceInfo: parsed.invoice_info || null,
@@ -314,7 +333,7 @@ Confidence guide: 0.9+ = address+sub exact match | 0.7–0.9 = sub matches, addr
     };
   } catch (err) {
     console.error('[gmailPoller] Claude matching failed:', err.message);
-    return { jobId: null, confidence: 0, invoiceInfo: null, reason: `Error: ${err.message}` };
+    return { isInvoice: true, jobId: null, confidence: 0, invoiceInfo: null, reason: `Error: ${err.message}` };
   }
 }
 
