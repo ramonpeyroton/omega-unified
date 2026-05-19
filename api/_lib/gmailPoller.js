@@ -45,11 +45,25 @@ export async function pollGmailInvoices() {
   // that arrive during a slow run, and prevents re-processing on next poll.
   await updateLastChecked(conn.email);
 
-  // List messages with attachments.
+  // List messages with attachments, excluding known material suppliers
+  // and internal/automated senders that are never sub invoices.
+  const EXCLUDE_SENDERS = [
+    'homedepot.com',
+    'hd.com',
+    'lowes.com',
+    'grainger.com',
+    'fastenal.com',
+    'mailer-daemon',
+    'noreply',
+    'no-reply',
+  ];
+  const exclusions = EXCLUDE_SENDERS.map(s => `-from:${s}`).join(' ');
+  const gmailQuery = `has:attachment after:${dateStr} ${exclusions}`;
+
   let messages = [];
   try {
     const listRes = await gmailGet(
-      `/messages?q=${encodeURIComponent(`has:attachment after:${dateStr}`)}&maxResults=${MAX_MESSAGES_PER_RUN}`,
+      `/messages?q=${encodeURIComponent(gmailQuery)}&maxResults=${MAX_MESSAGES_PER_RUN}`,
       accessToken,
     );
     messages = listRes.messages || [];
