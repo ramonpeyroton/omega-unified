@@ -66,8 +66,8 @@ export default function GmailIntegrationCard() {
     setTimeout(() => setToast(''), 3500);
   }
 
-  const watchExpiry = status?.watchExpiration
-    ? new Date(status.watchExpiration).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const lastChecked = status?.lastChecked
+    ? new Date(status.lastChecked).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : null;
 
   return (
@@ -107,6 +107,7 @@ export default function GmailIntegrationCard() {
           <p>② AI reads the email + PDF and identifies which project it belongs to.</p>
           <p>③ Invoice is auto-filed in the project's Documents tab.</p>
           <p>④ Low-confidence matches land in <strong>Operations → Invoice Inbox</strong> for review.</p>
+          <p className="mt-1 text-omega-fog">Brenda checks manually via Invoice Inbox → "Check Inbox", or once a day automatically.</p>
         </div>
       )}
 
@@ -124,11 +125,9 @@ export default function GmailIntegrationCard() {
               <p className="text-xs text-green-600">{status.email}</p>
             </div>
           </div>
-          {watchExpiry && (
-            <p className="text-xs text-omega-fog">
-              Push notifications active · renews automatically · expires {watchExpiry}
-            </p>
-          )}
+          <p className="text-xs text-omega-fog">
+            {lastChecked ? `Last checked ${lastChecked}` : 'Not yet checked — click "Check Inbox" in Invoice Inbox'}
+          </p>
           <button
             onClick={disconnect}
             disabled={working}

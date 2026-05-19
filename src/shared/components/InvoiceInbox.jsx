@@ -3,7 +3,7 @@
 // right job (or dismisses), and the document is filed automatically.
 
 import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, XCircle, AlertCircle, FileText, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, AlertCircle, FileText, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch.js';
 
@@ -23,6 +23,7 @@ export default function InvoiceInbox({ user }) {
   const [assigning, setAssigning] = useState(null); // row id being confirmed
   const [selectedJob, setSelectedJob] = useState({}); // rowId → jobId
   const [toast, setToast]       = useState('');
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => { load(); }, [filter]);
 
@@ -51,6 +52,26 @@ export default function InvoiceInbox({ user }) {
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
+  }
+
+  async function checkInbox() {
+    setChecking(true);
+    try {
+      const r = await apiFetch('/api/email/check', { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) {
+        showToast(d.reason === 'not_connected' ? 'Gmail not connected — set up in Admin → Company Settings' : `Error: ${d.reason || 'check failed'}`);
+      } else if (d.processed === 0) {
+        showToast('No new invoices found');
+      } else {
+        showToast(`Found ${d.processed} new invoice${d.processed !== 1 ? 's' : ''} ✓`);
+        load();
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function confirmMatch(row) {
@@ -141,11 +162,21 @@ export default function InvoiceInbox({ user }) {
               Invoices received by email — AI auto-files high-confidence matches.
             </p>
           </div>
-          {pendingCount > 0 && (
-            <div className="bg-amber-500 text-white text-sm font-bold px-3 py-1 rounded-full">
-              {pendingCount} pending
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {pendingCount > 0 && (
+              <div className="bg-amber-500 text-white text-sm font-bold px-3 py-1 rounded-full">
+                {pendingCount} pending
+              </div>
+            )}
+            <button
+              onClick={checkInbox}
+              disabled={checking}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-omega-orange hover:bg-orange-600 text-white text-sm font-semibold rounded-xl disabled:opacity-60 transition"
+            >
+              {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {checking ? 'Checking…' : 'Check Inbox'}
+            </button>
+          </div>
         </div>
 
         {/* Filter tabs */}

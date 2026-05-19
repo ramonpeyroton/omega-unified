@@ -1,7 +1,7 @@
 // Google OAuth2 token manager.
 // Handles token exchange, refresh, and storage (Supabase gmail_tokens).
 //
-// Used by api/email/[action].js for Gmail API access.
+// Used by api/email/[action].js and api/_lib/gmailPoller.js.
 
 import { supabase } from './supabase.js';
 
@@ -44,24 +44,11 @@ export async function storeTokens(email, tokens) {
   if (error) throw new Error(`storeTokens: ${error.message}`);
 }
 
-/** Update Gmail watch metadata after calling gmail.users.watch(). */
-export async function storeWatchInfo(email, historyId, expiration) {
-  const { error } = await supabase
-    .from('gmail_tokens')
-    .update({
-      watch_history_id: String(historyId),
-      watch_expiration: new Date(Number(expiration)).toISOString(),
-      updated_at:       new Date().toISOString(),
-    })
-    .eq('email', email);
-  if (error) throw new Error(`storeWatchInfo: ${error.message}`);
-}
-
-/** Update just the lastHistoryId after processing a batch of messages. */
-export async function updateHistoryId(email, historyId) {
+/** Stamp last_checked_at = now() so next poll uses this as the start date. */
+export async function updateLastChecked(email) {
   await supabase
     .from('gmail_tokens')
-    .update({ watch_history_id: String(historyId), updated_at: new Date().toISOString() })
+    .update({ last_checked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('email', email);
 }
 

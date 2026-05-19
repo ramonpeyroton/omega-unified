@@ -18,6 +18,7 @@
 // and spam the owner's bell.
 
 import { createClient } from '@supabase/supabase-js';
+import { pollGmailInvoices } from './_lib/gmailPoller.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -148,6 +149,15 @@ export default async function handler(req, res) {
     }
   } catch { /* non-fatal — owner already got the job-update notif */ }
 
+  // ─── Gmail invoice poll ───────────────────────────────────────────
+  // Non-fatal: if Gmail isn't connected or fails, the cron still succeeds.
+  let gmailResult = { ok: false, reason: 'not_run' };
+  try {
+    gmailResult = await pollGmailInvoices();
+  } catch (err) {
+    gmailResult = { ok: false, reason: err.message };
+  }
+
   return json(res, 200, {
     ok: true,
     jobs_active: jobs.length,
@@ -155,5 +165,6 @@ export default async function handler(req, res) {
     skipped: skipSet.size,
     pending_offers: pendingOffers.length,
     offer_reminders_created: offerReminders,
+    gmail: gmailResult,
   });
 }

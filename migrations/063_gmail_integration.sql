@@ -2,6 +2,9 @@
 -- Stores OAuth tokens for monitored Gmail accounts and logs every
 -- processed email (matched → auto-uploaded; pending_review → awaits
 -- manual confirmation by Brenda in the Invoice Inbox screen).
+--
+-- Uses polling instead of Pub/Sub push. The app checks for new emails
+-- when Brenda clicks "Check Inbox" or daily via cron.
 
 -- ── OAuth tokens ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS gmail_tokens (
@@ -10,11 +13,8 @@ CREATE TABLE IF NOT EXISTS gmail_tokens (
   access_token     text        NOT NULL,
   refresh_token    text        NOT NULL,
   expires_at       timestamptz NOT NULL,
-  -- Last Gmail historyId we successfully processed.
-  -- Used as the starting point on next push notification.
-  watch_history_id text,
-  -- When the Gmail push watch expires (renew before this).
-  watch_expiration timestamptz,
+  -- Timestamp of the last successful poll (used as the "after:" filter).
+  last_checked_at  timestamptz,
   created_at       timestamptz DEFAULT now(),
   updated_at       timestamptz DEFAULT now()
 );
