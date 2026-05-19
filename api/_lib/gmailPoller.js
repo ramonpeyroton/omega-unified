@@ -169,9 +169,17 @@ async function processMessage(msgId, accessToken, jobs, subs) {
       from, subject, snippet, base64, mimeType: att.mimeType, jobs, subs,
     });
 
-    // Claude determined this is NOT a subcontractor invoice — skip silently.
+    // Claude determined this is NOT a subcontractor invoice — log as unmatched for visibility.
     if (!isInvoice) {
-      console.log(`[gmailPoller] skipped non-invoice: ${msgId} — ${reason}`);
+      await supabase.from('email_processing_log').insert([{
+        gmail_message_id: msgId,
+        from_address:     from,
+        subject,
+        status:           'unmatched',
+        raw_snippet:      snippet.slice(0, 300),
+        attachment_name:  att.filename || null,
+        error_message:    `Not a sub invoice: ${reason}`,
+      }]);
       return;
     }
 
