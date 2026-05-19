@@ -168,14 +168,16 @@ async function processMessage(msgId, accessToken, jobs, subs) {
 
       if (doc) docId = doc.id;
 
-      // In-app notification for Brenda.
-      await supabase.from('notifications').insert([{
-        recipient_role: 'operations',
-        title:          'Invoice auto-filed',
-        message:        `${invoiceInfo?.sub_company || from}: ${invoiceInfo?.invoice_number || 'invoice'} filed under ${jobs.find(j => j.id === jobId)?.client_name || 'job'} (${Math.round(confidence * 100)}% match)`,
-        type:           'invoice',
-        job_id:         jobId,
-      }]).catch(() => {});
+      // In-app notification for Brenda (non-fatal).
+      try {
+        await supabase.from('notifications').insert([{
+          recipient_role: 'operations',
+          title:          'Invoice auto-filed',
+          message:        `${invoiceInfo?.sub_company || from}: ${invoiceInfo?.invoice_number || 'invoice'} filed under ${jobs.find(j => j.id === jobId)?.client_name || 'job'} (${Math.round(confidence * 100)}% match)`,
+          type:           'invoice',
+          job_id:         jobId,
+        }]);
+      } catch { /* non-fatal */ }
     }
 
     await supabase.from('email_processing_log').insert([{
@@ -194,11 +196,13 @@ async function processMessage(msgId, accessToken, jobs, subs) {
 
   } catch (err) {
     console.error(`[gmailPoller] processMessage ${msgId}:`, err.message);
-    await supabase.from('email_processing_log').insert([{
-      gmail_message_id: msgId,
-      status:           'error',
-      error_message:    err?.message || String(err),
-    }]).catch(() => {});
+    try {
+      await supabase.from('email_processing_log').insert([{
+        gmail_message_id: msgId,
+        status:           'error',
+        error_message:    err?.message || String(err),
+      }]);
+    } catch { /* ignore */ }
   }
 }
 
