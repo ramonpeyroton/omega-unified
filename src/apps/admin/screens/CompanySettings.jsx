@@ -5,6 +5,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import { logAudit } from '../../../shared/lib/audit';
 import { getSettingNumber, setSetting } from '../../../shared/lib/settings';
+import GmailIntegrationCard from '../../../shared/components/GmailIntegrationCard';
 
 const GOAL_KEY = 'annual_goal_2026';
 
@@ -206,6 +207,10 @@ export default function CompanySettings({ user }) {
             <p className="text-xs text-omega-stone">Last updated {new Date(row.updated_at).toLocaleString()}</p>
           )}
         </div>
+
+        {/* ─── Gmail Integration ───────────────────────────────── */}
+        <GmailIntegrationCard />
+
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, FileText, FilePen, Users, GitBranch, LogOut, Calendar, DollarSign, ClipboardList, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, FileText, FilePen, Users, GitBranch, LogOut, Calendar, DollarSign, ClipboardList, MessageCircle, ChevronDown, ChevronRight, Mail } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -16,6 +16,7 @@ const NAV = [
   { id: 'commissions',     label: 'Commissions',      icon: DollarSign },
   { id: 'contracts',       label: 'Contracts',        icon: FileText },
   { id: 'subcontractors',  label: 'Subcontractors',   icon: Users },
+  { id: 'invoice-inbox',   label: 'Invoice Inbox',    icon: Mail },
 ];
 
 export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {

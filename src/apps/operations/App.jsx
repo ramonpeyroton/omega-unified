@@ -10,6 +10,7 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
+import InvoiceInbox from '../../shared/components/InvoiceInbox';
 import JobFullView from '../../shared/components/JobFullView';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
@@ -58,6 +59,8 @@ export default function App({ user, onLogout }) {
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
       case 'commissions':
         return <CommissionsScreen user={user} />;
+      case 'invoice-inbox':
+        return <InvoiceInbox user={user} />;
       default:
         return <Dashboard onOpenEstimate={openEstimate} onNavigate={navigate} user={user} />;
     }
