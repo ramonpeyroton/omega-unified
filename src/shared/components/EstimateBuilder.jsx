@@ -118,7 +118,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         .from('estimates').select('*')
         .eq('group_id', groupId)
         .order('option_order', { ascending: true });
-      const siblings = (group && group.length) ? group : [latest];
+      const siblings = (group && group.length) ? group : [rootEstimate];
       setOptions(siblings);
 
       // Load bundle members if this estimate belongs to a bundle.
