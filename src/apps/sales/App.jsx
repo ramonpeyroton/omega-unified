@@ -30,6 +30,7 @@ export default function App(props) {
       <SalesRouter
         {...props}
         onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
+        onOpenJobAtEstimate={(job) => { setFullViewJob(job); setFullViewInitialTab('estimate'); }}
       />
       {fullViewJob && (
         <JobFullView
@@ -45,7 +46,7 @@ export default function App(props) {
   );
 }
 
-function SalesRouter({ user, onLogout, onOpenJob }) {
+function SalesRouter({ user, onLogout, onOpenJob, onOpenJobAtEstimate }) {
   const [screen, setScreen] = useState('home');
   const [currentJob, setCurrentJob] = useState(null);
   const [reportJob, setReportJob] = useState(null);
@@ -197,8 +198,7 @@ function SalesRouter({ user, onLogout, onOpenJob }) {
         onBack={() => setScreen('home')}
         onOpenEstimate={(job) => {
           if (!job) return;
-          setCurrentJob(job);
-          setScreen('estimate-flow');
+          onOpenJobAtEstimate?.(job);
         }}
       />
     );
