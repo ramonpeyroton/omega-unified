@@ -127,6 +127,8 @@ export default function JobFullView({
   // For receptionist (READ_ONLY_BASIC_ROLES), we land on Details directly
   // because that's the only tab they have. An explicit `initialTab` from
   // the caller wins over the role-based default.
+  const [editEstimateId, setEditEstimateId] = useState(null);
+
   const [tab, setTab] = useState(() => {
     if (initialTab) return initialTab;
     return READ_ONLY_BASIC_ROLES.has(user?.role) ? 'details' : 'report';
@@ -708,7 +710,7 @@ export default function JobFullView({
               job={job}
               user={user}
               onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-              onEditEstimate={() => setTab('estimate')}
+              onEditEstimate={(estId) => { setEditEstimateId(estId); setTab('estimate'); }}
             />
           )}
 
@@ -730,6 +732,7 @@ export default function JobFullView({
               <EstimateBuilder
                 job={job}
                 user={user}
+                editEstimateId={editEstimateId}
                 onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
               />
             </div>

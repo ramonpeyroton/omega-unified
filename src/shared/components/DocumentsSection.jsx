@@ -348,7 +348,7 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                   </p>
                   {!est.signed_at && onEditEstimate && (
                     <button
-                      onClick={onEditEstimate}
+                      onClick={() => onEditEstimate(est.id)}
                       className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-omega-pale border border-omega-orange/30 text-omega-orange hover:bg-omega-orange hover:text-white text-[11px] font-bold transition-colors"
                       title="Continue editing this estimate"
                     >

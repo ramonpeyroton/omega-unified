@@ -51,7 +51,7 @@ Upon Completion 10%`;
 function emptyItem()    { return { id: newId(), description: '', scope: '', price: 0 }; }
 function emptySection() { return { id: newId(), title: 'Section 1', items: [emptyItem()] }; }
 
-export default function EstimateBuilder({ job, user, onJobUpdated }) {
+export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateId }) {
   const [estimate, setEstimate] = useState(null); // currently edited row
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -84,25 +84,36 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
   // 'single':    client sees only the grand total, no per-item prices
   const [displayMode, setDisplayMode] = useState(null); // null = not yet chosen
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
+  useEffect(() => { load(editEstimateId); /* eslint-disable-next-line */ }, [job?.id, editEstimateId]);
 
   async function load(preferredActiveId) {
     setLoading(true);
     try {
-      // Grab the most recent estimate to find the group, then pull every
-      // sibling so the switcher reflects all alternatives.
-      const { data: latest } = await supabase
-        .from('estimates').select('*')
-        .eq('job_id', job.id)
-        .order('created_at', { ascending: false })
-        .limit(1).maybeSingle();
-      if (!latest) {
+      // If a specific estimate was requested (Edit button), start from that
+      // one so we load its group. Otherwise fall back to most recent.
+      let rootEstimate = null;
+      if (preferredActiveId) {
+        const { data: pref } = await supabase
+          .from('estimates').select('*')
+          .eq('id', preferredActiveId)
+          .maybeSingle();
+        rootEstimate = pref;
+      }
+      if (!rootEstimate) {
+        const { data: latest } = await supabase
+          .from('estimates').select('*')
+          .eq('job_id', job.id)
+          .order('created_at', { ascending: false })
+          .limit(1).maybeSingle();
+        rootEstimate = latest;
+      }
+      if (!rootEstimate) {
         // No estimate yet — start a blank single-option draft.
         setOptions([]); setActiveId(null); setEstimate(null);
         setLoading(false);
         return;
       }
-      const groupId = latest.group_id || latest.id;
+      const groupId = rootEstimate.group_id || rootEstimate.id;
       const { data: group } = await supabase
         .from('estimates').select('*')
         .eq('group_id', groupId)
@@ -111,11 +122,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       setOptions(siblings);
 
       // Load bundle members if this estimate belongs to a bundle.
-      if (latest.bundle_id) {
+      if (rootEstimate.bundle_id) {
         const { data: bm } = await supabase
           .from('estimates')
           .select('id, bundle_label, total_amount, status, estimate_number, job_id')
-          .eq('bundle_id', latest.bundle_id)
+          .eq('bundle_id', rootEstimate.bundle_id)
           .order('created_at', { ascending: true });
         setBundleMembers(bm || []);
       } else {
@@ -125,11 +136,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated }) {
       // Figure out which option to land on:
       //   1) the caller's preferred id (just created / switched)
       //   2) whichever we were already editing
-      //   3) the latest one by created_at
+      //   3) the root estimate we loaded
       const picked =
         siblings.find((s) => s.id === preferredActiveId) ||
         siblings.find((s) => s.id === activeId) ||
-        siblings.find((s) => s.id === latest.id) ||
+        siblings.find((s) => s.id === rootEstimate.id) ||
         siblings[0];
       loadIntoForm(picked);
     } catch { /* ignore */ }
