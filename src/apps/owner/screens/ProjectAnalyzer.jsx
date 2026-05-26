@@ -7,8 +7,7 @@ import { supabase } from '../lib/supabase';
 import { fetchBrainEntries } from '../lib/anthropic';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
-
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
 const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const MAX_PAGES = 15;
@@ -133,24 +132,20 @@ async function analyzeProjectFile(file, brainEntries, onProgress) {
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await apiFetch('/api/ai-proxy', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        provider: 'claude',
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
+        maxTokens: 4000,
         messages: [{ role: 'user', content: contentBlocks }],
       }),
       signal: controller.signal,
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `API error ${response.status}`);
+      throw new Error(err?.error?.message || err?.error || `API error ${response.status}`);
     }
     const data = await response.json();
     return data.content[0].text;

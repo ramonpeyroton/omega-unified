@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
 const MODEL = 'claude-sonnet-4-20250514';
 
 // ── Throttle: enforce ≥2s between any consecutive Anthropic API calls ─────────
@@ -22,18 +22,14 @@ async function callAnthropic(prompt, maxTokens = 4000, timeoutMs = 90000, onRetr
 
     let response;
     try {
-      response = await fetch('https://api.anthropic.com/v1/messages', {
+      response = await apiFetch('/api/ai-proxy', {
         method: 'POST',
         signal: controller.signal,
-        headers: {
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          provider: 'claude',
           model: MODEL,
-          max_tokens: maxTokens,
+          maxTokens,
           messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
         }),
       });
@@ -56,7 +52,7 @@ async function callAnthropic(prompt, maxTokens = 4000, timeoutMs = 90000, onRetr
         throw new Error('Omega AI is currently busy. Please try again in a few minutes.');
       }
       if (response.status === 401) throw new Error('Invalid API key. Please contact the administrator.');
-      throw new Error(errBody?.error?.message || `API error ${response.status}`);
+      throw new Error(errBody?.error?.message || errBody?.error || `API error ${response.status}`);
     }
 
     const data = await response.json();
@@ -91,18 +87,14 @@ async function fetchPropertyData(address) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await apiFetch('/api/ai-proxy', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'web-search-2025-03-05',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        provider: 'claude',
         model: MODEL,
-        max_tokens: 512,
+        maxTokens: 512,
+        anthropicBeta: 'web-search-2025-03-05',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',

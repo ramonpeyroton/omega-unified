@@ -1,24 +1,19 @@
 import { useState, useRef } from 'react';
 import { ArrowLeft, Upload, FileText, SkipForward, CheckCircle, X } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
 async function analyzePDFDocument(base64Data) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await apiFetch('/api/ai-proxy', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        provider: 'claude',
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        maxTokens: 2000,
         messages: [{
           role: 'user',
           content: [
@@ -47,7 +42,7 @@ Format as: "DOCUMENT ANALYSIS (X pages detected):" followed by structured bullet
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `API error ${response.status}`);
+      throw new Error(err?.error?.message || err?.error || `API error ${response.status}`);
     }
     const data = await response.json();
     return data.content[0].text;

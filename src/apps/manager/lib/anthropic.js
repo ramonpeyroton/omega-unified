@@ -1,4 +1,4 @@
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
 export async function scanMaterialsImage(base64Data, mimeType = 'image/jpeg', onRetry) {
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -6,17 +6,13 @@ export async function scanMaterialsImage(base64Data, mimeType = 'image/jpeg', on
     const timeout = setTimeout(() => controller.abort(), 60000);
     let response;
     try {
-      response = await fetch('https://api.anthropic.com/v1/messages', {
+      response = await apiFetch('/api/ai-proxy', {
         method: 'POST',
-        headers: {
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          provider: 'claude',
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
+          maxTokens: 2000,
           messages: [{
             role: 'user',
             content: [
@@ -58,7 +54,7 @@ Return ONLY a valid JSON array — no markdown, no explanation:
         }
         throw new Error('AI is busy. Please try again in a few minutes.');
       }
-      throw new Error(err?.error?.message || `API error ${response.status}`);
+      throw new Error(err?.error?.message || err?.error || `API error ${response.status}`);
     }
     const data = await response.json();
     const text = data.content?.[0]?.text || '';

@@ -6,8 +6,7 @@ import {
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
-
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
 const CATEGORIES = ['Lumber', 'Hardware', 'Electrical', 'Plumbing', 'Waterproofing', 'Finishes', 'Tools', 'Other'];
 
@@ -122,17 +121,13 @@ function AIScanModal({ onClose, onAdd }) {
         reader.onerror = rej;
         reader.readAsDataURL(file);
       });
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await apiFetch('/api/ai-proxy', {
         method: 'POST',
-        headers: {
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          provider: 'claude',
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
+          maxTokens: 2000,
           messages: [{
             role: 'user',
             content: [

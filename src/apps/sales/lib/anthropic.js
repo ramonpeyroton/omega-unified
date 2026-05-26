@@ -1,24 +1,20 @@
 import { supabase } from './supabase';
+import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
 const MODEL = 'claude-haiku-4-5-20251001';
 const API_TIMEOUT_MS = 60000;
 
+// Routes through /api/ai-proxy so the Anthropic key stays server-side.
 async function callAnthropic(messages, maxTokens = 4000, onRetry) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
     let response;
     try {
-      response = await fetch('https://api.anthropic.com/v1/messages', {
+      response = await apiFetch('/api/ai-proxy', {
         method: 'POST',
-        headers: {
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, messages }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'claude', model: MODEL, maxTokens, messages }),
         signal: controller.signal,
       });
     } catch (err) {
@@ -38,7 +34,7 @@ async function callAnthropic(messages, maxTokens = 4000, onRetry) {
         throw new Error('Omega AI is currently busy. Please try again in a few minutes.');
       }
       if (response.status === 401) throw new Error('Invalid API key. Contact your administrator.');
-      throw new Error(err?.error?.message || `API error ${response.status}`);
+      throw new Error(err?.error?.message || err?.error || `API error ${response.status}`);
     }
     const data = await response.json();
     return data.content[0].text;
@@ -71,18 +67,14 @@ async function fetchPropertyData(address) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await apiFetch('/api/ai-proxy', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'web-search-2025-03-05',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        provider: 'claude',
         model: MODEL,
-        max_tokens: 512,
+        maxTokens: 512,
+        anthropicBeta: 'web-search-2025-03-05',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',

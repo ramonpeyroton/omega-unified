@@ -42,11 +42,38 @@ async function handleClaude(res, body) {
   const key = (process.env.ANTHROPIC_KEY || '').trim();
   if (!key) return json(res, 500, { error: 'ANTHROPIC_KEY not configured on the server.' });
 
-  const { prompt, maxTokens = 2500, prefill, allowTruncation } = body;
-  if (!prompt) return json(res, 400, { error: 'Missing "prompt"' });
+  const {
+    prompt, maxTokens = 2500, prefill, allowTruncation,
+    messages: rawMessages, model, tools, anthropicBeta,
+  } = body;
 
-  const messages = [{ role: 'user', content: prompt }];
-  if (prefill) messages.push({ role: 'assistant', content: prefill });
+  // Callers send EITHER a simple text `prompt`, OR a full `messages`
+  // array (needed for image / PDF document content blocks). When both
+  // are present, `messages` wins.
+  let messages;
+  if (Array.isArray(rawMessages) && rawMessages.length) {
+    messages = rawMessages;
+  } else if (prompt) {
+    messages = [{ role: 'user', content: prompt }];
+    if (prefill) messages.push({ role: 'assistant', content: prefill });
+  } else {
+    return json(res, 400, { error: 'Missing "prompt" or "messages"' });
+  }
+
+  const payload = {
+    model: model || CLAUDE_MODEL,
+    max_tokens: maxTokens,
+    messages,
+  };
+  if (Array.isArray(tools) && tools.length) payload.tools = tools;
+
+  const headers = {
+    'x-api-key':         key,
+    'anthropic-version': '2023-06-01',
+    'content-type':      'application/json',
+  };
+  // Opt-in beta features (e.g. web search) passed straight through.
+  if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta;
 
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -54,12 +81,8 @@ async function handleClaude(res, body) {
   try {
     const r = await fetch(ANTHROPIC_URL, {
       method: 'POST',
-      headers: {
-        'x-api-key':         key,
-        'anthropic-version': '2023-06-01',
-        'content-type':      'application/json',
-      },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages }),
+      headers,
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     clearTimeout(t);
