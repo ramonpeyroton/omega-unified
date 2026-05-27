@@ -667,14 +667,6 @@ export const QUESTIONNAIRE_SCHEMAS = {
   // ─────────────────────────────────────────────────────────────────
   deck: [
     { _section: 'overview', label: 'Project Overview' },
-    { id: 'deck_dims', type: 'dimensions', label: 'Deck dimensions (L × W)', unit: 'ft' },
-    { id: 'deck_material', type: 'single', label: 'Decking material',
-      options: [
-        { value: 'pt_wood',   label: 'Pressure Treated Wood' },
-        { value: 'cedar',     label: 'Cedar' },
-        { value: 'composite', label: 'Composite (Trex / TimberTech)' },
-        { value: 'pvc',       label: 'PVC (Azek)' },
-      ] },
     { id: 'deck_type', type: 'single', label: 'Project type',
       options: [
         { value: 'new',         label: 'New build' },
@@ -683,6 +675,30 @@ export const QUESTIONNAIRE_SCHEMAS = {
       ] },
     { id: 'deck_extension_desc', type: 'text', label: 'Describe deck extension',
       showIf: (a) => a.deck_type === 'extension' },
+    { id: 'deck_dims', type: 'dimensions', label: 'Deck dimensions (L × W)', unit: 'ft' },
+    { id: 'deck_material', type: 'single', label: 'Decking material',
+      options: [
+        { value: 'pt_wood',   label: 'Pressure Treated Wood' },
+        { value: 'cedar',     label: 'Cedar' },
+        { value: 'composite', label: 'Composite (Trex / TimberTech)' },
+      ] },
+    // Decking surface — sits right under material. PVC/Azek now lives in
+    // the fascia question (Trim & Extras), not in the material list.
+    { id: 'deck_board_type', type: 'single', label: 'Deck board type',
+      options: [
+        { value: 'grooved', label: 'Grooved' },
+        { value: 'solid',   label: 'Solid' },
+      ] },
+    { id: 'deck_board_specs', type: 'text', label: 'Deck board material & quantity',
+      placeholder: 'e.g. Trex Transcend 5/4 × 6, ~600 sqft' },
+    { id: 'deck_hidden_screws', type: 'single', label: 'Hidden screws?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_hidden_screws_desc', type: 'text', label: 'Hidden screws system',
+      showIf: (a) => a.deck_hidden_screws === 'yes' },
+    { id: 'deck_picture_frame', type: 'single', label: 'Picture frame?',
+      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    { id: 'deck_picture_frame_specs', type: 'text', label: 'Picture frame material & quantity',
+      showIf: (a) => a.deck_picture_frame === 'yes' },
     { id: 'deck_building_plans', type: 'single', label: 'Building plans?',
       options: [
         { value: 'have',       label: 'Client has plans' },
@@ -770,23 +786,6 @@ export const QUESTIONNAIRE_SCHEMAS = {
     { id: 'deck_post_skirt_specs', type: 'text', label: 'Post skirt material & quantity',
       showIf: (a) => a.deck_post_skirt === 'yes' },
 
-    { _section: 'surface', label: 'Decking Surface' },
-    { id: 'deck_board_type', type: 'single', label: 'Deck board type',
-      options: [
-        { value: 'grooved', label: 'Grooved' },
-        { value: 'solid',   label: 'Solid' },
-      ] },
-    { id: 'deck_board_specs', type: 'text', label: 'Deck board material & quantity',
-      placeholder: 'e.g. Trex Transcend 5/4 × 6, ~600 sqft' },
-    { id: 'deck_hidden_screws', type: 'single', label: 'Hidden screws?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'deck_hidden_screws_desc', type: 'text', label: 'Hidden screws system',
-      showIf: (a) => a.deck_hidden_screws === 'yes' },
-    { id: 'deck_picture_frame', type: 'single', label: 'Picture frame?',
-      options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
-    { id: 'deck_picture_frame_specs', type: 'text', label: 'Picture frame material & quantity',
-      showIf: (a) => a.deck_picture_frame === 'yes' },
-
     { _section: 'guardrail_stairs', label: 'Guardrail & Stairs' },
     { id: 'deck_guardrail', type: 'single', label: 'Guardrail (required above 30" in CT)',
       helper: 'Required by code if deck height > 30"',
@@ -823,11 +822,10 @@ export const QUESTIONNAIRE_SCHEMAS = {
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
     { id: 'deck_gate_specs', type: 'text', label: 'Gate material, quantity & size',
       showIf: (a) => a.deck_gate === 'yes' },
-    { id: 'deck_fascia', type: 'single', label: 'Fascia board?',
+    { id: 'deck_fascia', type: 'single', label: 'Fascia board (Azek finish)?',
       options: [
-        { value: 'azek',        label: 'Azek' },
-        { value: 'primed_pine', label: 'Primed pine' },
-        { value: 'no',          label: 'No' },
+        { value: 'azek', label: 'Azek (PVC)' },
+        { value: 'no',   label: 'No fascia' },
       ] },
     { id: 'deck_lattice', type: 'single', label: 'Lattice?',
       options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
