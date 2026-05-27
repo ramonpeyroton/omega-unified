@@ -92,6 +92,7 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'ceramic',       label: 'Ceramic' },
         { value: 'natural_stone', label: 'Natural stone' },
         { value: 'large_format',  label: 'Large format' },
+        { value: 'tbd',           label: 'TBD' },
       ],
       showIf: (a) => a.bath_has_shower === 'yes' },
     { id: 'bath_shower_curb_type', type: 'single', label: 'Curb or curbless?',
@@ -110,7 +111,7 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'corner',      label: 'Corner' },
       ],
       showIf: (a) => a.bath_has_shower === 'yes' },
-    { id: 'bath_glass', type: 'single', label: 'Glass enclosure',
+    { id: 'bath_glass', type: 'single', label: 'Glass Door',
       options: [
         { value: 'frameless',      label: 'Frameless' },
         { value: 'semi_frameless', label: 'Semi-frameless' },
