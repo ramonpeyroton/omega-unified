@@ -1150,18 +1150,18 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {estimate?.id && (
-              <button
-                onClick={() => {
-                  const w = window.open(`/estimate-view/${estimate.id}`, '_blank', 'width=960,height=800,noopener,noreferrer');
-                  // Safari iOS sometimes ignores _blank and navigates same tab — detect that and redirect instead.
-                  if (!w || w === window) window.location.href = `/estimate-view/${estimate.id}`;
-                }}
-                disabled={saving || sending}
-                className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-bold text-omega-charcoal disabled:opacity-60"
+              // Real <a target="_blank"> so it opens a proper NEW TAB on every
+              // browser (incl. Safari iOS) and leaves the app's own tab intact —
+              // returning from Print no longer breaks the SPA view.
+              <a
+                href={`/estimate-view/${estimate.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-bold text-omega-charcoal"
                 title="Open the customer-facing version of this estimate in a new tab"
               >
                 <Eye className="w-4 h-4" /> Preview Estimate
-              </button>
+              </a>
             )}
             <button
               onClick={handleSave}
