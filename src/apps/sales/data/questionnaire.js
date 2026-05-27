@@ -305,9 +305,9 @@ export const QUESTIONNAIRE_SCHEMAS = {
     { _section: 'permit_extras', label: 'Permit & Extras' },
     { id: 'bath_permit', type: 'single', label: 'Permit',
       options: [
-        { value: 'have',       label: 'Already have' },
-        { value: 'need',       label: 'Need to get' },
-        { value: 'not_needed', label: 'Not needed for this job' },
+        { value: 'have',         label: 'Already have' },
+        { value: 'need',         label: 'Need to get' },
+        { value: 'not_required', label: 'Not required' },
       ] },
     { id: 'bath_other_request', type: 'text', label: 'Any other request?', optional: true,
       placeholder: 'Anything special the client mentioned' },
@@ -563,7 +563,6 @@ export const QUESTIONNAIRE_SCHEMAS = {
         { value: 'have',         label: 'Already have' },
         { value: 'need',         label: 'Need to get' },
         { value: 'not_required', label: 'Not required' },
-        { value: 'unsure',       label: "Don't know" },
       ] },
     { id: 'kitchen_inspections', type: 'single', label: 'Inspections required?',
       options: [
@@ -663,9 +662,9 @@ export const QUESTIONNAIRE_SCHEMAS = {
     { _section: 'permit_extras', label: 'Permit & Extras' },
     { id: 'roof_permit', type: 'single', label: 'Permit',
       options: [
-        { value: 'have',   label: 'Already have' },
-        { value: 'need',   label: 'Need to get' },
-        { value: 'unsure', label: "Don't know" },
+        { value: 'have',         label: 'Already have' },
+        { value: 'need',         label: 'Need to get' },
+        { value: 'not_required', label: 'Not required' },
       ] },
     { id: 'roof_other_request', type: 'text', label: 'Any other request?', optional: true },
   ],
@@ -858,9 +857,9 @@ export const QUESTIONNAIRE_SCHEMAS = {
     { _section: 'permit', label: 'Permit' },
     { id: 'deck_permit', type: 'single', label: 'Permit',
       options: [
-        { value: 'have',   label: 'Already have' },
-        { value: 'need',   label: 'Need to get' },
-        { value: 'unsure', label: "Don't know" },
+        { value: 'have',         label: 'Already have' },
+        { value: 'need',         label: 'Need to get' },
+        { value: 'not_required', label: 'Not required' },
       ] },
   ],
 
@@ -1023,9 +1022,9 @@ function fallbackSchema(serviceId) {
       placeholder: 'Dimensions, materials, goals, any known constraints...' },
     { id: `${serviceId}_permit`, type: 'single', label: 'Permit',
       options: [
-        { value: 'have',   label: 'Already have' },
-        { value: 'need',   label: 'Need to get' },
-        { value: 'unsure', label: "Don't know" },
+        { value: 'have',         label: 'Already have' },
+        { value: 'need',         label: 'Need to get' },
+        { value: 'not_required', label: 'Not required' },
       ] },
   ];
 }
