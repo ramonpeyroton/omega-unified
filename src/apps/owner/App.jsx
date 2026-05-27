@@ -18,6 +18,7 @@ import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
+import Questionnaire from '../sales/screens/Questionnaire';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 function MobileBottomBar({ screen, onNavigate, notifCount }) {
@@ -92,7 +93,7 @@ export default function App({ user, onLogout }) {
 
   // Back button → step out of detail screens first, then land on Dashboard.
   useBackNavHome(() => {
-    if (screen === 'job-detail' || screen === 'assign-subs' || screen === 'estimate-flow') {
+    if (screen === 'job-detail' || screen === 'assign-subs' || screen === 'estimate-flow' || screen === 'questionnaire') {
       setScreen('dashboard'); return;
     }
     if (screen !== 'dashboard') setScreen('dashboard');
@@ -155,6 +156,16 @@ export default function App({ user, onLogout }) {
         return selectedJob
           ? <EstimateFlow job={selectedJob} user={user} onBack={() => setScreen('pipeline')} />
           : <Dashboard user={user} onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }} />;
+      case 'questionnaire':
+        if (!selectedJob) { setScreen('dashboard'); return null; }
+        return (
+          <Questionnaire
+            job={selectedJob}
+            onNavigate={() => setScreen('dashboard')}
+            onJobUpdated={(updated) => setSelectedJob(updated)}
+            onComplete={(updated) => { setSelectedJob(updated); setScreen('dashboard'); }}
+          />
+        );
       default:
         return <Dashboard user={user} onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }} />;
     }
@@ -182,6 +193,7 @@ export default function App({ user, onLogout }) {
           onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
           onJobUpdated={(u) => setFullViewJob(u)}
           onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
+          onOpenQuestionnaire={(job) => { setSelectedJob(job); setScreen('questionnaire'); }}
         />
       )}
       <JarvisChat user={user} />
