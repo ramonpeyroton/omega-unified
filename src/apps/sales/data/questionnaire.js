@@ -305,9 +305,9 @@ export const QUESTIONNAIRE_SCHEMAS = {
     { _section: 'permit_extras', label: 'Permit & Extras' },
     { id: 'bath_permit', type: 'single', label: 'Permit',
       options: [
-        { value: 'have',   label: 'Already have' },
-        { value: 'need',   label: 'Need to get' },
-        { value: 'unsure', label: "Don't know" },
+        { value: 'have',       label: 'Already have' },
+        { value: 'need',       label: 'Need to get' },
+        { value: 'not_needed', label: 'Not needed for this job' },
       ] },
     { id: 'bath_other_request', type: 'text', label: 'Any other request?', optional: true,
       placeholder: 'Anything special the client mentioned' },
