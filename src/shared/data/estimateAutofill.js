@@ -176,9 +176,9 @@ function bathroomSections(a) {
   if (a.bath_panel_capacity === '100')     pushItem(elecS, 'Panel review (100A)', 'Verify panel capacity for added load — upgrade may be needed.');
 
   // Tile, Niche & Bench
-  if (a.bath_tile_material || a.bath_tile_size_pattern) {
+  if (a.bath_tile_material || a.bath_tile_size_pattern || a.bath_tile_orientation) {
     pushItem(tileS, 'Tile installation',
-      [a.bath_tile_material && `Material: ${a.bath_tile_material}.`, a.bath_tile_size_pattern && `Size/pattern: ${a.bath_tile_size_pattern}.`, a.bath_tile_height && `Wall height: ${a.bath_tile_height.replace('_', ' ')}.`].filter(Boolean).join(' '));
+      [a.bath_tile_material && `Material: ${a.bath_tile_material}.`, a.bath_tile_size_pattern && `Size/pattern: ${a.bath_tile_size_pattern}.`, a.bath_tile_orientation && `Orientation: ${a.bath_tile_orientation.replace('_', ' ')}.`, a.bath_tile_height && `Wall height: ${a.bath_tile_height.replace('_', ' ')}.`].filter(Boolean).join(' '));
   }
   if (a.bath_niche === 'one' || a.bath_niche === 'two') {
     pushItem(tileS, `Built-in niche (${a.bath_niche})`,

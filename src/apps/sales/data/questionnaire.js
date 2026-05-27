@@ -246,6 +246,16 @@ export const QUESTIONNAIRE_SCHEMAS = {
       placeholder: 'e.g. Porcelain 12 × 24, ceramic subway' },
     { id: 'bath_tile_size_pattern', type: 'text', label: 'Tile size & pattern',
       placeholder: 'e.g. 12 × 24 stacked vertical, herringbone' },
+    { id: 'bath_tile_orientation', type: 'single', label: 'Tile orientation / layout',
+      options: [
+        { value: 'horizontal',   label: 'Horizontal' },
+        { value: 'vertical',     label: 'Vertical' },
+        { value: 'herringbone',  label: 'Herringbone' },
+        { value: 'chevron',      label: 'Chevron' },
+        { value: 'diagonal',     label: 'Diagonal' },
+        { value: 'running_bond', label: 'Running bond (offset)' },
+        { value: 'grid',         label: 'Grid (stacked)' },
+      ] },
     { id: 'bath_tile_height', type: 'single', label: 'Wall tile height',
       options: [
         { value: '4ft',         label: '4 ft' },
