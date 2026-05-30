@@ -111,7 +111,17 @@ function FormattedDetails({ action, details }) {
   );
 }
 
-const PAGE_SIZE = 100;
+// Hard cap so a 1-year range doesn't blow up the browser. 5k rows
+// is enough for several months of normal activity.
+const MAX_ROWS = 5000;
+
+const RANGE_OPTIONS = [
+  { value: '1w', label: 'Last 7 days',  days: 7   },
+  { value: '4w', label: 'Last 4 weeks', days: 28  },
+  { value: '3m', label: 'Last 3 months', days: 90  },
+  { value: '1y', label: 'Last 12 months', days: 365 },
+  { value: 'all', label: 'All time',     days: null },
+];
 
 export default function AuditLog() {
   const [loading, setLoading] = useState(true);
@@ -120,17 +130,29 @@ export default function AuditLog() {
   const [searchText, setSearchText] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [filterAction, setFilterAction] = useState('all');
+  // Default to 4 weeks — covers most use cases without flooding the UI.
+  const [dateRange, setDateRange] = useState('4w');
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [dateRange]);
 
   async function load() {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('audit_log')
         .select('*')
         .order('timestamp', { ascending: false })
-        .limit(PAGE_SIZE);
+        .limit(MAX_ROWS);
+
+      // Time filter — server-side, so we can pull weeks/months of data
+      // without paginating client-side.
+      const days = RANGE_OPTIONS.find((r) => r.value === dateRange)?.days;
+      if (days) {
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte('timestamp', since);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setRows(data || []);
     } catch (err) {
@@ -176,18 +198,24 @@ export default function AuditLog() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-omega-charcoal">Audit Log</h1>
-            <p className="text-sm text-omega-stone mt-1">Last {PAGE_SIZE} events — who did what and when</p>
+            <p className="text-sm text-omega-stone mt-1">
+              {RANGE_OPTIONS.find((r) => r.value === dateRange)?.label} · {rows.length} event{rows.length === 1 ? '' : 's'}
+              {rows.length >= MAX_ROWS && ' (showing first 5,000)'}
+            </p>
           </div>
           <button onClick={load} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-omega-charcoal hover:border-omega-orange">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-2">
           <div className="relative md:col-span-2">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone" />
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search user, action, details…" className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm" />
           </div>
+          <select value={dateRange} onChange={(e) => setDateRange(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+            {RANGE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
           <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
             <option value="all">All roles</option>
             {roleOpts.map((r) => <option key={r} value={r}>{r}</option>)}
