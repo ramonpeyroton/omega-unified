@@ -60,7 +60,7 @@ export default function App({ user, onLogout }) {
         onLogout={handleLogout}
         userName={user.name}
         user={user}
-        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
+        onOpenJob={(job, tab = 'daily') => { setFullViewJob(job); setFullViewInitialTab(tab); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {renderScreen()}

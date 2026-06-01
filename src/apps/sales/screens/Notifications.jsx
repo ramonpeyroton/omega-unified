@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft, Bell, Mail, FileSignature, GitBranch, DollarSign,
-  AlertCircle, Clock, Eye, Filter,
+  AlertCircle, Clock, Eye, Filter, Trash2, CheckCheck, Eraser,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { recipientRolesFor, renderNotificationText } from '../../../shared/lib/notifications';
+import { tabForNotification } from '../../../shared/components/NotificationsBell';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // Per-type visual treatment. Picks an icon + tinted card so Attila
@@ -46,10 +47,13 @@ const FILTERS = [
   { id: 'finance',  label: 'Finance' },
 ];
 
-export default function Notifications({ onNavigate, user }) {
+export default function Notifications({ onNavigate, user, onOpenJob }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  // Default to UNREAD so Attila lands on what actually needs attention.
+  // Clicking the "All" pill swaps in the historical view including read.
+  const [readFilter, setReadFilter] = useState('unread');
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -57,34 +61,86 @@ export default function Notifications({ onNavigate, user }) {
     setLoading(true);
     try {
       // Pull only notifications scoped to this role + 'all'.
-      // Before this fix the screen showed every row in the table —
-      // which is why Attila was seeing Inácio's daily nags.
       const roles = recipientRolesFor(user?.role || 'sales') || ['sales', 'all'];
-      let query = supabase
+      const { data } = await supabase
         .from('notifications')
         .select('*, jobs(client_name, service)')
+        .in('recipient_role', roles)
         .order('created_at', { ascending: false })
-        .limit(80);
-      query = query.in('recipient_role', roles);
-      const { data } = await query;
+        .limit(200);
       setNotifications(data || []);
-      // Mark fetched rows as seen (only the previously-unseen ones).
-      const unseenIds = (data || []).filter((n) => !n.seen).map((n) => n.id);
-      if (unseenIds.length > 0) {
-        await supabase.from('notifications').update({ seen: true, read: true }).in('id', unseenIds);
-      }
+      // IMPORTANT: we deliberately do NOT auto-mark everything as read
+      // here. Attila wants to control that himself with "Mark all read"
+      // or by clicking individual rows — auto-marking was hiding alerts
+      // before he could act on them.
     } finally {
       setLoading(false);
     }
   }
 
+  async function markRead(id) {
+    try {
+      await supabase.from('notifications').update({ read: true, seen: true }).eq('id', id);
+      setNotifications((prev) => prev.map((n) =>
+        n.id === id ? { ...n, read: true, seen: true } : n
+      ));
+    } catch { /* ignore */ }
+  }
+
+  async function markAllRead() {
+    const ids = notifications.filter((n) => !n.read && !n.seen).map((n) => n.id);
+    if (ids.length === 0) return;
+    try {
+      await supabase.from('notifications').update({ read: true, seen: true }).in('id', ids);
+      setNotifications((prev) => prev.map((n) =>
+        ids.includes(n.id) ? { ...n, read: true, seen: true } : n
+      ));
+    } catch { /* ignore */ }
+  }
+
+  async function deleteOne(id, e) {
+    e?.stopPropagation();
+    try {
+      await supabase.from('notifications').delete().eq('id', id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    } catch { /* ignore */ }
+  }
+
+  async function clearAllRead() {
+    const ids = notifications.filter((n) => n.read || n.seen).map((n) => n.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Permanently delete ${ids.length} read notification${ids.length === 1 ? '' : 's'}?`)) return;
+    try {
+      await supabase.from('notifications').delete().in('id', ids);
+      setNotifications((prev) => prev.filter((n) => !ids.includes(n.id)));
+    } catch { /* ignore */ }
+  }
+
+  async function handleClick(n) {
+    await markRead(n.id);
+    if (n.job_id && typeof onOpenJob === 'function') {
+      try {
+        const { data: job } = await supabase
+          .from('jobs').select('*').eq('id', n.job_id).maybeSingle();
+        if (job) onOpenJob(job, tabForNotification(n.type));
+      } catch { /* ignore */ }
+    }
+  }
+
   const filtered = useMemo(() => {
-    if (filter === 'all') return notifications;
-    return notifications.filter((n) => n.type === filter);
-  }, [notifications, filter]);
+    return notifications.filter((n) => {
+      if (readFilter === 'unread' && (n.read || n.seen)) return false;
+      if (filter !== 'all' && n.type !== filter) return false;
+      return true;
+    });
+  }, [notifications, filter, readFilter]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !n.read && !n.seen).length,
+    [notifications]
+  );
+  const readCount = useMemo(
+    () => notifications.filter((n) => n.read || n.seen).length,
     [notifications]
   );
 
@@ -107,6 +163,71 @@ export default function Notifications({ onNavigate, user }) {
                 : `${notifications.length} total${unreadCount > 0 ? ` · ${unreadCount} new` : ''}`}
             </p>
           </div>
+          {/* Bulk actions — Mark all read and Clear all read. Hidden when
+              there's nothing to act on so the header stays tidy. */}
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllRead}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold transition-colors"
+              title="Mark every unread notification as read"
+            >
+              <CheckCheck className="w-3.5 h-3.5" /> Mark all read
+            </button>
+          )}
+          {readCount > 0 && (
+            <button
+              onClick={clearAllRead}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/90 hover:text-white text-[12px] font-semibold transition-colors"
+              title="Permanently delete every notification you've already read"
+            >
+              <Eraser className="w-3.5 h-3.5" /> Clear read ({readCount})
+            </button>
+          )}
+        </div>
+
+        {/* Mobile bulk-action bar — full width buttons so they're easy
+            to tap on phone, where the header buttons are hidden. */}
+        {(unreadCount > 0 || readCount > 0) && (
+          <div className="sm:hidden mt-3 flex gap-2">
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllRead}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold"
+              >
+                <CheckCheck className="w-3.5 h-3.5" /> Mark all read
+              </button>
+            )}
+            {readCount > 0 && (
+              <button
+                onClick={clearAllRead}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold"
+              >
+                <Eraser className="w-3.5 h-3.5" /> Clear ({readCount})
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Unread / All toggle — default lands Attila on Unread so the
+            screen reflects what actually needs attention. */}
+        <div className="mt-3 inline-flex bg-white/10 rounded-full p-0.5">
+          {[
+            { id: 'unread', label: `Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}` },
+            { id: 'all',    label: `All (${notifications.length})` },
+          ].map((opt) => {
+            const active = readFilter === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => setReadFilter(opt.id)}
+                className={`px-3 py-1 rounded-full text-[12px] font-semibold transition-colors ${
+                  active ? 'bg-white text-omega-charcoal' : 'text-white/80 hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Type filter pills — sticky in the dark header so it's always
@@ -162,10 +283,12 @@ export default function Notifications({ onNavigate, user }) {
               const Icon = meta.Icon;
               const isUnread = !n.read && !n.seen;
               const client = n.jobs?.client_name;
+              const canNavigate = !!n.job_id && typeof onOpenJob === 'function';
               return (
                 <div
                   key={n.id}
-                  className={`p-4 rounded-2xl border transition-all ${
+                  onClick={() => handleClick(n)}
+                  className={`group p-4 rounded-2xl border transition-all ${canNavigate ? 'cursor-pointer hover:shadow-md' : ''} ${
                     isUnread
                       ? `${meta.card} border-omega-orange/30 shadow-sm`
                       : 'bg-white border-gray-200'
@@ -213,9 +336,21 @@ export default function Notifications({ onNavigate, user }) {
                       })()}
                     </div>
 
-                    {isUnread && (
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${meta.dot}`} aria-hidden />
-                    )}
+                    <div className="flex items-start gap-1.5 flex-shrink-0 mt-1">
+                      {isUnread && (
+                        <div className={`w-2 h-2 rounded-full mt-1 ${meta.dot}`} aria-hidden />
+                      )}
+                      {/* Per-row delete. Stops propagation so the click
+                          doesn't also trigger the navigation handler. */}
+                      <button
+                        onClick={(e) => deleteOne(n.id, e)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-red-50 text-omega-stone hover:text-red-600"
+                        title="Delete this notification"
+                        aria-label="Delete"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
