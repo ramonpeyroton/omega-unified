@@ -226,8 +226,8 @@ export default function EstimateView() {
           </table>
 
           {/* ─── Acorn Finance — optional financing offer.
-                Polished card shown between total and signature so the
-                customer sees it right when they're sizing up the price.
+                Wrapped in a light-grey "extra area" so the customer
+                clearly sees this is separate from the estimate body.
                 Hidden on print so the saved-PDF version stays clean.
                 Toggle: estimate.show_financing (default true) — Brenda can
                 disable per-job in the EstimateBuilder. ─── */}
@@ -236,17 +236,39 @@ export default function EstimateView() {
             const monthly    = monthlyPaymentEstimate(loanAmount);
             const acornUrl   = `https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=web_pre_qual_link&loanAmount=${loanAmount}`;
             return (
-              <div className="no-print" style={{ marginTop: 28 }}>
+              <div
+                className="no-print"
+                style={{
+                  marginTop: 28,
+                  padding: 22,
+                  background: '#f3f2ef',          // light grey "extra area"
+                  border: '1px solid #e5e3df',
+                  borderRadius: 12,
+                }}
+              >
+                {/* Third-party label — visible cue that this is from a partner */}
+                <div style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  color: '#9a9a96',
+                  marginBottom: 10,
+                  textAlign: 'center',
+                }}>
+                  Optional offer · from our financing partner
+                </div>
+
                 <div style={{
                   background: 'white',
-                  border: '1px solid #e5e5e3',
-                  borderRadius: 12,
+                  border: '1px solid #e8e3dc',
+                  borderRadius: 10,
                   overflow: 'hidden',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                 }}>
-                  {/* Header — mint green */}
+                  {/* Header — peach */}
                   <div style={{
-                    background: '#E8F4EE',
+                    background: '#FFF1E5',
                     padding: '18px 20px',
                     display: 'flex',
                     alignItems: 'center',
@@ -254,7 +276,7 @@ export default function EstimateView() {
                   }}>
                     <div style={{
                       width: 44, height: 44, borderRadius: 22,
-                      background: '#1F8159',
+                      background: '#D17B3F',     // burnt-orange — distinct from Omega's vibrant orange
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       flexShrink: 0,
                     }}>
@@ -264,11 +286,11 @@ export default function EstimateView() {
                       </svg>
                     </div>
                     <div>
-                      <div style={{ fontSize: 17, fontWeight: 800, color: '#1F5F4F', lineHeight: 1.2 }}>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: '#7A3F12', lineHeight: 1.2 }}>
                         Need Flexible Payments?
                       </div>
-                      <div style={{ fontSize: 13, color: '#3A6B5F', marginTop: 2 }}>
-                        Financing through our partner
+                      <div style={{ fontSize: 13, color: '#A06633', marginTop: 2 }}>
+                        Financing offered by Acorn Finance, our partner
                       </div>
                     </div>
                   </div>
@@ -278,15 +300,15 @@ export default function EstimateView() {
                     {/* Two stat cards */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
                       <div style={{
-                        background: '#F5F1E8',
+                        background: '#FAF8F5',
                         borderRadius: 10,
                         padding: '16px 12px',
                         textAlign: 'center',
                       }}>
-                        <div style={{ fontSize: 11, color: '#7a6f5e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                        <div style={{ fontSize: 11, color: '#8a7e6e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
                           Starting at
                         </div>
-                        <div style={{ fontSize: 26, fontWeight: 900, color: '#1F5F4F', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: '#7A3F12', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
                           ${monthly.toLocaleString('en-US')}
                           <span style={{ fontSize: 15, fontWeight: 600 }}>/mo</span>
                         </div>
@@ -295,15 +317,15 @@ export default function EstimateView() {
                         </div>
                       </div>
                       <div style={{
-                        background: '#F5F1E8',
+                        background: '#FAF8F5',
                         borderRadius: 10,
                         padding: '16px 12px',
                         textAlign: 'center',
                       }}>
-                        <div style={{ fontSize: 11, color: '#7a6f5e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                        <div style={{ fontSize: 11, color: '#8a7e6e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
                           Check your rate
                         </div>
-                        <div style={{ fontSize: 26, fontWeight: 900, color: '#1F5F4F', marginTop: 6 }}>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: '#7A3F12', marginTop: 6 }}>
                           Free
                         </div>
                         <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
@@ -320,7 +342,7 @@ export default function EstimateView() {
                         'Start your project without paying the full amount upfront',
                       ].map((line) => (
                         <div key={line} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F8159" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D17B3F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                             <circle cx="12" cy="12" r="10" />
                             <polyline points="9 12 11 14 15 10" />
                           </svg>
@@ -329,7 +351,7 @@ export default function EstimateView() {
                       ))}
                     </div>
 
-                    {/* CTA button */}
+                    {/* CTA button — burnt-orange */}
                     <a
                       href={acornUrl}
                       target="_blank"
@@ -342,7 +364,7 @@ export default function EstimateView() {
                         width: '100%',
                         padding: '14px 20px',
                         borderRadius: 10,
-                        background: '#1F8159',
+                        background: '#D17B3F',
                         color: 'white',
                         fontWeight: 700,
                         fontSize: 15,
@@ -359,6 +381,19 @@ export default function EstimateView() {
                       Powered by Acorn Finance
                     </div>
                   </div>
+                </div>
+
+                {/* Third-party disclaimer below the card */}
+                <div style={{
+                  marginTop: 12,
+                  fontSize: 11,
+                  color: '#7a7a76',
+                  lineHeight: 1.5,
+                  textAlign: 'center',
+                  padding: '0 8px',
+                }}>
+                  Financing is an optional service provided by <strong>Acorn Finance</strong>, an independent lender — not Omega Development.
+                  Rate and approval are determined by Acorn after the customer applies.
                 </div>
               </div>
             );
