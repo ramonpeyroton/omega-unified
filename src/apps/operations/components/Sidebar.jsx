@@ -47,7 +47,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
             <p className="text-sm font-semibold text-white truncate">{userName}</p>
           </div>
         </button>
-        <NotificationsBell user={user} dark onOpenJob={onOpenJob} />
+        <NotificationsBell user={user} dark />
       </div>
 
       <UserProfileModal

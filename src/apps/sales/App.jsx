@@ -29,7 +29,7 @@ export default function App(props) {
     <>
       <SalesRouter
         {...props}
-        onOpenJob={(job, tab = 'daily') => { setFullViewJob(job); setFullViewInitialTab(tab); }}
+        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
         onOpenJobAtEstimate={(job) => { setFullViewJob(job); setFullViewInitialTab('estimate'); }}
       />
       {fullViewJob && (
@@ -204,7 +204,7 @@ function SalesRouter({ user, onLogout, onOpenJob, onOpenJobAtEstimate }) {
     );
 
   if (screen === 'notifications')
-    return <Notifications onNavigate={navigate} user={user} onOpenJob={onOpenJob} />;
+    return <Notifications onNavigate={navigate} user={user} />;
 
   if (screen === 'leads')
     return (

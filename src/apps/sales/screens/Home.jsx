@@ -507,7 +507,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               Replaces the previous static link-to-screen icon so Attila
               gets a real-time ping the moment a client opens an estimate
               (or anything else relevant lands). */}
-          <NotificationsBell user={user} onOpenJob={onOpenJob} />
+          <NotificationsBell user={user} />
         </header>
 
         {/* ── Desktop top bar ──────────────────────────────────── */}
@@ -521,7 +521,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <NotificationsBell user={user} onOpenJob={onOpenJob} />
+            <NotificationsBell user={user} />
             <button
               onClick={onLogout}
               className="p-2 rounded-xl bg-white border border-gray-200 hover:border-omega-orange transition-colors"

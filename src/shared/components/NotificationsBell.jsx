@@ -1,24 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Bell, X, Check, Trash2 } from 'lucide-react';
+import { Bell, X, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { recipientRolesFor, renderNotificationText } from '../lib/notifications';
 
-// Maps notification.type to the JobFullView tab we want to land on
-// when the user clicks the notification. Centralised so the popover
-// and the full-screen Notifications screen behave identically.
-export function tabForNotification(type) {
-  switch (type) {
-    case 'estimate':     return 'estimate';
-    case 'contract':     return 'estimate';   // contracts live inside the estimate tab
-    case 'change_order': return 'estimate';
-    case 'finance':
-    case 'payment':      return 'financials';
-    case 'pipeline':     return 'daily';
-    default:             return 'daily';
-  }
-}
-
-export default function NotificationsBell({ user, dark = false, onOpenJob }) {
+export default function NotificationsBell({ user, dark = false }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
 
@@ -68,33 +53,6 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
     } catch { /* ignore */ }
   }
 
-  // Open the linked job at the right tab and dismiss the notification.
-  // We fetch the full job row here so host apps don't all need to
-  // duplicate that bit; they just plug their existing fullView state
-  // into onOpenJob(job, tab). Falls back to mark-as-read when there's
-  // no host handler or no job_id on the notification.
-  async function handleClick(n) {
-    await markRead(n.id);
-    if (n.job_id && typeof onOpenJob === 'function') {
-      try {
-        const { data: job } = await supabase
-          .from('jobs').select('*').eq('id', n.job_id).maybeSingle();
-        if (job) {
-          onOpenJob(job, tabForNotification(n.type));
-          setOpen(false);
-        }
-      } catch { /* ignore */ }
-    }
-  }
-
-  async function deleteOne(id, e) {
-    e?.stopPropagation();  // don't trigger the row click
-    try {
-      await supabase.from('notifications').delete().eq('id', id);
-      setItems((prev) => prev.filter((n) => n.id !== id));
-    } catch { /* ignore */ }
-  }
-
   const btnCls = dark
     ? 'relative p-2 rounded-xl bg-white/10 text-omega-fog hover:bg-white/20 transition-colors'
     : 'relative p-2 rounded-xl bg-white border border-gray-200 text-omega-slate hover:border-omega-orange transition-colors';
@@ -138,12 +96,11 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
               )}
               {items.map((n) => {
                 const unread = !n.read && !n.seen;
-                const canNavigate = !!n.job_id && typeof onOpenJob === 'function';
                 return (
-                  <div
+                  <button
                     key={n.id}
-                    onClick={() => handleClick(n)}
-                    className={`group w-full text-left p-4 border-b border-gray-100 hover:bg-omega-cloud transition-colors cursor-pointer ${unread ? 'bg-omega-pale/30' : ''}`}
+                    onClick={() => markRead(n.id)}
+                    className={`w-full text-left p-4 border-b border-gray-100 hover:bg-omega-cloud transition-colors ${unread ? 'bg-omega-pale/30' : ''}`}
                   >
                     <div className="flex items-start gap-2">
                       {unread && <span className="w-2 h-2 rounded-full bg-omega-orange mt-1.5 flex-shrink-0" />}
@@ -156,21 +113,11 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
                         <p className="text-[10px] text-omega-stone mt-1">
                           {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
                           {n.type && ` · ${n.type}`}
-                          {canNavigate && <span className="ml-1 text-omega-orange">· tap to open</span>}
                         </p>
                       </div>
-                      <div className="flex items-start gap-1 flex-shrink-0 mt-1">
-                        {!unread && <Check className="w-3.5 h-3.5 text-omega-success" />}
-                        <button
-                          onClick={(e) => deleteOne(n.id, e)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-omega-stone hover:text-red-600"
-                          title="Delete notification"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {!unread && <Check className="w-3.5 h-3.5 text-omega-success flex-shrink-0 mt-1" />}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
