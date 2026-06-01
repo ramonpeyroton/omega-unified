@@ -22,6 +22,20 @@ function fmtEstimateNumber(n) {
   return `OM-${n}`;
 }
 
+// Rough monthly-payment estimate used in the Acorn Finance card. We
+// intentionally pick Acorn's "Best APR" (7.99%) and a 7-year (84 month)
+// term — the longest term in the middle of their range — so the number
+// reads attractive without overpromising. The card labels this as
+// "estimated", so real terms always come from Acorn after credit pull.
+function monthlyPaymentEstimate(amount, aprPct = 7.99, months = 84) {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const r = (aprPct / 100) / 12;
+  if (r === 0) return Math.round(n / months);
+  const factor = Math.pow(1 + r, months);
+  return Math.round(n * (r * factor) / (factor - 1));
+}
+
 export default function EstimateView() {
   const [loading, setLoading] = useState(true);
   const [estimate, setEstimate] = useState(null);
@@ -212,53 +226,143 @@ export default function EstimateView() {
           </table>
 
           {/* ─── Acorn Finance — optional financing offer.
-                Discreet grey card shown between total and signature so the
+                Polished card shown between total and signature so the
                 customer sees it right when they're sizing up the price.
                 Hidden on print so the saved-PDF version stays clean.
                 Toggle: estimate.show_financing (default true) — Brenda can
                 disable per-job in the EstimateBuilder. ─── */}
-          {estimate.show_financing !== false && (
-            <div
-              className="no-print"
-              style={{
-                marginTop: 24,
-                padding: 20,
-                background: '#f8f8f7',
-                border: '1px solid #e5e5e3',
-                borderRadius: 8,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 220, fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                  See your monthly payment options through our financing partner.
-                  Checking your rate won't impact your credit score.
-                </div>
-                <a
-                  href={`https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=web_pre_qual_link&loanAmount=${Math.round(Number(total) || 0)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-flex',
+          {estimate.show_financing !== false && total > 0 && (() => {
+            const loanAmount = Math.round(Number(total) || 0);
+            const monthly    = monthlyPaymentEstimate(loanAmount);
+            const acornUrl   = `https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=web_pre_qual_link&loanAmount=${loanAmount}`;
+            return (
+              <div className="no-print" style={{ marginTop: 28 }}>
+                <div style={{
+                  background: 'white',
+                  border: '1px solid #e5e5e3',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  {/* Header — mint green */}
+                  <div style={{
+                    background: '#E8F4EE',
+                    padding: '18px 20px',
+                    display: 'flex',
                     alignItems: 'center',
-                    padding: '10px 18px',
-                    borderRadius: 8,
-                    border: '1px solid #c5c5c3',
-                    background: 'white',
-                    color: '#2C2C2A',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    textDecoration: 'none',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Need Flexible Payments? →
-                </a>
+                    gap: 14,
+                  }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 22,
+                      background: '#1F8159',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="5" width="20" height="14" rx="2" />
+                        <line x1="2" y1="10" x2="22" y2="10" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: '#1F5F4F', lineHeight: 1.2 }}>
+                        Need Flexible Payments?
+                      </div>
+                      <div style={{ fontSize: 13, color: '#3A6B5F', marginTop: 2 }}>
+                        Financing through our partner
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Body */}
+                  <div style={{ padding: 20 }}>
+                    {/* Two stat cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+                      <div style={{
+                        background: '#F5F1E8',
+                        borderRadius: 10,
+                        padding: '16px 12px',
+                        textAlign: 'center',
+                      }}>
+                        <div style={{ fontSize: 11, color: '#7a6f5e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                          Starting at
+                        </div>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: '#1F5F4F', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+                          ${monthly.toLocaleString('en-US')}
+                          <span style={{ fontSize: 15, fontWeight: 600 }}>/mo</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                          estimated over 84 months
+                        </div>
+                      </div>
+                      <div style={{
+                        background: '#F5F1E8',
+                        borderRadius: 10,
+                        padding: '16px 12px',
+                        textAlign: 'center',
+                      }}>
+                        <div style={{ fontSize: 11, color: '#7a6f5e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                          Check your rate
+                        </div>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: '#1F5F4F', marginTop: 6 }}>
+                          Free
+                        </div>
+                        <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                          won't affect your credit
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bullets */}
+                    <div style={{ marginBottom: 18 }}>
+                      {[
+                        'Quick 100% online approval',
+                        'No impact to your credit score when checking',
+                        'Start your project without paying the full amount upfront',
+                      ].map((line) => (
+                        <div key={line} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F8159" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="9 12 11 14 15 10" />
+                          </svg>
+                          <span style={{ fontSize: 13.5, color: '#333' }}>{line}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* CTA button */}
+                    <a
+                      href={acornUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '14px 20px',
+                        borderRadius: 10,
+                        background: '#1F8159',
+                        color: 'white',
+                        fontWeight: 700,
+                        fontSize: 15,
+                        textDecoration: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      See my financing options
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
+                    </a>
+
+                    {/* Footer */}
+                    <div style={{ marginTop: 14, textAlign: 'center', fontSize: 11, color: '#999' }}>
+                      Powered by Acorn Finance
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div style={{ marginTop: 12, fontSize: 10, color: '#999', textAlign: 'right' }}>
-                Powered by Acorn Finance
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ─── Signature flow — initials + disclaimers + signature ─── */}
           <SignatureFlow
