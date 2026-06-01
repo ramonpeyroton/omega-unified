@@ -211,6 +211,55 @@ export default function EstimateView() {
             </tbody>
           </table>
 
+          {/* ─── Acorn Finance — optional financing offer.
+                Discreet grey card shown between total and signature so the
+                customer sees it right when they're sizing up the price.
+                Hidden on print so the saved-PDF version stays clean.
+                Toggle: estimate.show_financing (default true) — Brenda can
+                disable per-job in the EstimateBuilder. ─── */}
+          {estimate.show_financing !== false && (
+            <div
+              className="no-print"
+              style={{
+                marginTop: 24,
+                padding: 20,
+                background: '#f8f8f7',
+                border: '1px solid #e5e5e3',
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 220, fontSize: 12, color: '#666', lineHeight: 1.5 }}>
+                  See your monthly payment options through our financing partner.
+                  Checking your rate won't impact your credit score.
+                </div>
+                <a
+                  href={`https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=web_pre_qual_link&loanAmount=${Math.round(Number(total) || 0)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '10px 18px',
+                    borderRadius: 8,
+                    border: '1px solid #c5c5c3',
+                    background: 'white',
+                    color: '#2C2C2A',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    textDecoration: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Need Flexible Payments? →
+                </a>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 10, color: '#999', textAlign: 'right' }}>
+                Powered by Acorn Finance
+              </div>
+            </div>
+          )}
+
           {/* ─── Signature flow — initials + disclaimers + signature ─── */}
           <SignatureFlow
             estimateId={estimate.id}

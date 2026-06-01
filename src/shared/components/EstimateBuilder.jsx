@@ -84,6 +84,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // 'single':    client sees only the grand total, no per-item prices
   const [displayMode, setDisplayMode] = useState(null); // null = not yet chosen
 
+  // Show the Acorn Finance "Need Flexible Payments?" card on the customer's
+  // estimate view. Defaults to ON — the seller flips it OFF only when
+  // financing doesn't apply (commercial work, cash client, sub-only scope).
+  const [showFinancing, setShowFinancing] = useState(true);
+
   useEffect(() => { load(editEstimateId); /* eslint-disable-next-line */ }, [job?.id, editEstimateId]);
 
   async function load(preferredActiveId) {
@@ -160,6 +165,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setDisclaimers(row?.disclaimers || DEFAULT_ESTIMATE_DISCLAIMERS);
     setBundleLabel(row?.bundle_label || '');
     setDisplayMode(row?.display_mode || 'breakdown');
+    // Default to TRUE when the column is absent (pre-migration rows) or
+    // explicitly true. Only honor an explicit `false`.
+    setShowFinancing(row?.show_financing !== false);
   }
 
   // ─── Section / item helpers ───────────────────────────────────────
@@ -301,6 +309,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       // signing page. Migration 019 adds the column; row-level fallback
       // happens in the API if it's pending.
       disclaimers: disclaimers || null,
+      // Acorn financing toggle (migration 065). Defaults to true; sellers
+      // flip off per-estimate when financing doesn't apply.
+      show_financing: showFinancing,
       ...extra,
     };
     // Preserve an existing row's status on save (was dropping 'sent'
@@ -1107,6 +1118,31 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             onChange={(e) => setCustomerMessage(e.target.value)}
             className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none font-mono"
           />
+        </label>
+      </div>
+
+      {/* Customer-facing options — Acorn financing toggle.
+          Default ON. Seller flips OFF when financing doesn't apply
+          (commercial, cash client, sub-only scope). */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showFinancing}
+            onChange={(e) => setShowFinancing(e.target.checked)}
+            className="mt-1 w-4 h-4 accent-omega-orange cursor-pointer flex-shrink-0"
+          />
+          <div className="flex-1">
+            <span className="text-sm font-bold text-omega-charcoal">
+              Show financing option to customer
+            </span>
+            <p className="text-xs text-omega-stone mt-1 leading-relaxed">
+              Adds a discreet "Need Flexible Payments?" card on the customer's
+              estimate page, linking to Acorn Finance pre-qualification with
+              the estimate total pre-filled. Recommended ON for most jobs —
+              turn OFF for commercial work, cash clients, or sub-contracted scopes.
+            </p>
+          </div>
         </label>
       </div>
 
