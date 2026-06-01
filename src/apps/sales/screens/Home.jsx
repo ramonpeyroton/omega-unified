@@ -11,7 +11,6 @@ import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import DailyLogsList from '../../../shared/components/DailyLogsList';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
-import NotificationsBell from '../../../shared/components/NotificationsBell';
 
 // ─── Date helpers ───────────────────────────────────────────────────
 function getGreeting() {
@@ -502,12 +501,17 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               {user?.name || 'there'} 👋
             </p>
           </div>
-          {/* Notifications bell — shared component with realtime
-              subscription, scoped popover, and role-filtered count.
-              Replaces the previous static link-to-screen icon so Attila
-              gets a real-time ping the moment a client opens an estimate
-              (or anything else relevant lands). */}
-          <NotificationsBell user={user} />
+          <button
+            onClick={() => onNavigate('notifications')}
+            className="relative p-2 rounded-xl bg-omega-cloud border border-gray-100"
+          >
+            <Bell className="w-5 h-5 text-omega-charcoal" />
+            {notifCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                {notifCount > 9 ? '9+' : notifCount}
+              </span>
+            )}
+          </button>
         </header>
 
         {/* ── Desktop top bar ──────────────────────────────────── */}
@@ -521,7 +525,18 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <NotificationsBell user={user} />
+            <button
+              onClick={() => onNavigate('notifications')}
+              className="relative p-2 rounded-xl bg-white border border-gray-200 hover:border-omega-orange transition-colors"
+              title="Notifications"
+            >
+              <Bell className="w-5 h-5 text-omega-charcoal" />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                  {notifCount > 9 ? '9+' : notifCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={onLogout}
               className="p-2 rounded-xl bg-white border border-gray-200 hover:border-omega-orange transition-colors"
