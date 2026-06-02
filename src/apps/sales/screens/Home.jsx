@@ -311,8 +311,12 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     const leadsThis = jobs.filter((j) => inMonth(j.created_at, 'this')).length;
     const leadsLast = jobs.filter((j) => inMonth(j.created_at, 'last')).length;
 
-    const estSentThis = myEsts.filter((e) => e.status === 'sent' && inMonth(e.updated_at || e.created_at, 'this')).length;
-    const estSentLast = myEsts.filter((e) => e.status === 'sent' && inMonth(e.updated_at || e.created_at, 'last')).length;
+    // Count by sent_at (permanent timestamp) instead of status === 'sent'
+    // (which flips to 'approved' / 'signed' the moment the client moves
+    // forward). Without this, any estimate sent this month silently
+    // drops off the card the day it gets approved.
+    const estSentThis = myEsts.filter((e) => e.sent_at && inMonth(e.sent_at, 'this')).length;
+    const estSentLast = myEsts.filter((e) => e.sent_at && inMonth(e.sent_at, 'last')).length;
 
     const wonStatuses = new Set(['contract_signed', 'in_progress', 'completed']);
     const wonThis = jobs.filter((j) => wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, 'this')).length;
