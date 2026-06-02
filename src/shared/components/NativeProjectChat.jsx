@@ -203,6 +203,34 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
+  // Look up profile photos for every author seen in the chat so the
+  // avatar shows the real face instead of the initial. Cached per
+  // author_name; missing rows cache as `null` so we don't refetch.
+  const [photosByName, setPhotosByName] = useState({});
+  useEffect(() => {
+    const names = Array.from(new Set(messages.map((m) => m.author_name).filter(Boolean)));
+    const missing = names.filter((n) => !(n in photosByName));
+    if (missing.length === 0) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('name, profile_photo_url')
+          .in('name', missing);
+        const next = { ...photosByName };
+        for (const r of (data || [])) {
+          next[r.name] = r.profile_photo_url || null;
+        }
+        // Cache "not found / no photo" so we don't keep retrying.
+        for (const n of missing) {
+          if (!(n in next)) next[n] = null;
+        }
+        setPhotosByName(next);
+      } catch { /* ignore — fall back to colored initials */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
   // Revoke any pending blob: URLs on unmount so they don't leak.
   // Individual removals revoke their own URL inline in removeFile().
   useEffect(() => {
@@ -383,13 +411,20 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   const grouped = useMemo(() => {
     const out = [];
     let lastDay = null;
+    let lastAuthor = null;
     for (const m of messages) {
       const d = dayKey(m.created_at);
       if (d !== lastDay) {
         out.push({ kind: 'day', key: d, label: fmtDayLabel(d) });
         lastDay = d;
+        lastAuthor = null; // every day starts a fresh author run
       }
-      out.push({ kind: 'msg', key: m.id, msg: m });
+      // First message in a run from this author gets full chrome
+      // (avatar + name + time) and extra top margin; consecutive
+      // messages from the same author render compact below it.
+      const isFirstOfAuthor = m.author_name !== lastAuthor;
+      out.push({ kind: 'msg', key: m.id, msg: m, isFirstOfAuthor });
+      lastAuthor = m.author_name;
     }
     return out;
   }, [messages]);
@@ -414,7 +449,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   return (
     <div className={wrapperCls}>
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
           <div className="text-center py-12 text-omega-stone">
             <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -435,22 +470,38 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           const m = g.msg;
           const isMe = m.author_name === user?.name;
           const colorBg = colorFromName(m.author_name || 'Unknown');
+          const photoUrl = photosByName[m.author_name] || null;
+          // Visual spacing: switching authors (or starting a day) gets
+          // a wider gap so the chat scans as grouped runs per person.
+          // Consecutive messages from the same author stay tight to
+          // read as one thought.
+          const rowCls = g.isFirstOfAuthor
+            ? 'mt-4 flex items-start gap-2.5 group first:mt-0'
+            : 'mt-1 flex items-start gap-2.5 group';
           return (
-            <div key={g.key} className="flex items-start gap-2.5 group">
-              <Avatar name={m.author_name} size={32} bg={colorBg} />
+            <div key={g.key} className={rowCls}>
+              {g.isFirstOfAuthor ? (
+                <Avatar name={m.author_name} photoUrl={photoUrl} size="md" color={colorBg} />
+              ) : (
+                // Invisible placeholder keeps the body indented in
+                // line with the first message above it.
+                <div className="w-9 h-9 flex-shrink-0" aria-hidden />
+              )}
               <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[12px] font-bold text-omega-charcoal">
-                    {m.author_name || 'Unknown'}
-                  </span>
-                  {m.author_role && (
-                    <span className="text-[10px] text-omega-stone">· {m.author_role}</span>
-                  )}
-                  <span className="text-[10px] text-omega-stone">{fmtTime(m.created_at)}</span>
-                  {isMe && m.id?.startsWith?.('tmp-') && (
-                    <span className="text-[10px] text-omega-stone italic">sending…</span>
-                  )}
-                </div>
+                {g.isFirstOfAuthor && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[12px] font-bold text-omega-charcoal">
+                      {m.author_name || 'Unknown'}
+                    </span>
+                    {m.author_role && (
+                      <span className="text-[10px] text-omega-stone">· {m.author_role}</span>
+                    )}
+                    <span className="text-[10px] text-omega-stone">{fmtTime(m.created_at)}</span>
+                    {isMe && m.id?.startsWith?.('tmp-') && (
+                      <span className="text-[10px] text-omega-stone italic">sending…</span>
+                    )}
+                  </div>
+                )}
                 {m.body && (
                   <div className="text-sm text-omega-charcoal break-words mt-0.5">
                     {renderBody(m.body, members)}
