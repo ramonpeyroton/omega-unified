@@ -11,7 +11,7 @@ import PhaseBreakdown from './PhaseBreakdown';
 import JobCostingSection from './JobCostingSection';
 import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
-import NativeProjectChat from './NativeProjectChat';
+import DailyLogsRichTab from './DailyLogsRichTab';
 import ChatMembersModal from './ChatMembersModal';
 import TimeTrackingSection from './TimeTrackingSection';
 import ProjectReportSection from './ProjectReportSection';
@@ -676,11 +676,21 @@ export default function JobFullView({
                   )
                 )}
               </div>
-              {/* Native chat — chat_messages table + Supabase Realtime.
-                  Every job uses this backend now (migration 047 forced
-                  all rows to use_native_chat=true and the Slack legacy
-                  has been removed). */}
-              <NativeProjectChat job={job} user={user} />
+              {/* Native chat + side rail for hopping between projects.
+                  DailyLogsRichTab wraps NativeProjectChat with the Slack-
+                  style left list (filters, search, star, mention badge,
+                  Files tab). Clicking another chat calls onSwitchJob
+                  which the host app wires into setFullViewJob — the
+                  JobFullView re-renders with the new job and the user
+                  stays on the Daily Logs tab. */}
+              <DailyLogsRichTab
+                job={job}
+                user={user}
+                onSwitchJob={(newJob) => {
+                  setJob(newJob);
+                  onJobUpdated?.(newJob);
+                }}
+              />
             </div>
           )}
 
