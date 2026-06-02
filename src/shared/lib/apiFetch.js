@@ -20,7 +20,7 @@
  *   });
  *
  *   // FormData (multipart) — do NOT set Content-Type; browser adds boundary
- *   const r = await apiFetch('/api/slack/send-message', {
+ *   const r = await apiFetch('/api/twilio-send', {
  *     method: 'POST',
  *     body: formData,
  *   });

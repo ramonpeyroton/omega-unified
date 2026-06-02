@@ -71,15 +71,16 @@ export const PIPELINE_COLUMNS = PIPELINE_ORDER.map((id) => ({
 
 const COLUMN_BY_ID = Object.fromEntries(PIPELINE_COLUMNS.map((c) => [c.id, c]));
 
-// True when there's at least one Slack message on this job's Daily
-// Logs that the current user hasn't seen yet.
-//   slack_last_message_at  : cached on the job row by ProjectChat
-//   lastReadIso            : per-user pointer from daily_log_reads
+// True when there's at least one native chat message on this job's
+// Daily Logs that the current user hasn't seen yet.
+//   last_chat_message_at  : bumped by the chat_messages AFTER INSERT
+//                            trigger (migration 066)
+//   lastReadIso           : per-user pointer from daily_log_reads
 // If we never cached a "last message" we treat the chat as silent —
 // no dot. If we have a message but no read pointer, the user has
 // definitely never opened the chat → dot.
 function isJobUnread(job, lastReadIso) {
-  const lastMsg = job?.slack_last_message_at;
+  const lastMsg = job?.last_chat_message_at;
   if (!lastMsg) return false;
   if (!lastReadIso) return true;
   return new Date(lastMsg).getTime() > new Date(lastReadIso).getTime();
@@ -586,7 +587,7 @@ export default function PipelineKanban({
   // Map of job_id → ISO timestamp the current user last opened that
   // job's Daily Logs. Loaded once on mount (one query for the whole
   // kanban) so we don't fan out per-card. A job whose
-  // jobs.slack_last_message_at is newer than its read pointer (or
+  // jobs.last_chat_message_at is newer than its read pointer (or
   // missing entirely) gets a red dot on its card.
   const [lastReadByJob, setLastReadByJob] = useState({});
 

@@ -11,7 +11,6 @@ import PhaseBreakdown from './PhaseBreakdown';
 import JobCostingSection from './JobCostingSection';
 import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
-import ProjectChat from './ProjectChat';
 import NativeProjectChat from './NativeProjectChat';
 import ChatMembersModal from './ChatMembersModal';
 import TimeTrackingSection from './TimeTrackingSection';
@@ -677,22 +676,11 @@ export default function JobFullView({
                   )
                 )}
               </div>
-              {/* Two chat backends live behind this tab:
-                  • Native chat (chat_messages table + Supabase Realtime)
-                    — every NEW project from migration 043 onward, plus
-                    cold imports that have no slack_channel_id. Default
-                    going forward.
-                  • Slack chat (legacy) — projects whose slack_channel_id
-                    was set before the cutover. Stays until the import
-                    script runs (Sprint 6) and flips them to native.
-                  The job's `use_native_chat` boolean picks which one. */}
-              {job.use_native_chat
-                ? <NativeProjectChat job={job} user={user} />
-                : <ProjectChat
-                    job={job}
-                    user={user}
-                    onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-                  />}
+              {/* Native chat — chat_messages table + Supabase Realtime.
+                  Every job uses this backend now (migration 047 forced
+                  all rows to use_native_chat=true and the Slack legacy
+                  has been removed). */}
+              <NativeProjectChat job={job} user={user} />
             </div>
           )}
 
