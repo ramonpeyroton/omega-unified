@@ -150,87 +150,9 @@ function MobileBottomBar({ activeId, onNavigate, notifCount }) {
   );
 }
 
-function SalesSidebar({ activeId, onNavigate, user, onLogout, onOpenJob }) {
-  const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const { photoUrl, refresh } = useUserProfile(user);
-  const userName = user?.name || '';
-
-  return (
-    <aside className="hidden sm:flex w-56 flex-shrink-0 bg-omega-charcoal flex-col min-h-screen">
-      <div className="px-5 py-6 border-b border-white/10">
-        <Logo size="sm" dark />
-      </div>
-
-      <button
-        onClick={() => setProfileOpen(true)}
-        className="px-5 py-4 border-b border-white/10 flex items-center gap-3 text-left hover:bg-white/5 transition cursor-pointer w-full"
-        title="Open my profile"
-      >
-        <Avatar
-          name={userName}
-          photoUrl={photoUrl || undefined}
-          size="sm"
-          color={colorFromName(userName)}
-        />
-        <div className="min-w-0">
-          <p className="text-[10px] text-omega-stone uppercase tracking-widest font-semibold">Salesman</p>
-          <p className="text-sm font-semibold text-white truncate">{userName || '—'}</p>
-        </div>
-      </button>
-
-      <UserProfileModal
-        open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        user={user}
-        onUserUpdated={refresh}
-      />
-
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => onNavigate(id)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-              activeId === id
-                ? 'bg-omega-orange text-white'
-                : 'text-omega-fog hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            <Icon className="w-4 h-4 flex-shrink-0" />
-            {label}
-          </button>
-        ))}
-
-        <button
-          onClick={() => setDailyLogsOpen((o) => !o)}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            dailyLogsOpen
-              ? 'bg-white/10 text-white'
-              : 'text-omega-fog hover:bg-white/10 hover:text-white'
-          }`}
-        >
-          <MessageCircle className="w-4 h-4 flex-shrink-0" />
-          <span className="flex-1 text-left">Daily Logs</span>
-          {dailyLogsOpen
-            ? <ChevronDown className="w-4 h-4 text-white/60" />
-            : <ChevronRight className="w-4 h-4 text-white/60" />}
-        </button>
-        {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={onOpenJob} />}
-      </nav>
-
-      <div className="px-3 py-4 border-t border-white/10">
-        <button
-          onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-omega-fog hover:bg-white/10 hover:text-white transition-all"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </button>
-      </div>
-    </aside>
-  );
-}
+// SalesSidebar was moved to ../components/SalesSidebar.jsx so the
+// persistent shell in App.jsx can render it on every route. Don't
+// re-define it here.
 
 // ─── KPI card ────────────────────────────────────────────────────────
 function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkColor }) {
@@ -489,10 +411,12 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     return groups;
   }, [events]);
 
+  // Sidebar is now owned by the SalesShell in App.jsx — every route
+  // renders inside it, so the Home screen only needs to emit its
+  // content. The wrapping flex + min-h-screen also moved up to the
+  // shell.
   return (
-    <div className="flex min-h-screen bg-omega-cloud">
-      <SalesSidebar activeId="home" onNavigate={onNavigate} user={user} onLogout={onLogout} onOpenJob={onOpenJob} />
-
+    <>
       <main className="flex-1 min-w-0 pb-16 sm:pb-0">
         {/* ── Mobile-only top bar ──────────────────────────────── */}
         <header className="sm:hidden sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
@@ -725,6 +649,6 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
 
       {/* Mobile bottom navigation — hidden on sm+ (sidebar takes over) */}
       <MobileBottomBar activeId="home" onNavigate={onNavigate} notifCount={notifCount} />
-    </div>
+    </>
   );
 }

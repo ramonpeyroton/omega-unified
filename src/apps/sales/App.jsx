@@ -27,10 +27,11 @@
 // paths on a fresh load (refresh, shared link) survive the round-trip.
 
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { ArrowLeft, GitBranch, Calendar as CalendarIcon, ClipboardList, DollarSign } from 'lucide-react';
 
 import PageHeader from '../../shared/components/ui/PageHeader';
+import SalesSidebar from './components/SalesSidebar';
 import Home from './screens/Home';
 import NewJob from './screens/NewJob';
 import PDFUpload from './screens/PDFUpload';
@@ -360,29 +361,68 @@ function EstimateFlowRoute({ user }) {
   return <EstimateFlow job={job} user={user} onBack={() => navigate(-1)} />;
 }
 
+// ─── Shell ────────────────────────────────────────────────────────
+// Persistent left rail + main content area. Every route renders
+// INSIDE this shell so the Sidebar is always visible (Ramon's rule).
+
+function screenIdFromPath(pathname) {
+  if (pathname === '/' || pathname === '') return 'home';
+  if (pathname.startsWith('/pipeline'))      return 'pipeline';
+  if (pathname.startsWith('/calendar'))      return 'calendar';
+  if (pathname.startsWith('/estimates'))     return 'estimates';
+  if (pathname.startsWith('/notifications')) return 'notifications';
+  if (pathname.startsWith('/leads'))         return 'leads';
+  if (pathname.startsWith('/commissions'))   return 'commissions';
+  if (pathname.startsWith('/previous-jobs')) return 'previous-jobs';
+  return null; // /new-job, /jobs/:id, etc — no sidebar highlight
+}
+
+function SalesShell({ user, onLogout }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeId = screenIdFromPath(location.pathname);
+
+  return (
+    <div className="flex min-h-screen bg-omega-cloud">
+      <SalesSidebar
+        activeId={activeId}
+        onNavigate={(id) => navigate(id === 'home' ? '/' : `/${id}`)}
+        user={user}
+        onLogout={onLogout}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: location.pathname } })}
+      />
+      <main className="flex-1 min-w-0 pb-16 sm:pb-0">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+
 // ─── Root ────────────────────────────────────────────────────────
 
 export default function App({ user, onLogout }) {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/"                            element={<HomeRoute user={user} onLogout={onLogout} />} />
-        <Route path="/pipeline"                    element={<PipelineRoute user={user} />} />
-        <Route path="/calendar"                    element={<CalendarRoute user={user} />} />
-        <Route path="/estimates"                   element={<EstimatesRoute user={user} />} />
-        <Route path="/notifications"               element={<NotificationsRoute user={user} />} />
-        <Route path="/leads"                       element={<LeadsRoute user={user} />} />
-        <Route path="/commissions"                 element={<CommissionsRoute user={user} />} />
-        <Route path="/previous-jobs"               element={<PreviousJobsRoute user={user} />} />
-        <Route path="/new-job"                     element={<NewJobRoute user={user} />} />
-        <Route path="/jobs/:id"                    element={<JobFullViewRoute user={user} />} />
-        <Route path="/jobs/:id/questionnaire"      element={<QuestionnaireRoute user={user} />} />
-        <Route path="/jobs/:id/pdf-upload"         element={<PDFUploadRoute />} />
-        <Route path="/jobs/:id/review"             element={<ReviewAnswersRoute user={user} />} />
-        <Route path="/jobs/:id/report"             element={<ReportRoute user={user} />} />
-        <Route path="/jobs/:id/estimate-flow"      element={<EstimateFlowRoute user={user} />} />
+        <Route element={<SalesShell user={user} onLogout={onLogout} />}>
+          <Route path="/"                            element={<HomeRoute user={user} onLogout={onLogout} />} />
+          <Route path="/pipeline"                    element={<PipelineRoute user={user} />} />
+          <Route path="/calendar"                    element={<CalendarRoute user={user} />} />
+          <Route path="/estimates"                   element={<EstimatesRoute user={user} />} />
+          <Route path="/notifications"               element={<NotificationsRoute user={user} />} />
+          <Route path="/leads"                       element={<LeadsRoute user={user} />} />
+          <Route path="/commissions"                 element={<CommissionsRoute user={user} />} />
+          <Route path="/previous-jobs"               element={<PreviousJobsRoute user={user} />} />
+          <Route path="/new-job"                     element={<NewJobRoute user={user} />} />
+          <Route path="/jobs/:id"                    element={<JobFullViewRoute user={user} />} />
+          <Route path="/jobs/:id/questionnaire"      element={<QuestionnaireRoute user={user} />} />
+          <Route path="/jobs/:id/pdf-upload"         element={<PDFUploadRoute />} />
+          <Route path="/jobs/:id/review"             element={<ReviewAnswersRoute user={user} />} />
+          <Route path="/jobs/:id/report"             element={<ReportRoute user={user} />} />
+          <Route path="/jobs/:id/estimate-flow"      element={<EstimateFlowRoute user={user} />} />
+        </Route>
         {/* Catch-all → home */}
-        <Route path="*"                            element={<Navigate to="/" replace />} />
+        <Route path="*"                              element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
