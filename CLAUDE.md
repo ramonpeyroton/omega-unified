@@ -30,12 +30,13 @@ SMS/WhatsApp), e assistência por IA (Claude + Groq).
   está desativada; usamos PIN login client-side (sem cadastro).
 - **Lucide React** para ícones.
 - **`@dnd-kit/*`** para drag-and-drop (kanban do pipeline).
-- **Sem React Router.** Roteamento é state-based dentro de cada
-  `App.jsx` por papel. O `src/App.jsx` raiz inspeciona
-  `window.location.pathname` para detectar a rota oculta `/admin-x9k2`
-  e algumas rotas públicas. `react-router-dom` ainda aparece em
-  `package.json` mas não é importado em lugar nenhum — pode ser
-  removido numa limpeza futura.
+- **React Router DOM 6** — **atualizado 2026-06 (sessão Junho/26)**.
+  Era state-based; agora 6 dos 7 sub-apps usam `BrowserRouter` + `Routes`
+  pra preservar tela em refresh e suportar deep links pra clientes
+  (`/jobs/:id?tab=daily`). Detalhes: ver seção "URL Routing migration"
+  em "Última atualização". O `src/App.jsx` raiz ainda inspeciona
+  `window.location.pathname` pra rotas públicas + rota oculta
+  `/admin-x9k2`. **Admin** é o único app que ainda é state-based.
 - **Vercel Functions** em `api/` (Node) — endpoints serverless.
 - **Vercel Cron** definido em `vercel.json` — `/api/daily-owner-update`
   roda diariamente às `0 13 * * *` (13h UTC).
@@ -60,8 +61,10 @@ omega-unified/
 │   ├── sign-estimate.js        gera PDF assinado
 │   ├── transcribe.js           voz → texto (Whisper/Groq)
 │   └── twilio-send.js          SMS/WhatsApp para subs
-├── migrations/               ← 20 SQL migrations numeradas (001–020)
-│                               aplicadas manualmente no Supabase
+├── migrations/               ← 67+ SQL migrations numeradas
+│                               aplicadas manualmente no Supabase.
+│                               IMPORTANTE: 065, 066, 067 pendentes
+│                               de rodar (ver "Última atualização").
 ├── scripts/                  ← shell scripts one-shot
 │   ├── set-anthropic-key.sh
 │   └── setup-github.sh
@@ -300,8 +303,11 @@ pull  =  PUXAR     (GitHub         →  minha máquina)
 - **`JobDetailDrawer` legado** ainda no código mas não é o caminho
   primário. Path novo é `JobFullView`. Mudanças de UX precisam tocar
   os dois ou apagar o drawer.
-- **`react-router-dom` em `package.json`** sem nenhum import — pode
-  ser removido numa limpeza.
+- **`ProjectAnalyzer.jsx` e `Warehouse.jsx` (owner) AINDA quebradas**
+  com `VITE_ANTHROPIC_KEY` direto no browser — vão dar 401 quando
+  Inácio usar. Migrar pro `/api/ai-proxy` igual aos outros 4 arquivos.
+- **Admin app NÃO migrado** pra URL routing — ainda é state-based.
+  Funciona, mas refresh em `/admin-x9k2` volta pra tela inicial do admin.
 - **Profile só edita pra users cadastrados na tabela `users`.** Logins
   via fallback hardcoded (`PIN_TO_ROLE` em `Login.jsx`) abrem o modal
   de profile em modo read-only com aviso "Ask the admin to register
@@ -332,8 +338,14 @@ Outra sessão **não deve refazer ou questionar** sem pedir antes:
 
 - **Stack:** Vite + React (não Next.js, não SSR). Mantém leve e o
   dev loop é rápido.
-- **Roteamento:** state-based dentro de cada sub-app, não React Router.
-  Manter assim.
+- **Roteamento:** **React Router DOM 6** com BrowserRouter em cada
+  sub-app (6 de 7 migrados em Junho/26 — Admin pendente). Padrão:
+  `<BrowserRouter>` no App raiz da role, `<Routes>` com `<Outlet>`
+  num shell persistente (Sidebar + JarvisChat ficam montados). Job
+  vira rota `/jobs/:id?tab=X`. Back inside card sempre vai pra
+  `/pipeline` (regra do Ramon). Não voltar a state-based.
+- **Chat interno = Native Chat** (chat_messages + chat_reads +
+  Realtime). Slack foi removido em Junho/26. Não reativar Slack.
 - **Auth:** PIN client-side, RLS permissiva no Supabase. Endurecer auth
   está adiado até Ramon avisar — não sugerir migração para Supabase Auth.
 - **Deploy:** Vercel ↔ GitHub auto-deploy. Não voltar a `npx vercel --prod`
@@ -412,6 +424,61 @@ Outra sessão **não deve refazer ou questionar** sem pedir antes:
    Resumo: Attila/Gabriel = tablet-first, Receptionist = iPad/PC,
    resto = desktop-first. Botões mínimo 40px no touch (tablet),
    inputs 16px de fonte em mobile/tablet (evita zoom do iOS).
+
+---
+
+## Mapa rápido — onde encontrar coisas (Junho/26)
+
+Pra próximo Claude que precisar entender o estado depois da sessão massiva
+de Junho/26 sem ler a seção inteira de "Última atualização":
+
+**Chat interno (Daily Logs):**
+- Componente puro: `src/shared/components/NativeProjectChat.jsx`
+  (prop `embedded` desliga chrome quando dentro de wrapper)
+- Wrapper Slack-style 2 colunas: `src/shared/components/DailyLogsRichTab.jsx`
+  (filtros All/Mentions/Unread/Starred/Files + lista lateral)
+- Cascade no sidebar: `src/shared/components/DailyLogsList.jsx`
+- Sino realtime: `src/shared/components/NotificationsBell.jsx`
+- Tabelas: `chat_messages`, `chat_reads`, `jobs.chat_members[]`,
+  `jobs.last_chat_message_at` (migration 066)
+
+**URL Routing:**
+- Cada `src/apps/<role>/App.jsx` agora é um `BrowserRouter` + `Routes`
+  com `<Outlet>` num shell persistente. Padrão idêntico nos 6 apps
+  migrados (Sales, Owner, Operations, Manager, Receptionist, Marketing).
+- Job rotes: `/jobs/:id?tab=X`. State `from` rastreia origem; Back
+  fallback sempre vai pra `/pipeline`.
+- vercel.json tem catch-all SPA rewrite no final.
+- Pra migrar Admin (pendente): usar `basename="/admin-x9k2"` no
+  `BrowserRouter`.
+
+**Acorn Finance:**
+- Card: `src/apps/estimate-view/EstimateView.jsx` (entre customer
+  message e signature flow)
+- URL: `https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=user_pre_qual_link&loanAmount=X`
+- Toggle por job: `estimate.show_financing` (default true, migration
+  065 PENDENTE)
+- Banner PNG no `~/Downloads/lg-acorn-finance-banner.png` do Ramon
+
+**AI:**
+- Proxy unificado: `api/ai-proxy.js`. Aceita `{provider: 'claude'|'groq'}`.
+- Pra Claude: aceita `prompt` (string) OU `messages` (array completo
+  pra image/document blocks), `model` (override default haiku), `tools`,
+  `anthropicBeta` (header).
+- Shared libs: `src/shared/lib/anthropic.js`, `src/shared/lib/groq.js`.
+- Per-role libs: `src/apps/sales/lib/anthropic.js`,
+  `src/apps/owner/lib/anthropic.js`, `src/apps/manager/lib/anthropic.js`,
+  `src/apps/sales/screens/PDFUpload.jsx` — todos migrados pro proxy.
+- **AINDA QUEBRADOS** (não migrados): `ProjectAnalyzer.jsx` e
+  `Warehouse.jsx` no owner. Migrar quando der.
+
+**Notifications:**
+- send-estimate.js handleEstimateOpened insere notificações pra
+  `sales`, `operations`, `owner` (3 rows) na primeira abertura.
+- `recipientRolesFor()` em `src/shared/lib/notifications.js` mapeia
+  user.role → roles que recebe.
+- Bell click navega pra `/jobs/:id?tab=<tipo-específico>` via
+  `tabForNotification()` exportado de NotificationsBell.
 
 ---
 
@@ -508,6 +575,289 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 ---
 
 ## Última atualização
+
+**2026-06-02 (Sessão massiva: Slack out, Daily Logs nativo, URL routing, Acorn, mais)** — Ramon + Claude (Opus 4.7 / Sonnet 4.6).
+
+Foi uma sessão LONGA com muitas frentes. Lista organizada por tema:
+
+### 🗑️ Slack removido (commits após 2eaa53b)
+- **Plano canceled de Slack** — Ramon decidiu apagar tudo e usar chat nativo.
+- **Migration 047** já estava rodada — todos jobs com `use_native_chat=true`.
+- **Migration 066** criada: drop `jobs.slack_last_message_at`, adiciona
+  `jobs.last_chat_message_at` + trigger que atualiza em cada insert em
+  `chat_messages`. **PENDENTE rodar no Supabase**.
+- **Removidos do código:** `src/shared/components/ProjectChat.jsx`,
+  `api/slack/[action].js`, `api/_lib/slack.js`.
+- **JobFullView** simplificado — não tem mais `if (use_native_chat) ... else ProjectChat`, agora SEMPRE usa o native.
+- **Env vars Slack no Vercel** (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`)
+  podem ser removidas — não usadas mais. Ramon pode cancelar plano Slack.
+
+### 💬 Native Chat — feature completa "Daily Logs" estilo Slack
+
+Estado: **funcionando em produção**.
+
+**Camada de dados (migrations já rodadas: 043, 046, 047. Pendentes: 066, 067):**
+- `chat_messages` (job_id, author_name, author_role, body, attachments
+  jsonb, mentions text[], created_at, edited_at, deleted_at) — Realtime
+  habilitado.
+- `chat_reads` (job_id, user_name, last_read_at) + **migration 067 adiciona
+  `is_starred boolean`** (pra "Starred chats" filter).
+- `jobs.chat_members` (text[]) — ACL. Trigger BEFORE INSERT preenche
+  automaticamente com todos users ativos exceto manager/admin/screen.
+- `jobs.last_chat_message_at` (timestamptz) — adicionada pela migration
+  066, mantida pelo trigger.
+
+**Componentes principais:**
+- `src/shared/components/NativeProjectChat.jsx` — o chat puro (mensagens
+  + composer). Aceita prop `embedded={true}` que desliga rounded/border/
+  altura fixa quando renderizado dentro de outro wrapper.
+- `src/shared/components/DailyLogsRichTab.jsx` — Slack-style 2 colunas
+  (lista de chats à esquerda + chat à direita). Substitui o
+  `<NativeProjectChat>` direto dentro da aba Daily Logs do JobFullView.
+  Filtros: All / Mentions / Unread / Starred / Files. Click em outro
+  chat na lista chama `onSwitchJob(newJob)` que o JobFullView usa pra
+  trocar o job todo (com nova URL via React Router).
+- `src/shared/components/DailyLogsList.jsx` — cascade que aparece no
+  sidebar de cada role app. Lista compacta dos chats.
+- `src/shared/components/NotificationsBell.jsx` — sino com Realtime,
+  popover, click navega pra `/jobs/:id` na aba certa por tipo.
+
+**Visual:**
+- Sidebar lateral: bg-omega-pale (creme com tom laranja, era preto)
+- Filtros: omega-orange quando ativo
+- Mensagens: agrupadas por autor (Slack-style) — primeiro msg da run
+  mostra avatar + nome + horário; consecutivas ficam compactas embaixo
+- Avatar usa `users.profile_photo_url` quando disponível
+- Date separators entre dias
+- Composer: pinned no bottom (flex-shrink-0)
+- Aba Daily Logs ocupa 100% da viewport disponível (no JobFullView,
+  ela é exceção do `max-w-5xl` que vale pra outras tabs)
+
+**Upload de arquivos no chat:**
+- **Múltiplos** arquivos por mensagem (até 10, configurável em
+  `MAX_ATTACHMENTS_PER_MESSAGE`)
+- Aceita imagens (`image/*`) + PDFs (`application/pdf`)
+- Imagens passam por `browser-image-compression` (target 2 MB, max
+  2400px, hard cap 4 MB pós-compressão)
+- PDFs passam direto sem processamento
+- Preview em grid (thumbnail pra imagens, ícone pra PDFs)
+- Cada arquivo enviado é espelhado em `job_documents` (folder
+  `daily_logs`) — automático
+
+**Notificações de estimate aberto:**
+- `send-estimate.js` handleEstimateOpened insere 3 rows em
+  `notifications` (sales, operations, owner) quando o cliente abre
+  o estimate pela primeira vez
+- Email também é enviado pra `company.email` na primeira abertura
+- Sales tem o NotificationsBell shared (com Realtime) — substitui o
+  sino "burro" que ele tinha antes
+- Click numa notificação abre o JobFullView na aba certa por tipo:
+  - `estimate`, `contract`, `change_order` → aba estimate
+  - `finance`, `payment` → aba financials
+  - `pipeline` → aba daily
+  - default → aba daily
+
+**Tela de Notifications (sales):**
+- Filtro Unread/All (default Unread)
+- Botões Mark all read + Clear all read
+- Delete individual em cada card
+
+### 🌐 URL Routing migration
+
+**Antes:** state-based por papel — refresh sempre voltava pra dashboard,
+back do navegador idem.
+
+**Agora (6 de 7 apps migrados):**
+- **Sales** ✅, **Owner** ✅, **Operations** ✅, **Manager** ✅,
+  **Receptionist** ✅, **Marketing** ✅
+- **Admin** ⏳ pendente (precisa de `basename="/admin-x9k2"` no
+  BrowserRouter pra coexistir com a rota oculta).
+
+**URL patterns:**
+- `/` → dashboard / landing da role
+- `/<screen>` → cada tela secundária (pipeline, finance, etc)
+- `/jobs/:id?tab=daily` → JobFullView (tab via query)
+- `/jobs/:id/<sub-screen>` → flows que entram a partir do job
+  (questionnaire, estimate-flow, report, etc)
+
+**Regras consistentes (válidas em todos os apps migrados):**
+1. **Refresh preserva tela** — URL é fonte da verdade
+2. **Back do navegador** funciona naturalmente
+3. **Link compartilhável** pra cada job (`/jobs/abc-123?tab=daily`)
+4. **Back dentro do card sempre volta pra `/pipeline`** (regra explícita
+   do Ramon, fallback quando `location.state.from` não está set)
+5. **Sidebar + JarvisChat persistentes** entre navegações via
+   nested routes com `<Outlet>` (não re-montam a cada nav)
+6. **State de fluxo intermediário** (phases pra AssignSubs, prefill
+   pra NewJob, scheduleJob pra Receptionist) preservado via
+   `sessionStorage` em vez de parent useState
+
+**Padrão de Back handler em JobFullView routes:**
+```js
+const handleClose = () => {
+  const from = location.state?.from;
+  navigate(from || '/pipeline');
+};
+```
+
+**Mudança crítica em `PipelineKanban`:**
+- Antes: tinha `openJob` useState interno + renderizava JobFullView inline
+- Agora: aceita prop opcional `onOpenJob` — quando fornecida, clicks
+  delegam a ela em vez de abrir overlay interno. Sem a prop, comportamento
+  legado preserved (pra apps ainda não migrados).
+
+**vercel.json atualizado** com SPA rewrites pra:
+- Cada tela: `/pipeline`, `/calendar`, `/finance`, etc
+- `/jobs/:path*`
+- Catch-all final: `/((?!api/|assets/|.*\..*).*) → /` pra qualquer
+  rota nova SPA cair em `index.html`
+
+**`useBackNavHome` / `useBackButtonGuard`** ainda existem em
+`src/shared/lib/` mas não são mais usados pelos apps migrados. Mantidos
+pra Admin (que ainda é state-based). Quando Admin for migrado, podem
+ser deletados.
+
+### 🏦 Acorn Finance — opção de financiamento no estimate
+
+**Conta de partner já criada** pelo Inácio. Partner code: **`O6LD4`**.
+
+**URL pública pré-qualify:**
+```
+https://www.acornfinance.com/pre-qualify/?d=O6LD4&utm_medium=user_pre_qual_link&loanAmount=<total>
+```
+
+**Detalhes:**
+- Até **$100k** de loan, prazos até 20 anos, 30+ lenders no marketplace.
+- **0% impacto no crédito** pra checar oferta — mensagem oficial.
+- Sem branding obrigatório (verified com Bethany do Acorn no chat).
+- **Tracking é por nome do cliente, NÃO por estimate** — limitação do
+  Acorn (eles confirmaram). Pra granular precisa redirect próprio.
+
+**Implementação:**
+- Card no `src/apps/estimate-view/EstimateView.jsx` (entre customer
+  message e signature flow)
+- **Toggle por estimate** via `estimate.show_financing` (default `true`)
+- **Migration 065 PENDENTE** rodar — adiciona a coluna
+- Brenda/Attila desligam manualmente no EstimateBuilder por job
+- Banner PNG do Acorn (`lg-acorn-finance-banner.png`) salvo no Downloads
+  do Ramon — pode ser usado em PDFs impressos futuramente
+
+**Visual final** (paleta peach/laranja claro):
+- Card cinza claro, com bg peach interno
+- Header: "Need Flexible Payments? — Financing through our partner"
+- 2 mini-cards: "Starting at $X/mo (estimated over 84 months)" e
+  "Check your rate — Free, won't impact your credit"
+- Bullets com 3 benefícios
+- Botão "See my financing options →"
+- "Powered by Acorn Finance" no rodapé
+
+### 🔧 AI Proxy — fix de 6 arquivos que estavam quebrados
+
+Após o security hardening de Maio/26, `VITE_ANTHROPIC_KEY` foi removido
+do client. Mas 6 arquivos ainda usavam ele direto:
+1. `src/apps/sales/lib/anthropic.js` — report generation
+2. `src/apps/sales/screens/PDFUpload.jsx` — PDF analysis
+3. `src/apps/owner/lib/anthropic.js` — report/pricing/phases + property search
+4. `src/apps/manager/lib/anthropic.js` — material image scan
+5. `src/apps/owner/screens/ProjectAnalyzer.jsx` — PDF→images analysis **(ainda quebrado, não migrado)**
+6. `src/apps/owner/screens/Warehouse.jsx` — material AI scan **(ainda quebrado, não migrado)**
+
+**Os 4 primeiros foram migrados** pra usar `apiFetch('/api/ai-proxy')`.
+O proxy foi **estendido** pra aceitar:
+- `messages` (array completo — pra image/document content blocks)
+- `model` (override — sonnet em owner, haiku em sales)
+- `tools` (pra web_search beta)
+- `anthropicBeta` (header opcional)
+
+**Pendência:** ProjectAnalyzer.jsx e Warehouse.jsx ainda usam
+`VITE_ANTHROPIC_KEY` direto — quando Inácio for usar essas features,
+vão dar 401. Migrar pro proxy é trivial usando o mesmo padrão.
+
+### 📋 Questionário — várias edições
+
+**Deck — reorganizado completamente:**
+- Ordem nova: `deck_type` (1ª pergunta) → extension desc → dimensões
+  → material → superfície (board type/specs/hidden screws/picture frame)
+  → resto do Overview
+- **PVC removido** do `deck_material` (PT/Cedar/Composite apenas)
+- **Fascia simplificada** pra Azek/No fascia (2 opções, era 3)
+- Section "Decking Surface" eliminada (perguntas movidas pro Overview)
+- Lattice mantida em "Trim & Extras"
+
+**Bathroom:**
+- `bath_shower_material` ganhou opção **TBD**
+- `bath_glass` renomeado de "Glass enclosure" → "Glass Door"
+- **Nova pergunta `bath_tile_orientation`**: Horizontal / Vertical /
+  Herringbone / Chevron / Diagonal / Running bond (offset) / Grid
+  (stacked). Autofill atualizado em `estimateAutofill.js`.
+
+**Permit (todos os serviços padronizados):**
+- 3 opções unificadas: **Already have / Need to get / Not required**
+- Removido "Don't know" de todos
+- Aplicado em bathroom, kitchen, deck, roofing + fallback schema
+
+**Owner pode preencher questionário:**
+- Botão "Questionnaire" no header do JobFullView aparece pro owner
+  (antes era só pro sales)
+- Inácio pode preencher se o vendedor não preencheu
+
+### 🔍 Audit Log
+
+- Antes: limite hardcoded de 100 eventos, sem filtro de tempo
+- Agora: **seletor de range** (Last 7 days / 4 weeks / 3 months / 12
+  months / All time), default **4 weeks**
+- Limite máximo: 5000 rows quando "All time"
+
+### 📊 Estimate UI
+
+**Bug fix histórico (`9e716b7`):** Edit button na aba Documents
+abria o EstimateBuilder no estimate ERRADO. Causa: variável renomeada
+pela metade — `latest` foi pra `rootEstimate` mas uma referência ficou.
+Try/catch engolia o erro silenciosamente. Fix: trocou a referência
+remanescente.
+
+**Preview Estimate abre nova aba** — trocado de popup window (com
+dimensões) pra `<a target="_blank">` simples. Mais confiável em iOS.
+
+### 📱 Outros fixes notáveis
+
+- **Estimate questionnaire crash** quando Attila tentava gerar relatório
+  via IA — era o `VITE_ANTHROPIC_KEY` removido (resolvido via AI proxy)
+- **Notification bell do Sales** trocado de link estático pra
+  `NotificationsBell` shared com Realtime
+- **Daily Logs** agora aparece no cascade da sidebar em TODOS os roles
+  (sales, owner, operations, manager, receptionist, marketing, admin)
+- **DailyLogsRichTab** mostra a coluna esquerda inteira em viewport
+  larga, com lista de chats expandindo até `w-96` (era `w-64`)
+
+### ⚠️ PENDÊNCIAS — Ramon precisa fazer
+
+| Item | Onde | Prioridade |
+|------|------|------------|
+| **Rodar migration 065** (`estimate.show_financing`) | Supabase SQL editor | 🟡 (Acorn financing toggle não persiste sem ela) |
+| **Rodar migration 066** (`jobs.last_chat_message_at`) | Supabase SQL editor | 🟡 (unread badges no pipeline) |
+| **Rodar migration 067** (`chat_reads.is_starred`) | Supabase SQL editor | 🟡 (Starred filter no Daily Logs) |
+| **Adicionar `ANTHROPIC_KEY`** no Vercel | Env vars | 🔴 (IA features) |
+| **Adicionar `GROQ_API_KEY`** no Vercel | Env vars | 🔴 (Jarvis) |
+| **Adicionar `OMEGA_API_SECRET`** + `VITE_OMEGA_API_SECRET` (igual valor) | Env vars | 🔴 (proxy auth) |
+| **Remover `VITE_ANTHROPIC_KEY`** + `VITE_GROQ_API_KEY` | Env vars | 🟢 (limpeza) |
+| **Cancelar plano Slack** | slack.com | 🟢 (não usa mais) |
+| **Remover env vars Slack** (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`) | Vercel | 🟢 (limpeza) |
+| **Investigar logins Brenda Dasilva pós-demissão** (5/12 + 5/19) | Supabase logs + Vercel logs | 🔴 (segurança) |
+| **Mudar PIN da Brenda** se não foi mudado | Admin → Users | 🔴 (acesso pós-demissão) |
+
+### 🛠️ PENDÊNCIAS — código (próximo Claude)
+
+| Tarefa | Arquivo(s) | Esforço |
+|--------|-----------|---------|
+| Migrar **Admin app** pra URL routing | `src/apps/admin/App.jsx` | 1-2h (precisa `basename="/admin-x9k2"`) |
+| Migrar **ProjectAnalyzer.jsx** pro AI proxy | `src/apps/owner/screens/ProjectAnalyzer.jsx` | 30 min |
+| Migrar **Warehouse.jsx** pro AI proxy | `src/apps/owner/screens/Warehouse.jsx` | 30 min |
+| Deletar `useBackNavHome` / `useBackButtonGuard` quando Admin migrar | `src/shared/lib/backNav.js`, `backButtonGuard.js` | 5 min |
+| **PIN-gated** features no Daily Logs (delete msg / edit) | NativeProjectChat.jsx | 1h |
+| **Mention autocomplete** já existe mas pode polir | NativeProjectChat.jsx | opt |
+
+---
 
 **2026-05-16 (Security hardening + My Leads refactor)** — Ramon + Claude (Sonnet 4.6).
 
