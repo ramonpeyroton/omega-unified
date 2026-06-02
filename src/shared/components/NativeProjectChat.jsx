@@ -119,9 +119,13 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   const [error, setError]             = useState('');
   const [body, setBody]               = useState('');
   const [sending, setSending]         = useState(false);
-  const [pendingFile, setPendingFile] = useState(null);
-  const [previewUrl, setPreviewUrl]   = useState(null);
-  const [uploading, setUploading]     = useState(false);
+  // Staged attachments queued to send with the next message. Each
+  // entry is { file, previewUrl } — previewUrl is set for images
+  // (blob: URL) and null for other types (PDFs, docs).
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploading, setUploading]       = useState(false);
+
+  const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
   const fileInputRef = useRef(null);
   const scrollRef    = useRef(null);
@@ -199,36 +203,67 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
-  // Manage the preview URL for the staged file.
+  // Revoke any pending blob: URLs on unmount so they don't leak.
+  // Individual removals revoke their own URL inline in removeFile().
   useEffect(() => {
-    if (!pendingFile) { setPreviewUrl(null); return; }
-    const url = URL.createObjectURL(pendingFile);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [pendingFile]);
+    return () => {
+      pendingFiles.forEach(({ previewUrl }) => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function pickFile(e) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const incoming = Array.from(e.target.files || []);
+    if (incoming.length === 0) return;
     e.target.value = '';
-    if (!f.type.startsWith('image/')) {
-      setError('Only images for now (jpg, png, webp, heic).');
+
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - pendingFiles.length;
+    if (room <= 0) {
+      setError(`Max ${MAX_ATTACHMENTS_PER_MESSAGE} files per message — send these first.`);
       return;
     }
-    try {
-      setUploading(true);
-      const compressed = await imageCompression(f, COMPRESS_OPTS);
-      if (compressed.size > MAX_FILE_BYTES) {
-        setError('Image is too large even after compression. Try a smaller photo.');
-        return;
-      }
-      setPendingFile(compressed);
+    const accepted = incoming.slice(0, room);
+    if (incoming.length > room) {
+      setError(`Only the first ${room} file${room === 1 ? '' : 's'} were added (10 per message max).`);
+    } else {
       setError('');
-    } catch (err) {
-      setError(err?.message || 'Failed to process image.');
-    } finally {
-      setUploading(false);
     }
+
+    setUploading(true);
+    const processed = [];
+    for (const f of accepted) {
+      try {
+        let final = f;
+        // Compress images to keep payloads sane (PDFs/docs pass through).
+        if (f.type.startsWith('image/')) {
+          try { final = await imageCompression(f, COMPRESS_OPTS); }
+          catch { final = f; }
+        }
+        if (final.size > MAX_FILE_BYTES) {
+          setError(`"${f.name}" is too large even after compression.`);
+          continue;
+        }
+        const isImage = (final.type || f.type || '').startsWith('image/');
+        processed.push({
+          file: final,
+          previewUrl: isImage ? URL.createObjectURL(final) : null,
+        });
+      } catch (err) {
+        setError(err?.message || `Failed to process "${f.name}".`);
+      }
+    }
+    setPendingFiles((prev) => [...prev, ...processed]);
+    setUploading(false);
+  }
+
+  function removeFile(idx) {
+    setPendingFiles((prev) => {
+      const target = prev[idx];
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== idx);
+    });
   }
 
   async function uploadFile(file) {
@@ -244,7 +279,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
 
   async function send() {
     const text = body.trim();
-    if (!text && !pendingFile) return;
+    if (!text && pendingFiles.length === 0) return;
     if (sending) return;
 
     setSending(true);
@@ -252,30 +287,36 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
     let attachments = null;
 
     try {
-      if (pendingFile) {
-        const url = await uploadFile(pendingFile);
-        if (!url) throw new Error('Upload failed.');
-        attachments = [{
-          url,
-          mime: pendingFile.type,
-          size: pendingFile.size,
-          name: pendingFile.name,
-        }];
+      if (pendingFiles.length > 0) {
+        // Upload each staged file in sequence, then build the
+        // attachments array in the same order the user picked them.
+        const uploaded = [];
+        for (const { file } of pendingFiles) {
+          const url = await uploadFile(file);
+          if (!url) throw new Error(`Upload failed: ${file.name}`);
+          uploaded.push({
+            url,
+            mime: file.type,
+            size: file.size,
+            name: file.name,
+          });
 
-        // Mirror the upload into job_documents under the daily_logs
-        // folder so the Documents tab grows an automatic archive of
-        // every image shared in the chat. Failure here is non-fatal —
-        // the chat send proceeds; worst case the user has the photo
-        // in chat history but not in the Documents folder.
-        try {
-          await supabase.from('job_documents').insert([{
-            job_id:      job.id,
-            folder:      'daily_logs',
-            title:       pendingFile.name || `Chat photo · ${new Date().toLocaleString('en-US')}`,
-            photo_url:   url,
-            uploaded_by: user?.name || null,
-          }]);
-        } catch { /* non-fatal */ }
+          // Mirror the upload into job_documents under the daily_logs
+          // folder so the Documents tab grows an automatic archive of
+          // every image / PDF shared in the chat. Non-fatal — if it
+          // fails the chat send proceeds and worst case the file just
+          // doesn't appear in the Documents tab.
+          try {
+            await supabase.from('job_documents').insert([{
+              job_id:      job.id,
+              folder:      'daily_logs',
+              title:       file.name || `Chat attachment · ${new Date().toLocaleString('en-US')}`,
+              photo_url:   url,
+              uploaded_by: user?.name || null,
+            }]);
+          } catch { /* non-fatal */ }
+        }
+        attachments = uploaded;
       }
 
       const mentions = parseMentions(text, members);
@@ -313,7 +354,12 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
       setMessages((prev) => prev.map((m) => m.id === tempId ? data : m));
 
       setBody('');
-      setPendingFile(null);
+      // Revoke any blob: previews from the staged files so memory
+      // doesn't leak, then clear the queue.
+      pendingFiles.forEach(({ previewUrl }) => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+      });
+      setPendingFiles([]);
       // Re-focus the input so multiple messages flow without clicking.
       textareaRef.current?.focus();
     } catch (err) {
@@ -445,16 +491,37 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
 
       {/* Composer */}
       <div className="border-t border-gray-200 bg-white p-3 space-y-2">
-        {pendingFile && previewUrl && (
-          <div className="relative inline-block">
-            <img src={previewUrl} alt="preview" className="max-h-24 rounded-lg border border-gray-200" />
-            <button
-              type="button"
-              onClick={() => setPendingFile(null)}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-omega-charcoal text-white inline-flex items-center justify-center shadow"
-            >
-              <X className="w-3 h-3" />
-            </button>
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {pendingFiles.map((pf, idx) => {
+              const isImage = (pf.file.type || '').startsWith('image/');
+              return (
+                <div key={`${pf.file.name}-${idx}`} className="relative">
+                  {isImage && pf.previewUrl ? (
+                    <img
+                      src={pf.previewUrl}
+                      alt={pf.file.name}
+                      className="h-20 w-20 object-cover rounded-lg border border-gray-200"
+                    />
+                  ) : (
+                    <div className="h-20 w-20 rounded-lg border border-gray-200 bg-gray-50 flex flex-col items-center justify-center px-1 text-center">
+                      <Paperclip className="w-4 h-4 text-omega-stone mb-0.5" />
+                      <span className="text-[9px] text-omega-stone leading-tight truncate w-full">
+                        {pf.file.name}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeFile(idx)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-omega-charcoal text-white inline-flex items-center justify-center shadow"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -462,7 +529,8 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
+            multiple
             onChange={pickFile}
             className="hidden"
           />
@@ -471,7 +539,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || sending}
             className="p-2 rounded-lg text-omega-stone hover:text-omega-orange hover:bg-omega-pale disabled:opacity-50"
-            title="Attach image"
+            title="Attach files (images and PDFs, up to 10)"
           >
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
           </button>
@@ -489,7 +557,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           <button
             type="button"
             onClick={send}
-            disabled={sending || (!body.trim() && !pendingFile)}
+            disabled={sending || (!body.trim() && pendingFiles.length === 0)}
             className="px-3 py-2 rounded-lg bg-omega-orange hover:bg-omega-dark disabled:opacity-50 text-white text-sm font-bold inline-flex items-center gap-1"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
