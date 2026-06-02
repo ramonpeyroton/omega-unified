@@ -180,7 +180,7 @@ export default function App({ user, onLogout }) {
         notifCount={notifCount}
         userName={user.name}
         user={user}
-        onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
+        onOpenJob={(job, tab = 'daily') => { setFullViewJob(job); setFullViewInitialTab(tab); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
         {renderScreen()}

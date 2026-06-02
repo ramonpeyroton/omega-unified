@@ -583,22 +583,27 @@ async function handleEstimateOpened(estimateId, res) {
   try { await supabase.from('estimates').update(patch).eq('id', estimateId); }
   catch { /* non-fatal */ }
 
-  // In-app notification on the FIRST open so Attila sees the bell.
-  // We do this even if Resend isn't configured because the bell
-  // doesn't depend on email infrastructure.
+  // In-app notification on the FIRST open. Sent to Sales, Operations
+  // and Owner so Attila, Brenda (or whoever replaces her) and Inácio
+  // all see the bell light up. Done even when Resend isn't configured
+  // because the bell doesn't depend on email infrastructure.
   if (isFirstOpen) {
     try {
       const { data: jobLite } = await supabase
         .from('jobs').select('client_name').eq('id', estimate.job_id).maybeSingle();
       const clientName = jobLite?.client_name || 'Your client';
-      await supabase.from('notifications').insert([{
-        recipient_role: 'sales',
+      const baseRow = {
         title: '📬 Client opened estimate',
         message: `${clientName} just viewed the estimate${estimate.estimate_number ? ` (#${estimate.estimate_number})` : ''}.`,
         type: 'estimate',
         job_id: estimate.job_id,
         read: false,
-      }]);
+      };
+      await supabase.from('notifications').insert([
+        { ...baseRow, recipient_role: 'sales' },
+        { ...baseRow, recipient_role: 'operations' },
+        { ...baseRow, recipient_role: 'owner' },
+      ]);
     } catch { /* non-fatal */ }
   }
 
