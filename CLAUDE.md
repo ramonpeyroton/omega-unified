@@ -857,6 +857,31 @@ dimensões) pra `<a target="_blank">` simples. Mais confiável em iOS.
 | **PIN-gated** features no Daily Logs (delete msg / edit) | NativeProjectChat.jsx | 1h |
 | **Mention autocomplete** já existe mas pode polir | NativeProjectChat.jsx | opt |
 
+### 🎨 Design system unification — Sales (em andamento)
+
+Ramon flagou em Junho/26 que o Sales tinha "cara de esqueleto" — cada
+tela com header / cards / tipografia diferente. Decisão: **manter
+paleta atual + padronizar componentes** (não muda direção visual).
+
+**Já feito** (commit `eafa80f`):
+- Criado `src/shared/components/ui/PageHeader.jsx` — header único pra
+  todas as telas secundárias. Sticky branco com back + ícone + título
+  + subtítulo + actions slot.
+- Aplicado em: Pipeline, Calendar, Estimates, Notifications, Leads,
+  Commissions (no Sales). Notifications também ganhou sub-header
+  branco com filtros (era header preto charcoal antes).
+
+**Próximas etapas pra ele:** (pode pedir "continua o refactor visual do Sales")
+1. **Padronizar `<Card>`** — várias telas usam `rounded-xl border border-gray-200`
+   manual; trocar pelo shared `<Card>` (`rounded-2xl shadow-card border-black/[0.04]`).
+2. **Tipografia consistente** — definir tokens (`text-display`, `text-title`,
+   `text-body`, `text-caption`) pra parar a mistura de `font-bold`/`font-black`/`font-semibold`.
+3. **Spacing scale** — usar só `p-4` / `p-6` / `p-8` (não `pt-12 pb-5` ad-hoc).
+4. **Aplicar PageHeader nos outros 5 apps** (Owner, Operations, Manager,
+   Receptionist, Marketing) — padrão é claro, copia-cola adaptando título/ícone.
+5. **NewJob.jsx, PreviousJobs.jsx, PDFUpload.jsx, Questionnaire.jsx,
+   Report.jsx, ReviewAnswers.jsx** ainda têm header próprio.
+
 ---
 
 **2026-05-16 (Security hardening + My Leads refactor)** — Ramon + Claude (Sonnet 4.6).
