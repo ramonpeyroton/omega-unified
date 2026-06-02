@@ -226,18 +226,19 @@ function JobFullViewRoute({ user }) {
   const tabHint = searchParams.get('tab');
   const { job, setJob, loading } = useJobById(id);
 
-  // Back button. Three layered fallbacks:
-  //   1. The route the user came from, stashed in location.state.from
-  //      by navigations that originated inside the SPA.
-  //   2. If there's enough history (came via in-app navigation but
-  //      from didn't get set for some reason), navigate(-1).
-  //   3. Otherwise — fresh load / shared link with no history — go
-  //      home so the user has a sensible landing.
+  // Back button. The card is the most common "deep" place a user
+  // ends up after a refresh / shared link, so the fallback always
+  // takes them to /pipeline — Ramon's explicit rule: "Back inside
+  // a client card always returns to the pipeline."
+  //
+  //   1. location.state.from set by the route that opened this card
+  //      (still wins so Estimates → Card → Back lands on Estimates,
+  //      Notifications → Card → Back lands on Notifications, etc).
+  //   2. Otherwise → /pipeline. Covers fresh load / shared link /
+  //      any path where state.from got lost.
   const handleClose = () => {
     const from = location.state?.from;
-    if (from) { navigate(from); return; }
-    if (window.history.length > 2) { navigate(-1); return; }
-    navigate('/');
+    navigate(from || '/pipeline');
   };
 
   if (loading) return <LoadingFallback />;
