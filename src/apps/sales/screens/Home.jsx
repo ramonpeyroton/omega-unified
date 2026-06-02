@@ -259,7 +259,14 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           // ALL jobs (sales = single-seller).
           supabase.from('jobs').select('*'),
           // Estimates — load all, narrow client-side later.
-          supabase.from('estimates').select('id, job_id, status, total_amount, sent_at, signed_at, created_at, updated_at'),
+          // Note: 'sent_at' is intentionally NOT in this select. The
+          // column was never created by any migration even though
+          // EstimateFlow.jsx tries to write to it — the update fails
+          // silently. Selecting a non-existent column makes the WHOLE
+          // query 400 in PostgREST. The Estimates Sent KPI now comes
+          // from audit_log instead (see sendResp below), so we don't
+          // need that field here.
+          supabase.from('estimates').select('id, job_id, status, total_amount, signed_at, created_at, updated_at'),
           // Job costing rows — fallback for pipeline totals when no
           // formal estimate exists yet. Tolerates missing table.
           supabase.from('job_costs').select('job_id, estimated_revenue'),
@@ -279,26 +286,36 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 .order('starts_at', { ascending: true })
                 .limit(8),
           supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('seen', false),
-          // estimate.send audit rows — the source of truth for the
-          // Estimates Sent card. We learned the hard way that
-          // estimates.sent_at can be NULL even after the send flow
-          // ran, but audit_log always has a row when the user clicked
-          // Send. Filter by action only — Attila is the only
-          // salesperson today, so user_role narrowing is unnecessary.
+          // Audit rows for the KPI cards. We pull every action that
+          // feeds a card (estimate.send, contract.send, contract.sign)
+          // in a single query — cheap, indexes on `action` + `created_at`
+          // make it cheap on the server too. Filter by created_at only
+          // here; the KPI useMemo deduplicates and buckets by action.
           supabase.from('audit_log')
-            .select('id, entity_id, created_at, user_role')
-            .eq('action', 'estimate.send')
+            .select('id, entity_id, action, created_at, user_role')
+            .in('action', ['estimate.send', 'contract.send', 'contract.sign'])
             .gte('created_at', sendCutoff.toISOString()),
         ]);
         if (cancelled) return;
+        // Surface query failures so we never repeat the "silent 400
+        // caused by selecting a non-existent column" debug saga again.
+        // Each response is reported individually so one failure doesn't
+        // hide the others.
+        if (jobsResp.error)  console.warn('[Sales Home] jobs query failed:',  jobsResp.error);
+        if (estResp.error)   console.warn('[Sales Home] estimates query failed:', estResp.error);
+        if (costsResp.error) console.warn('[Sales Home] job_costs query failed:', costsResp.error);
+        if (evResp.error)    console.warn('[Sales Home] calendar_events query failed:', evResp.error);
+        if (notifResp.error) console.warn('[Sales Home] notifications query failed:', notifResp.error);
+        if (sendResp.error)  console.warn('[Sales Home] audit_log query failed:', sendResp.error);
+
         setJobs(jobsResp.data || []);
         setEstimates(estResp.data || []);
         setJobCosts(costsResp.data || []);
         setEvents(evResp.data || []);
         setNotifCount(notifResp.count || 0);
         setSendEvents(sendResp.data || []);
-      } catch {
-        // Soft-fail — empty state is fine. The cards just show 0.
+      } catch (err) {
+        console.warn('[Sales Home] dashboard load failed:', err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -307,16 +324,36 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   }, [user?.name]);
 
   // ─── Derived KPIs ────────────────────────────────────────────────
+  // Rewritten 2026-06-02 — full reset. Three earlier attempts failed
+  // because `estimates.sent_at` was being used despite the column
+  // never having been created in any migration. The single source of
+  // truth for "an action happened" is `audit_log` (logAudit writes a
+  // row on every meaningful click).
+  //
+  // KPIs in this dashboard:
+  //   • Leads (This Month)      — jobs created in the current month
+  //   • Estimates Sent          — audit_log rows action='estimate.send'
+  //   • Won (This Month)        — audit_log rows action='contract.send'
+  //                                OR jobs whose pipeline_status is in
+  //                                the "winning" set (contract_signed,
+  //                                in_progress, completed) and moved
+  //                                this month.
+  //   • Sales (This Month)      — sum of total_amount on estimates the
+  //                                client signed this month.
+  //
+  // We never look at status fields alone — those flip as the client
+  // moves through the funnel and would silently undercount.
   const kpis = useMemo(() => {
     const startThis = startOfMonthISO();
     const startLast = startOfPreviousMonthISO();
-    const myJobIds = new Set(jobs.map((j) => j.id));
-    const myEsts = estimates.filter((e) => myJobIds.has(e.job_id));
 
+    // Month membership for any ISO-8601-ish timestamp string.
+    // 'this' = >= startThis, no upper bound (open-ended).
+    // 'last' = [startLast, startThis).
     function inMonth(iso, month) {
+      if (!iso) return false;
       const startCutoff = month === 'this' ? startThis : startLast;
       const endCutoff   = month === 'this' ? null     : startThis;
-      if (!iso) return false;
       if (iso < startCutoff) return false;
       if (endCutoff && iso >= endCutoff) return false;
       return true;
@@ -326,33 +363,46 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       return ((thisCount - lastCount) / lastCount) * 100;
     }
 
+    // Bucket audit rows by action + month, deduplicated by entity_id
+    // so a re-send of the same estimate still counts as one.
+    function countAudit(action, month) {
+      const ids = new Set();
+      for (const a of sendEvents || []) {
+        if (!a || a.action !== action) continue;
+        if (!inMonth(a.created_at, month)) continue;
+        ids.add(a.entity_id || a.id);
+      }
+      return ids.size;
+    }
+
+    // ─── KPI 1: Leads ─────────────────────────────────────────────
     const leadsThis = jobs.filter((j) => inMonth(j.created_at, 'this')).length;
     const leadsLast = jobs.filter((j) => inMonth(j.created_at, 'last')).length;
 
-    // Source of truth: audit_log rows with action='estimate.send'.
-    // Earlier we tried filtering estimates.status === 'sent' (flips to
-    // 'approved'/'signed') and then estimates.sent_at (sometimes NULL).
-    // The audit row is written unconditionally the moment Send is
-    // clicked, so it never lies. Dedup by entity_id — re-sending the
-    // same estimate within the month still counts as one for the KPI.
-    const sendThisIds = new Set();
-    const sendLastIds = new Set();
-    for (const a of sendEvents || []) {
-      if (!a?.created_at) continue;
-      if (inMonth(a.created_at, 'this')) sendThisIds.add(a.entity_id || a.id);
-      else if (inMonth(a.created_at, 'last')) sendLastIds.add(a.entity_id || a.id);
-    }
-    const estSentThis = sendThisIds.size;
-    const estSentLast = sendLastIds.size;
+    // ─── KPI 2: Estimates Sent ────────────────────────────────────
+    const estSentThis = countAudit('estimate.send', 'this');
+    const estSentLast = countAudit('estimate.send', 'last');
 
+    // ─── KPI 3: Won — contracts sent or jobs that moved into the
+    // winning phases this month. Take the maximum of the two sources
+    // so we don't undercount when one trigger missed.
     const wonStatuses = new Set(['contract_signed', 'in_progress', 'completed']);
-    const wonThis = jobs.filter((j) => wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, 'this')).length;
-    const wonLast = jobs.filter((j) => wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, 'last')).length;
+    const wonByJobs = (m) => jobs.filter((j) =>
+      wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, m),
+    ).length;
+    const wonByAudit = (m) => countAudit('contract.send', m) + countAudit('contract.sign', m);
+    const wonThis = Math.max(wonByJobs('this'), wonByAudit('this'));
+    const wonLast = Math.max(wonByJobs('last'), wonByAudit('last'));
 
-    const salesThis = myEsts
+    // ─── KPI 4: Sales (this month) ────────────────────────────────
+    // signed_at IS a real column (migration 018). Filter estimates by
+    // it and sum total_amount. This needs the estimates rows, so it
+    // only works once jobs loaded — no `myJobIds` narrowing because
+    // Attila is the only salesperson today.
+    const salesThis = estimates
       .filter((e) => e.signed_at && inMonth(e.signed_at, 'this'))
       .reduce((acc, e) => acc + (Number(e.total_amount) || 0), 0);
-    const salesLast = myEsts
+    const salesLast = estimates
       .filter((e) => e.signed_at && inMonth(e.signed_at, 'last'))
       .reduce((acc, e) => acc + (Number(e.total_amount) || 0), 0);
 
