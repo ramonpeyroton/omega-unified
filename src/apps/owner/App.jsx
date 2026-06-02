@@ -18,7 +18,6 @@ import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import Questionnaire from '../sales/screens/Questionnaire';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
@@ -149,14 +148,6 @@ export default function App({ user, onLogout }) {
         return <CalendarScreen user={user} />;
       case 'finance':
         return <FinanceScreen user={user} />;
-      case 'daily-logs':
-        return (
-          <DailyLogsScreen
-            user={user}
-            onBack={() => setScreen('dashboard')}
-            onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
-          />
-        );
       case 'leads':
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
       case 'commissions':

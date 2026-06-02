@@ -8,7 +8,6 @@ import JobOfTheDay from './screens/JobOfTheDay';
 import QuickReceipts from './screens/QuickReceipts';
 import Sidebar from './components/Sidebar';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import MaterialsRun from '../../shared/components/MaterialsRun';
 import JobFullView from '../../shared/components/JobFullView';
 import PipelineKanban from '../../shared/components/PipelineKanban';
@@ -115,15 +114,6 @@ export default function App({ user, onLogout }) {
 
     if (screen === 'calendar')
       return <CalendarScreen user={user} />;
-
-    if (screen === 'daily-logs')
-      return (
-        <DailyLogsScreen
-          user={user}
-          onBack={() => setScreen('dashboard')}
-          onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
-        />
-      );
 
     if (screen === 'pipeline') {
       // Read-only kanban — Gabriel can scan the board and click into a

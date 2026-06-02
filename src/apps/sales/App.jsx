@@ -14,7 +14,6 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 import { ArrowLeft } from 'lucide-react';
 
@@ -180,15 +179,6 @@ function SalesRouter({ user, onLogout, onOpenJob, onOpenJobAtEstimate }) {
 
   if (screen === 'estimate-flow' && currentJob)
     return <EstimateFlow job={currentJob} user={user} onBack={() => setScreen('pipeline')} />;
-
-  if (screen === 'daily-logs')
-    return (
-      <DailyLogsScreen
-        user={user}
-        onBack={() => setScreen('home')}
-        onOpenJob={(job) => onOpenJob?.(job, 'daily')}
-      />
-    );
 
   if (screen === 'calendar')
     return (

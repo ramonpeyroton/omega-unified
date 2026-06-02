@@ -7,7 +7,6 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 const PENDING_VISIT_KEY = 'omega_receptionist_pending_visit';
@@ -109,15 +108,6 @@ export default function ReceptionistApp({ user, onLogout }) {
     }
     if (screen === 'commissions') {
       return <CommissionsScreen user={user} />;
-    }
-    if (screen === 'daily-logs') {
-      return (
-        <DailyLogsScreen
-          user={user}
-          onBack={() => setScreen('calendar')}
-          onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
-        />
-      );
     }
     if (screen === 'pipeline') {
       // Read-only kanban — Rafaela can see where every lead is in the

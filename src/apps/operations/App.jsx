@@ -8,7 +8,6 @@ import EstimateFlow from '../../shared/components/EstimateFlow';
 import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import InvoiceInbox from '../../shared/components/InvoiceInbox';
@@ -56,14 +55,6 @@ export default function App({ user, onLogout }) {
         return <CalendarScreen user={user} />;
       case 'finance':
         return <FinanceScreen user={user} />;
-      case 'daily-logs':
-        return (
-          <DailyLogsScreen
-            user={user}
-            onBack={() => setScreen('dashboard')}
-            onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
-          />
-        );
       case 'leads':
         return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
       case 'commissions':

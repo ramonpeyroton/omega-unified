@@ -15,7 +15,6 @@ import ImportLeads from './screens/ImportLeads';
 import MarketingSpend from './screens/MarketingSpend';
 import LegacyFilesImporter from './screens/LegacyFilesImporter';
 import JobFullView from '../../shared/components/JobFullView';
-import DailyLogsScreen from '../../shared/components/DailyLogsScreen';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
 export default function App({ user, onLogout }) {
@@ -43,13 +42,6 @@ export default function App({ user, onLogout }) {
       case 'templates': return <MessageTemplates user={user} />;
       case 'calendar':  return <CalendarScreen user={user} />;
       case 'finance':   return <FinanceScreen user={user} />;
-      case 'daily-logs': return (
-        <DailyLogsScreen
-          user={user}
-          onBack={() => setScreen('users')}
-          onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }}
-        />
-      );
       case 'leads':     return <LeadsList user={user} onBack={() => setScreen('users')} />;
       case 'commissions': return <CommissionsScreen user={user} />;
       case 'import-leads': return <ImportLeads user={user} />;
