@@ -535,13 +535,15 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
       </div>
 
       {error && (
-        <div className="px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200 inline-flex items-start gap-1.5">
+        <div className="flex-shrink-0 px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200 inline-flex items-start gap-1.5">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {error}
         </div>
       )}
 
-      {/* Composer */}
-      <div className="border-t border-gray-200 bg-white p-3 space-y-2">
+      {/* Composer — flex-shrink-0 keeps it pinned at the bottom even
+          when the message list (above, with overflow-y-auto) is long.
+          Without this the composer can get squeezed off-screen. */}
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 space-y-2">
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {pendingFiles.map((pf, idx) => {

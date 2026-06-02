@@ -237,7 +237,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
   return (
     <div className="flex h-[calc(100vh-200px)] min-h-[500px] rounded-xl border border-omega-orange/20 overflow-hidden bg-omega-pale">
       {/* ═══ LEFT RAIL ═══════════════════════════════════════════ */}
-      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-omega-orange/15">
+      <aside className="w-96 flex-shrink-0 flex flex-col border-r border-omega-orange/15">
         {/* Filters (grey-circle area in Ramon's screenshot) */}
         <nav className="px-2 pt-3 pb-2 space-y-0.5 border-b border-omega-orange/15">
           {FILTER_ITEMS.map((f) => {
@@ -333,8 +333,12 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
         </div>
       </aside>
 
-      {/* ═══ RIGHT COLUMN — chat or files ═══════════════════════ */}
-      <main className="flex-1 min-w-0 bg-omega-cloud flex flex-col">
+      {/* ═══ RIGHT COLUMN — chat or files ═══════════════════════
+          min-h-0 + overflow-hidden so the NativeProjectChat's own
+          flex container can clamp its height and pin the composer
+          to the bottom. Without these, the children grow past the
+          parent and the input scrolls out of view. */}
+      <main className="flex-1 min-w-0 min-h-0 bg-omega-cloud flex flex-col overflow-hidden">
         {filter === 'files' ? (
           <FilesView userName={userName} jobs={jobs} />
         ) : (
