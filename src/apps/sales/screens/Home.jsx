@@ -231,6 +231,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   const [estimates, setEstimates] = useState([]);
   const [jobCosts, setJobCosts] = useState([]);
   const [events, setEvents] = useState([]);
+  const [sendEvents, setSendEvents] = useState([]); // audit_log rows
   const [loading, setLoading] = useState(true);
 
   // ─── Load dashboard data ─────────────────────────────────────────
@@ -248,7 +249,13 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       const namePrefix = firstName ? `${firstName}%` : '';
 
       try {
-        const [jobsResp, estResp, costsResp, evResp, notifResp] = await Promise.all([
+        // Audit-log cutoff for the "Estimates Sent" KPI. Pull ~70 days
+        // back so both startThis and startLast windows fit even at the
+        // beginning of a month, with a bit of slack.
+        const sendCutoff = new Date();
+        sendCutoff.setDate(sendCutoff.getDate() - 70);
+
+        const [jobsResp, estResp, costsResp, evResp, notifResp, sendResp] = await Promise.all([
           // ALL jobs (sales = single-seller).
           supabase.from('jobs').select('*'),
           // Estimates — load all, narrow client-side later.
@@ -272,6 +279,16 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 .order('starts_at', { ascending: true })
                 .limit(8),
           supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('seen', false),
+          // estimate.send audit rows — the source of truth for the
+          // Estimates Sent card. We learned the hard way that
+          // estimates.sent_at can be NULL even after the send flow
+          // ran, but audit_log always has a row when the user clicked
+          // Send. Filter by action only — Attila is the only
+          // salesperson today, so user_role narrowing is unnecessary.
+          supabase.from('audit_log')
+            .select('id, entity_id, created_at, user_role')
+            .eq('action', 'estimate.send')
+            .gte('created_at', sendCutoff.toISOString()),
         ]);
         if (cancelled) return;
         setJobs(jobsResp.data || []);
@@ -279,6 +296,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
         setJobCosts(costsResp.data || []);
         setEvents(evResp.data || []);
         setNotifCount(notifResp.count || 0);
+        setSendEvents(sendResp.data || []);
       } catch {
         // Soft-fail — empty state is fine. The cards just show 0.
       } finally {
@@ -311,12 +329,21 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     const leadsThis = jobs.filter((j) => inMonth(j.created_at, 'this')).length;
     const leadsLast = jobs.filter((j) => inMonth(j.created_at, 'last')).length;
 
-    // Count by sent_at (permanent timestamp) instead of status === 'sent'
-    // (which flips to 'approved' / 'signed' the moment the client moves
-    // forward). Without this, any estimate sent this month silently
-    // drops off the card the day it gets approved.
-    const estSentThis = myEsts.filter((e) => e.sent_at && inMonth(e.sent_at, 'this')).length;
-    const estSentLast = myEsts.filter((e) => e.sent_at && inMonth(e.sent_at, 'last')).length;
+    // Source of truth: audit_log rows with action='estimate.send'.
+    // Earlier we tried filtering estimates.status === 'sent' (flips to
+    // 'approved'/'signed') and then estimates.sent_at (sometimes NULL).
+    // The audit row is written unconditionally the moment Send is
+    // clicked, so it never lies. Dedup by entity_id — re-sending the
+    // same estimate within the month still counts as one for the KPI.
+    const sendThisIds = new Set();
+    const sendLastIds = new Set();
+    for (const a of sendEvents || []) {
+      if (!a?.created_at) continue;
+      if (inMonth(a.created_at, 'this')) sendThisIds.add(a.entity_id || a.id);
+      else if (inMonth(a.created_at, 'last')) sendLastIds.add(a.entity_id || a.id);
+    }
+    const estSentThis = sendThisIds.size;
+    const estSentLast = sendLastIds.size;
 
     const wonStatuses = new Set(['contract_signed', 'in_progress', 'completed']);
     const wonThis = jobs.filter((j) => wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, 'this')).length;
@@ -335,7 +362,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       won:         { value: wonThis,      delta: delta(wonThis, wonLast) },
       sales:       { value: salesThis,    delta: delta(salesThis, salesLast) },
     };
-  }, [jobs, estimates]);
+  }, [jobs, estimates, sendEvents]);
 
   // ─── Pipeline overview rows ──────────────────────────────────────
   const pipelineRows = useMemo(() => {
