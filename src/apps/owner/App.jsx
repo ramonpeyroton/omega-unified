@@ -1,5 +1,14 @@
-import { useState, useEffect } from 'react';
-import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar } from 'lucide-react';
+// Owner sub-app — migrated to URL-based routing (same pattern as Sales).
+//
+// The Sidebar + JarvisChat + MobileBottomBar wrap a persistent layout
+// shell; the <Routes> inside the <main> swap per URL. The JobFullView
+// becomes a real route (/jobs/:id?tab=X) so refresh and shared links
+// preserve the open card. Back from a job ALWAYS lands on /pipeline,
+// per Ramon's rule.
+
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate } from 'react-router-dom';
+
 import Dashboard from './screens/Dashboard';
 import JobDetail from './screens/JobDetail';
 import AssignSubs from './screens/AssignSubs';
@@ -19,9 +28,61 @@ import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
 import Questionnaire from '../sales/screens/Questionnaire';
-import { useBackNavHome } from '../../shared/lib/backNav';
+import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar } from 'lucide-react';
 
-function MobileBottomBar({ screen, onNavigate, notifCount }) {
+// ─── Helpers ──────────────────────────────────────────────────────
+
+function useJobById(id) {
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!id) { setLoading(false); return; }
+    let active = true;
+    setLoading(true);
+    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        setJob(data);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, [id]);
+  return { job, setJob, loading };
+}
+
+function LoadingFallback() {
+  return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;
+}
+
+// Maps the current URL pathname to the legacy `screen` id the
+// Sidebar / MobileBottomBar use for the active-state highlight.
+function screenIdFromPath(pathname) {
+  if (pathname === '/' || pathname === '') return 'dashboard';
+  if (pathname.startsWith('/pipeline')) return 'pipeline';
+  if (pathname.startsWith('/calendar')) return 'calendar';
+  if (pathname.startsWith('/finance')) return 'finance';
+  if (pathname.startsWith('/notifications')) return 'notifications';
+  if (pathname.startsWith('/subcontractors')) return 'subcontractors';
+  if (pathname.startsWith('/project-analyzer')) return 'project-analyzer';
+  if (pathname.startsWith('/warehouse')) return 'warehouse';
+  if (pathname.startsWith('/omega-brain')) return 'omega-brain';
+  if (pathname.startsWith('/leads')) return 'leads';
+  if (pathname.startsWith('/commissions')) return 'commissions';
+  return null; // job pages, etc — no sidebar highlight
+}
+
+function navigateForId(navigate, id) {
+  if (id === 'dashboard' || id === 'home') return navigate('/');
+  return navigate(`/${id}`);
+}
+
+// ─── Mobile bottom bar — uses location instead of state ───────────
+
+function MobileBottomBar({ notifCount }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const screen = screenIdFromPath(location.pathname);
+
   const items = [
     { id: 'dashboard',  icon: LayoutDashboard, label: 'Home' },
     { id: 'pipeline',   icon: GitBranch,        label: 'Pipeline' },
@@ -34,7 +95,7 @@ function MobileBottomBar({ screen, onNavigate, notifCount }) {
       {items.map(({ id, icon: Icon, label, badge }) => (
         <button
           key={id}
-          onClick={() => onNavigate(id)}
+          onClick={() => navigateForId(navigate, id)}
           className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 relative ${
             screen === id ? 'text-omega-orange' : 'text-omega-stone'
           }`}
@@ -52,28 +113,227 @@ function MobileBottomBar({ screen, onNavigate, notifCount }) {
   );
 }
 
+// ─── Layout shell that wraps every route ──────────────────────────
+
+function OwnerShell({ user, notifCount, onLogout, children }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const screen = screenIdFromPath(location.pathname);
+
+  return (
+    <div className="flex h-screen bg-omega-cloud overflow-hidden">
+      <Sidebar
+        screen={screen}
+        onNavigate={(id) => navigateForId(navigate, id)}
+        onLogout={onLogout}
+        notifCount={notifCount}
+        userName={user.name}
+        user={user}
+        onOpenJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: location.pathname } })}
+      />
+      <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
+        {children}
+      </main>
+      <JarvisChat user={user} />
+      <MobileBottomBar notifCount={notifCount} />
+    </div>
+  );
+}
+
+// ─── Route wrappers ───────────────────────────────────────────────
+
+function DashboardRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <Dashboard
+      user={user}
+      onSelectJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+      onNavigate={(id) => navigateForId(navigate, id)}
+    />
+  );
+}
+
+function PipelineRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <PipelineKanban
+      user={user}
+      filterBySalesperson={false}
+      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
+      onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
+    />
+  );
+}
+
+function CalendarRoute({ user })       { return <CalendarScreen user={user} />; }
+function FinanceRoute({ user })        { return <FinanceScreen user={user} />; }
+function NotificationsRoute()          { return <Notifications />; }
+function SubcontractorsRoute()         { return <Subcontractors />; }
+function ProjectAnalyzerRoute()        { return <ProjectAnalyzer />; }
+function WarehouseRoute()              { return <Warehouse />; }
+function OmegaBrainRoute()             { return <OmegaBrain />; }
+function CommissionsRoute({ user })    { return <CommissionsScreen user={user} />; }
+
+function LeadsRoute({ user }) {
+  const navigate = useNavigate();
+  return <LeadsList user={user} onBack={() => navigate('/')} onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/leads' } })} />;
+}
+
+function JobFullViewRoute({ user }) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const tabHint = searchParams.get('tab');
+  const { job, setJob, loading } = useJobById(id);
+
+  // Back: state.from if set, otherwise always /pipeline (Ramon rule).
+  const handleClose = () => {
+    const from = location.state?.from;
+    navigate(from || '/pipeline');
+  };
+
+  if (loading) return <LoadingFallback />;
+  if (!job) return <Navigate to="/" replace />;
+
+  return (
+    <JobFullView
+      job={job}
+      user={user}
+      initialTab={tabHint}
+      onClose={handleClose}
+      onJobUpdated={(u) => setJob(u)}
+      onJobDeleted={() => navigate('/')}
+      onOpenQuestionnaire={(j) => navigate(`/jobs/${j.id}/questionnaire`, { state: { from: location.pathname + location.search } })}
+      onOpenEstimateFlow={(j) => navigate(`/jobs/${j.id}/estimate-flow`, { state: { from: location.pathname + location.search } })}
+    />
+  );
+}
+
+function JobDetailRoute({ user }) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { job, setJob, loading } = useJobById(id);
+
+  if (loading) return <LoadingFallback />;
+  if (!job) return <Navigate to="/" replace />;
+
+  return (
+    <JobDetail
+      job={job}
+      onJobUpdated={(u) => setJob(u)}
+      onNavigate={(id) => navigateForId(navigate, id)}
+      onAssignSubs={async (j) => {
+        // Phases are still fetched here so the AssignSubs screen has
+        // them on first render; we stash them via sessionStorage so
+        // the route component doesn't have to re-fetch.
+        const { data: phases } = await supabase.from('job_phases').select('*').eq('job_id', j.id).order('phase_index');
+        sessionStorage.setItem(`assignSubs:phases:${j.id}`, JSON.stringify(phases || []));
+        navigate(`/jobs/${j.id}/assign-subs`);
+      }}
+    />
+  );
+}
+
+function AssignSubsRoute() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { job, loading } = useJobById(id);
+  const phases = JSON.parse(sessionStorage.getItem(`assignSubs:phases:${id}`) || '[]');
+
+  if (loading) return <LoadingFallback />;
+  if (!job) return <Navigate to="/" replace />;
+
+  return <AssignSubs job={job} phases={phases} onNavigate={(id) => navigateForId(navigate, id)} />;
+}
+
+function EstimateFlowRoute({ user }) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { job, loading } = useJobById(id);
+
+  if (loading) return <LoadingFallback />;
+  if (!job) return <Navigate to="/" replace />;
+
+  return <EstimateFlow job={job} user={user} onBack={() => navigate('/pipeline')} />;
+}
+
+function QuestionnaireRoute() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { job, setJob, loading } = useJobById(id);
+
+  if (loading) return <LoadingFallback />;
+  if (!job) return <Navigate to="/" replace />;
+
+  return (
+    <Questionnaire
+      job={job}
+      onNavigate={() => navigate('/')}
+      onJobUpdated={(u) => setJob(u)}
+      onComplete={(updated) => { setJob(updated); navigate('/'); }}
+    />
+  );
+}
+
+// ─── Root ────────────────────────────────────────────────────────
+
+function OwnerRoutes({ user, onLogout, notifCount }) {
+  return (
+    <Routes>
+      {/* Routes that render INSIDE the OwnerShell (Sidebar persists). */}
+      <Route element={<OwnerShellWrapper user={user} onLogout={onLogout} notifCount={notifCount} />}>
+        <Route path="/"                element={<DashboardRoute user={user} />} />
+        <Route path="/pipeline"        element={<PipelineRoute user={user} />} />
+        <Route path="/calendar"        element={<CalendarRoute user={user} />} />
+        <Route path="/finance"         element={<FinanceRoute user={user} />} />
+        <Route path="/notifications"   element={<NotificationsRoute />} />
+        <Route path="/subcontractors"  element={<SubcontractorsRoute />} />
+        <Route path="/project-analyzer" element={<ProjectAnalyzerRoute />} />
+        <Route path="/warehouse"       element={<WarehouseRoute />} />
+        <Route path="/omega-brain"     element={<OmegaBrainRoute />} />
+        <Route path="/leads"           element={<LeadsRoute user={user} />} />
+        <Route path="/commissions"     element={<CommissionsRoute user={user} />} />
+      </Route>
+
+      {/* Job-scoped routes also live inside the shell so the Sidebar
+          stays visible while the user is looking at a card. */}
+      <Route element={<OwnerShellWrapper user={user} onLogout={onLogout} notifCount={notifCount} />}>
+        <Route path="/jobs/:id"                 element={<JobFullViewRoute user={user} />} />
+        <Route path="/jobs/:id/job-detail"      element={<JobDetailRoute user={user} />} />
+        <Route path="/jobs/:id/assign-subs"     element={<AssignSubsRoute />} />
+        <Route path="/jobs/:id/estimate-flow"   element={<EstimateFlowRoute user={user} />} />
+        <Route path="/jobs/:id/questionnaire"   element={<QuestionnaireRoute />} />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+// React Router v6 nested layout helper — keeps OwnerShell mounted
+// between route swaps so the Sidebar / JarvisChat don't re-mount
+// on every nav.
+import { Outlet } from 'react-router-dom';
+function OwnerShellWrapper({ user, onLogout, notifCount }) {
+  return (
+    <OwnerShell user={user} onLogout={onLogout} notifCount={notifCount}>
+      <Outlet />
+    </OwnerShell>
+  );
+}
+
 export default function App({ user, onLogout }) {
-  const [screen, setScreen] = useState('dashboard');
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [selectedPhases, setSelectedPhases] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
-  // JobFullView overlay — opened by clicks from the Daily Logs sidebar
-  // cascade (Sprint 3 of the chat replacement). Independent from the
-  // existing JobDetail screen so we don't disrupt the dashboard flow.
-  const [fullViewJob, setFullViewJob] = useState(null);
-  // initial tab hint — used when the cascade opens a chat so we land
-  // on the Daily Logs tab instead of the default Report.
-  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
 
   useEffect(() => {
-    if (user) {
-      loadNotifCount();
-      const channel = supabase
-        .channel('notifications')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, () => loadNotifCount())
-        .subscribe();
-      return () => supabase.removeChannel(channel);
-    }
+    if (!user) return;
+    loadNotifCount();
+    const channel = supabase
+      .channel('notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, () => loadNotifCount())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
   }, [user]);
 
   async function loadNotifCount() {
@@ -81,123 +341,9 @@ export default function App({ user, onLogout }) {
     setNotifCount(count || 0);
   }
 
-  const handleLogout = () => {
-    setScreen('dashboard');
-    onLogout();
-  };
-
-  const navigate = (s) => {
-    setScreen(s);
-    if (s === 'notifications') loadNotifCount();
-  };
-
-  // Back button → step out of detail screens first, then land on Dashboard.
-  useBackNavHome(() => {
-    if (screen === 'job-detail' || screen === 'assign-subs' || screen === 'estimate-flow' || screen === 'questionnaire') {
-      setScreen('dashboard'); return;
-    }
-    if (screen !== 'dashboard') setScreen('dashboard');
-  });
-
-  const renderScreen = () => {
-    switch (screen) {
-      case 'dashboard':
-        return (
-          <Dashboard
-            user={user}
-            onSelectJob={(job) => { setFullViewJob(job); setFullViewInitialTab(null); }}
-            onNavigate={navigate}
-          />
-        );
-      case 'job-detail':
-        if (!selectedJob) { setScreen('dashboard'); return null; }
-        return (
-          <JobDetail
-            job={selectedJob}
-            onJobUpdated={(updated) => setSelectedJob(updated)}
-            onNavigate={navigate}
-            onAssignSubs={async (job) => {
-              const { data: phases } = await supabase.from('job_phases').select('*').eq('job_id', job.id).order('phase_index');
-              setSelectedPhases(phases || []);
-              setScreen('assign-subs');
-            }}
-          />
-        );
-      case 'assign-subs':
-        if (!selectedJob) { setScreen('dashboard'); return null; }
-        return <AssignSubs job={selectedJob} phases={selectedPhases} onNavigate={navigate} />;
-      case 'subcontractors':
-        return <Subcontractors />;
-      case 'notifications':
-        return <Notifications />;
-      case 'project-analyzer':
-        return <ProjectAnalyzer />;
-      case 'warehouse':
-        return <Warehouse />;
-      case 'omega-brain':
-        return <OmegaBrain />;
-      case 'pipeline':
-        return (
-          <PipelineKanban
-            user={user}
-            filterBySalesperson={false}
-            onOpenEstimateFlow={(job) => { setSelectedJob(job); setScreen('estimate-flow'); }}
-          />
-        );
-      case 'calendar':
-        return <CalendarScreen user={user} />;
-      case 'finance':
-        return <FinanceScreen user={user} />;
-      case 'leads':
-        return <LeadsList user={user} onBack={() => setScreen('dashboard')} />;
-      case 'commissions':
-        return <CommissionsScreen user={user} />;
-      case 'estimate-flow':
-        return selectedJob
-          ? <EstimateFlow job={selectedJob} user={user} onBack={() => setScreen('pipeline')} />
-          : <Dashboard user={user} onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }} />;
-      case 'questionnaire':
-        if (!selectedJob) { setScreen('dashboard'); return null; }
-        return (
-          <Questionnaire
-            job={selectedJob}
-            onNavigate={() => setScreen('dashboard')}
-            onJobUpdated={(updated) => setSelectedJob(updated)}
-            onComplete={(updated) => { setSelectedJob(updated); setScreen('dashboard'); }}
-          />
-        );
-      default:
-        return <Dashboard user={user} onSelectJob={(job) => { setSelectedJob(job); setScreen('job-detail'); }} />;
-    }
-  };
-
   return (
-    <div className="flex h-screen bg-omega-cloud overflow-hidden">
-      <Sidebar
-        screen={screen}
-        onNavigate={navigate}
-        onLogout={handleLogout}
-        notifCount={notifCount}
-        userName={user.name}
-        user={user}
-        onOpenJob={(job, tab = 'daily') => { setFullViewJob(job); setFullViewInitialTab(tab); }}
-      />
-      <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
-        {renderScreen()}
-      </main>
-      {fullViewJob && (
-        <JobFullView
-          job={fullViewJob}
-          user={user}
-          initialTab={fullViewInitialTab}
-          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
-          onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
-          onOpenQuestionnaire={(job) => { setSelectedJob(job); setScreen('questionnaire'); }}
-        />
-      )}
-      <JarvisChat user={user} />
-      <MobileBottomBar screen={screen} onNavigate={navigate} notifCount={notifCount} />
-    </div>
+    <BrowserRouter>
+      <OwnerRoutes user={user} onLogout={onLogout} notifCount={notifCount} />
+    </BrowserRouter>
   );
 }

@@ -1,19 +1,41 @@
-import { useState } from 'react';
+// Marketing sub-app — read-only Pipeline + My Leads, plus the Daily
+// Logs cascade. Migrated to URL-based routing.
+
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
+
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import JarvisChat from '../../shared/components/JarvisChat';
 import LeadsList from '../receptionist/screens/LeadsList';
 import JobFullView from '../../shared/components/JobFullView';
 import DailyLogsList from '../../shared/components/DailyLogsList';
+import { supabase } from '../owner/lib/supabase';
 
-// Placeholder Marketing role — read-only pipeline + My Leads + the
-// Daily Logs cascade so Ramon can chime in on project chats he's a
-// member of without leaving the marketing surface.
-export default function MarketingApp({ user, onLogout }) {
-  const [tab, setTab] = useState('pipeline');
+function useJobById(id) {
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!id) { setLoading(false); return; }
+    let active = true;
+    setLoading(true);
+    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        setJob(data);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, [id]);
+  return { job, setJob, loading };
+}
+
+function MarketingShell({ user, onLogout }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
-  const [fullViewJob, setFullViewJob] = useState(null);
-  const [fullViewInitialTab, setFullViewInitialTab] = useState(null);
+
+  const tab = location.pathname.startsWith('/leads') ? 'leads' : 'pipeline';
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -29,8 +51,8 @@ export default function MarketingApp({ user, onLogout }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <SidebarBtn active={tab === 'pipeline'}    onClick={() => setTab('pipeline')}    icon={GitBranch}      label="Pipeline" />
-          <SidebarBtn active={tab === 'leads'}       onClick={() => setTab('leads')}       icon={ClipboardList}  label="My Leads" />
+          <SidebarBtn active={tab === 'pipeline'} onClick={() => navigate('/')}        icon={GitBranch}     label="Pipeline" />
+          <SidebarBtn active={tab === 'leads'}    onClick={() => navigate('/leads')}   icon={ClipboardList} label="My Leads" />
 
           <button
             onClick={() => setDailyLogsOpen((o) => !o)}
@@ -46,7 +68,12 @@ export default function MarketingApp({ user, onLogout }) {
               ? <ChevronDown className="w-4 h-4 text-white/60" />
               : <ChevronRight className="w-4 h-4 text-white/60" />}
           </button>
-          {dailyLogsOpen && <DailyLogsList user={user} onOpenJob={(job) => { setFullViewJob(job); setFullViewInitialTab('daily'); }} />}
+          {dailyLogsOpen && (
+            <DailyLogsList
+              user={user}
+              onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: location.pathname } })}
+            />
+          )}
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">
@@ -60,23 +87,61 @@ export default function MarketingApp({ user, onLogout }) {
       </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col">
-        {tab === 'pipeline' && <PipelineKanban user={user} readOnly />}
-        {tab === 'leads'    && <LeadsList user={user} onBack={() => setTab('pipeline')} />}
+        <Outlet />
       </main>
-
-      {fullViewJob && (
-        <JobFullView
-          job={fullViewJob}
-          user={user}
-          initialTab={fullViewInitialTab}
-          onClose={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
-          onJobUpdated={(u) => setFullViewJob(u)}
-          onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
-        />
-      )}
 
       <JarvisChat user={user} />
     </div>
+  );
+}
+
+function PipelineRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <PipelineKanban
+      user={user}
+      readOnly
+      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+    />
+  );
+}
+
+function LeadsRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <LeadsList
+      user={user}
+      onBack={() => navigate('/')}
+      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/leads' } })}
+    />
+  );
+}
+
+function JobFullViewRoute({ user }) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const tabHint = searchParams.get('tab');
+  const { job, setJob, loading } = useJobById(id);
+
+  const handleClose = () => {
+    const from = location.state?.from;
+    navigate(from || '/');
+  };
+
+  if (loading) return <div className="p-8 text-omega-stone">Loading…</div>;
+  if (!job) return <Navigate to="/" replace />;
+
+  return (
+    <JobFullView
+      job={job}
+      user={user}
+      initialTab={tabHint}
+      onClose={handleClose}
+      onJobUpdated={(u) => setJob(u)}
+      onJobDeleted={() => navigate('/')}
+    />
   );
 }
 
@@ -93,5 +158,20 @@ function SidebarBtn({ active, onClick, icon: Icon, label }) {
       <Icon className="w-4 h-4 flex-shrink-0" />
       {label}
     </button>
+  );
+}
+
+export default function MarketingApp({ user, onLogout }) {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<MarketingShell user={user} onLogout={onLogout} />}>
+          <Route path="/"          element={<PipelineRoute user={user} />} />
+          <Route path="/leads"     element={<LeadsRoute user={user} />} />
+          <Route path="/jobs/:id"  element={<JobFullViewRoute user={user} />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
