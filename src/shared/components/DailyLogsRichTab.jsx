@@ -235,7 +235,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
 
   // ─── RENDER ──────────────────────────────────────────────────────
   return (
-    <div className="flex h-[calc(100vh-200px)] min-h-[500px] rounded-xl border border-omega-orange/20 overflow-hidden bg-omega-pale">
+    <div className="flex flex-1 min-h-0 rounded-xl border border-omega-orange/20 overflow-hidden bg-omega-pale">
       {/* ═══ LEFT RAIL ═══════════════════════════════════════════ */}
       <aside className="w-96 flex-shrink-0 flex flex-col border-r border-omega-orange/15">
         {/* Filters (grey-circle area in Ramon's screenshot) */}

@@ -565,11 +565,16 @@ export default function JobFullView({
       )}
 
       {/* ─── Body ──────────────────────────────────────────── */}
-      <div className={`flex-1 overflow-y-auto ${onOpenEstimateFlow ? 'pb-24 sm:pb-0' : ''}`}>
-        {/* The Daily Logs tab wants edge-to-edge so the chat list +
-            conversation can use the full viewport width. Every other
-            tab keeps the centered 5xl column for readable line lengths. */}
-        <div className={tab === 'daily' ? 'p-4 sm:p-6' : 'max-w-5xl mx-auto p-4 sm:p-6'}>
+      {/* On the Daily Logs tab we OWN the scrolling inside the chat
+          (messages scroll, composer stays pinned), so the outer body
+          must NOT scroll itself — otherwise the whole page scrolls
+          and the composer slides off-screen. Every other tab keeps
+          overflow-y-auto so long forms can scroll normally. */}
+      <div className={`flex-1 ${tab === 'daily' ? 'overflow-hidden' : `overflow-y-auto ${onOpenEstimateFlow ? 'pb-24 sm:pb-0' : ''}`}`}>
+        {/* Daily Logs: full-height + no max-width + no padding so the
+            rich tab can fill the space edge-to-edge.
+            Other tabs: centered 5xl column with padding for readability. */}
+        <div className={tab === 'daily' ? 'h-full' : 'max-w-5xl mx-auto p-4 sm:p-6'}>
           {tab === 'report' && (
             <div className="space-y-5">
               <ProjectReportSection
@@ -650,8 +655,8 @@ export default function JobFullView({
           )}
 
           {tab === 'daily' && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap flex-shrink-0">
                 <h2 className="text-lg font-bold text-omega-charcoal inline-flex items-center gap-2">
                   <FileText className="w-4 h-4 text-omega-orange" /> Daily Logs
                 </h2>
