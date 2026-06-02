@@ -566,7 +566,10 @@ export default function JobFullView({
 
       {/* ─── Body ──────────────────────────────────────────── */}
       <div className={`flex-1 overflow-y-auto ${onOpenEstimateFlow ? 'pb-24 sm:pb-0' : ''}`}>
-        <div className="max-w-5xl mx-auto p-4 sm:p-6">
+        {/* The Daily Logs tab wants edge-to-edge so the chat list +
+            conversation can use the full viewport width. Every other
+            tab keeps the centered 5xl column for readable line lengths. */}
+        <div className={tab === 'daily' ? 'p-4 sm:p-6' : 'max-w-5xl mx-auto p-4 sm:p-6'}>
           {tab === 'report' && (
             <div className="space-y-5">
               <ProjectReportSection
