@@ -252,7 +252,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           // ALL jobs (sales = single-seller).
           supabase.from('jobs').select('*'),
           // Estimates — load all, narrow client-side later.
-          supabase.from('estimates').select('id, job_id, status, total_amount, signed_at, created_at, updated_at'),
+          supabase.from('estimates').select('id, job_id, status, total_amount, sent_at, signed_at, created_at, updated_at'),
           // Job costing rows — fallback for pipeline totals when no
           // formal estimate exists yet. Tolerates missing table.
           supabase.from('job_costs').select('job_id, estimated_revenue'),
