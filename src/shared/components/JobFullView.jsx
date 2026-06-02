@@ -451,7 +451,7 @@ export default function JobFullView({
             )}
             {onOpenQuestionnaire && (
               <button
-                onClick={() => { onOpenQuestionnaire(job); onClose?.(); }}
+                onClick={() => { onOpenQuestionnaire(job); }}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold"
               >
                 <ClipboardEdit className="w-3.5 h-3.5" /> Questionnaire
@@ -459,7 +459,7 @@ export default function JobFullView({
             )}
             {onOpenEstimateFlow && (
               <button
-                onClick={() => { onOpenEstimateFlow(job); onClose?.(); }}
+                onClick={() => { onOpenEstimateFlow(job); }}
                 className="inline-flex items-center gap-2 pl-3 pr-2 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-xs font-bold shadow-sm transition-colors"
                 title="Review · Payment plan · Contract · Invoice"
               >
@@ -540,7 +540,7 @@ export default function JobFullView({
             )}
             {onOpenQuestionnaire && (
               <button
-                onClick={() => { onOpenQuestionnaire(job); onClose?.(); }}
+                onClick={() => { onOpenQuestionnaire(job); }}
                 className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-xs font-bold"
               >
                 <ClipboardEdit className="w-3.5 h-3.5" /> Edit Questionnaire
@@ -554,7 +554,7 @@ export default function JobFullView({
       {onOpenEstimateFlow && (
         <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 px-4 py-3 shadow-lg safe-area-bottom">
           <button
-            onClick={() => { onOpenEstimateFlow(job); onClose?.(); }}
+            onClick={() => { onOpenEstimateFlow(job); }}
             className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold shadow-sm transition-colors"
           >
             <Receipt className="w-4 h-4" />
@@ -581,7 +581,7 @@ export default function JobFullView({
                 job={job}
                 user={user}
                 onJobUpdated={(u) => { setJob(u); onJobUpdated?.(u); }}
-                onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
+                onOpenQuestionnaire={onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); } : null}
               />
 
               {/* Cost Projection — at the bottom of the Report tab so the
@@ -780,8 +780,8 @@ export default function JobFullView({
               contract={contract}
               readOnlyBasic={readOnlyBasic}
               editBlocked={editBlocked}
-              onOpenEstimateFlow={readOnlyBasic ? null : () => { onOpenEstimateFlow?.(job); onClose?.(); }}
-              onOpenQuestionnaire={!readOnlyBasic && onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); onClose?.(); } : null}
+              onOpenEstimateFlow={readOnlyBasic ? null : () => { onOpenEstimateFlow?.(job); }}
+              onOpenQuestionnaire={!readOnlyBasic && onOpenQuestionnaire ? () => { onOpenQuestionnaire(job); } : null}
               onDelete={readOnlyBasic ? null : openDeleteModal}
               onReset={readOnlyBasic ? null : openResetModal}
               onStartNewJobForClient={!readOnlyBasic && onStartNewJobForClient ? () => {
