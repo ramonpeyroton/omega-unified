@@ -27,7 +27,7 @@
 // paths on a fresh load (refresh, shared link) survive the round-trip.
 
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
 import Home from './screens/Home';
@@ -98,7 +98,7 @@ function HomeRoute({ user, onLogout }) {
       user={user}
       onLogout={onLogout}
       onNavigate={(target) => navigate(target === 'home' ? '/' : `/${target}`)}
-      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`)}
+      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
     />
   );
 }
@@ -135,9 +135,9 @@ function PipelineRoute({ user }) {
       <PipelineKanban
         user={user}
         filterBySalesperson={false}
-        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`)}
-        onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`)}
-        onOpenQuestionnaire={(job) => navigate(`/jobs/${job.id}/questionnaire`)}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
+        onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
+        onOpenQuestionnaire={(job) => navigate(`/jobs/${job.id}/questionnaire`, { state: { from: '/pipeline' } })}
         onStartNewJobForClient={(clientData) => {
           const token = Math.random().toString(36).slice(2, 10);
           sessionStorage.setItem(`prefill:${token}`, JSON.stringify(clientData));
@@ -164,7 +164,7 @@ function EstimatesRoute({ user }) {
       onBack={() => navigate('/')}
       onOpenEstimate={(job) => {
         if (!job) return;
-        navigate(`/jobs/${job.id}?tab=estimate`);
+        navigate(`/jobs/${job.id}?tab=estimate`, { state: { from: '/estimates' } });
       }}
     />
   );
@@ -176,7 +176,7 @@ function NotificationsRoute({ user }) {
     <Notifications
       user={user}
       onNavigate={(target) => navigate(target === 'home' ? '/' : `/${target}`)}
-      onOpenJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`)}
+      onOpenJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: '/notifications' } })}
     />
   );
 }
@@ -189,7 +189,7 @@ function LeadsRoute({ user }) {
       <LeadsList
         user={user}
         onBack={() => navigate('/')}
-        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`)}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/leads' } })}
       />
     </div>
   );
@@ -221,9 +221,24 @@ function PreviousJobsRoute({ user }) {
 function JobFullViewRoute({ user }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const tabHint = searchParams.get('tab');
   const { job, setJob, loading } = useJobById(id);
+
+  // Back button. Three layered fallbacks:
+  //   1. The route the user came from, stashed in location.state.from
+  //      by navigations that originated inside the SPA.
+  //   2. If there's enough history (came via in-app navigation but
+  //      from didn't get set for some reason), navigate(-1).
+  //   3. Otherwise — fresh load / shared link with no history — go
+  //      home so the user has a sensible landing.
+  const handleClose = () => {
+    const from = location.state?.from;
+    if (from) { navigate(from); return; }
+    if (window.history.length > 2) { navigate(-1); return; }
+    navigate('/');
+  };
 
   if (loading) return <LoadingFallback />;
   if (!job) return <Navigate to="/" replace />;
@@ -233,7 +248,7 @@ function JobFullViewRoute({ user }) {
       job={job}
       user={user}
       initialTab={tabHint}
-      onClose={() => navigate(-1)}
+      onClose={handleClose}
       onJobUpdated={(u) => setJob(u)}
       onJobDeleted={() => navigate('/')}
       onOpenEstimateFlow={(j) => navigate(`/jobs/${j.id}/estimate-flow`)}
