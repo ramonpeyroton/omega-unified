@@ -231,7 +231,12 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   const [estimates, setEstimates] = useState([]);
   const [jobCosts, setJobCosts] = useState([]);
   const [events, setEvents] = useState([]);
-  const [sendEvents, setSendEvents] = useState([]); // audit_log rows
+  // KPI counters returned by /api/sales/sent-stats — the source of
+  // truth for Estimates Sent / Won (contract sent or signed). We use
+  // the server-side endpoint because audit_log doesn't have a
+  // permissive anon read policy, so a direct supabase.from('audit_log')
+  // from the browser returned silent empties for weeks.
+  const [auditStats, setAuditStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // ─── Load dashboard data ─────────────────────────────────────────
@@ -249,13 +254,13 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       const namePrefix = firstName ? `${firstName}%` : '';
 
       try {
-        // Audit-log cutoff for the "Estimates Sent" KPI. Pull ~70 days
-        // back so both startThis and startLast windows fit even at the
-        // beginning of a month, with a bit of slack.
-        const sendCutoff = new Date();
-        sendCutoff.setDate(sendCutoff.getDate() - 70);
+        // Stats query goes server-side because audit_log is RLS-locked
+        // for anon reads. Fired in parallel with the rest.
+        const statsPromise = fetch('/api/sales/sent-stats')
+          .then((r) => r.ok ? r.json() : null)
+          .catch(() => null);
 
-        const [jobsResp, estResp, costsResp, evResp, notifResp, sendResp] = await Promise.all([
+        const [jobsResp, estResp, costsResp, evResp, notifResp] = await Promise.all([
           // ALL jobs (sales = single-seller).
           supabase.from('jobs').select('*'),
           // Estimates — load all, narrow client-side later.
@@ -286,34 +291,25 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                 .order('starts_at', { ascending: true })
                 .limit(8),
           supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('seen', false),
-          // Audit rows for the KPI cards. We pull every action that
-          // feeds a card (estimate.send, contract.send, contract.sign)
-          // in a single query — cheap, indexes on `action` + `created_at`
-          // make it cheap on the server too. Filter by created_at only
-          // here; the KPI useMemo deduplicates and buckets by action.
-          supabase.from('audit_log')
-            .select('id, entity_id, action, created_at, user_role')
-            .in('action', ['estimate.send', 'contract.send', 'contract.sign'])
-            .gte('created_at', sendCutoff.toISOString()),
         ]);
+        const statsResp = await statsPromise;
         if (cancelled) return;
-        // Surface query failures so we never repeat the "silent 400
-        // caused by selecting a non-existent column" debug saga again.
-        // Each response is reported individually so one failure doesn't
-        // hide the others.
+        // Surface query failures so silent 400s don't disappear into
+        // a generic catch like they did all the way back to yesterday's
+        // sent_at saga.
         if (jobsResp.error)  console.warn('[Sales Home] jobs query failed:',  jobsResp.error);
         if (estResp.error)   console.warn('[Sales Home] estimates query failed:', estResp.error);
         if (costsResp.error) console.warn('[Sales Home] job_costs query failed:', costsResp.error);
         if (evResp.error)    console.warn('[Sales Home] calendar_events query failed:', evResp.error);
         if (notifResp.error) console.warn('[Sales Home] notifications query failed:', notifResp.error);
-        if (sendResp.error)  console.warn('[Sales Home] audit_log query failed:', sendResp.error);
+        if (!statsResp?.ok)  console.warn('[Sales Home] sent-stats endpoint failed:', statsResp);
 
         setJobs(jobsResp.data || []);
         setEstimates(estResp.data || []);
         setJobCosts(costsResp.data || []);
         setEvents(evResp.data || []);
         setNotifCount(notifResp.count || 0);
-        setSendEvents(sendResp.data || []);
+        setAuditStats(statsResp?.ok ? statsResp : null);
       } catch (err) {
         console.warn('[Sales Home] dashboard load failed:', err);
       } finally {
@@ -363,36 +359,27 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       return ((thisCount - lastCount) / lastCount) * 100;
     }
 
-    // Bucket audit rows by action + month, deduplicated by entity_id
-    // so a re-send of the same estimate still counts as one.
-    function countAudit(action, month) {
-      const ids = new Set();
-      for (const a of sendEvents || []) {
-        if (!a || a.action !== action) continue;
-        if (!inMonth(a.created_at, month)) continue;
-        ids.add(a.entity_id || a.id);
-      }
-      return ids.size;
-    }
-
     // ─── KPI 1: Leads ─────────────────────────────────────────────
     const leadsThis = jobs.filter((j) => inMonth(j.created_at, 'this')).length;
     const leadsLast = jobs.filter((j) => inMonth(j.created_at, 'last')).length;
 
-    // ─── KPI 2: Estimates Sent ────────────────────────────────────
-    const estSentThis = countAudit('estimate.send', 'this');
-    const estSentLast = countAudit('estimate.send', 'last');
+    // ─── KPI 2: Estimates Sent — server-side from audit_log ─────
+    const estSentThis = auditStats?.estimate_sent?.this_month ?? 0;
+    const estSentLast = auditStats?.estimate_sent?.last_month ?? 0;
 
-    // ─── KPI 3: Won — contracts sent or jobs that moved into the
-    // winning phases this month. Take the maximum of the two sources
-    // so we don't undercount when one trigger missed.
+    // ─── KPI 3: Won — server-side audit OR pipeline status ──────
+    // The endpoint counts contract.send + contract.sign rows. We also
+    // check the jobs table for any row whose pipeline_status sits in
+    // the winning set and moved this month, then take the max. Belt
+    // and braces.
     const wonStatuses = new Set(['contract_signed', 'in_progress', 'completed']);
     const wonByJobs = (m) => jobs.filter((j) =>
       wonStatuses.has(j.pipeline_status) && inMonth(j.updated_at || j.created_at, m),
     ).length;
-    const wonByAudit = (m) => countAudit('contract.send', m) + countAudit('contract.sign', m);
-    const wonThis = Math.max(wonByJobs('this'), wonByAudit('this'));
-    const wonLast = Math.max(wonByJobs('last'), wonByAudit('last'));
+    const wonByAuditThis = (auditStats?.contract_sent?.this_month ?? 0) + (auditStats?.contract_sign?.this_month ?? 0);
+    const wonByAuditLast = (auditStats?.contract_sent?.last_month ?? 0) + (auditStats?.contract_sign?.last_month ?? 0);
+    const wonThis = Math.max(wonByJobs('this'), wonByAuditThis);
+    const wonLast = Math.max(wonByJobs('last'), wonByAuditLast);
 
     // ─── KPI 4: Sales (this month) ────────────────────────────────
     // signed_at IS a real column (migration 018). Filter estimates by
@@ -412,7 +399,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       won:         { value: wonThis,      delta: delta(wonThis, wonLast) },
       sales:       { value: salesThis,    delta: delta(salesThis, salesLast) },
     };
-  }, [jobs, estimates, sendEvents]);
+  }, [jobs, estimates, auditStats]);
 
   // ─── Pipeline overview rows ──────────────────────────────────────
   const pipelineRows = useMemo(() => {
