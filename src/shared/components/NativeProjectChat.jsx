@@ -113,7 +113,7 @@ function renderBody(body, members) {
   });
 }
 
-export default function NativeProjectChat({ job, user }) {
+export default function NativeProjectChat({ job, user, embedded = false }) {
   const [messages, setMessages]       = useState([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState('');
@@ -356,8 +356,17 @@ export default function NativeProjectChat({ job, user }) {
     );
   }
 
+  // When embedded inside DailyLogsRichTab the parent already owns the
+  // size, rounded corners and border, so we drop ours to avoid the
+  // "card inside a card" look. Otherwise we keep the original 600px
+  // card behaviour so existing places that render the chat alone
+  // still look correct.
+  const wrapperCls = embedded
+    ? 'flex flex-col h-full min-h-0 bg-omega-cloud overflow-hidden'
+    : 'flex flex-col h-[600px] max-h-[70vh] bg-omega-cloud rounded-xl overflow-hidden';
+
   return (
-    <div className="flex flex-col h-[600px] max-h-[70vh] bg-omega-cloud rounded-xl overflow-hidden">
+    <div className={wrapperCls}>
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {messages.length === 0 && (

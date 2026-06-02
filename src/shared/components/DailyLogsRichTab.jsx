@@ -214,7 +214,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
 
   // ─── RENDER ──────────────────────────────────────────────────────
   return (
-    <div className="flex h-[70vh] min-h-[500px] rounded-xl border border-gray-200 overflow-hidden bg-omega-charcoal">
+    <div className="flex h-[640px] max-h-[calc(100vh-220px)] min-h-[500px] rounded-xl border border-gray-200 overflow-hidden bg-omega-charcoal">
       {/* ═══ LEFT RAIL ═══════════════════════════════════════════ */}
       <aside className="w-64 flex-shrink-0 flex flex-col border-r border-white/10">
         {/* Filters (grey-circle area in Ramon's screenshot) */}
@@ -316,7 +316,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
         {filter === 'files' ? (
           <FilesView userName={userName} jobs={jobs} />
         ) : (
-          <NativeProjectChat job={job} user={user} />
+          <NativeProjectChat job={job} user={user} embedded />
         )}
       </main>
     </div>
