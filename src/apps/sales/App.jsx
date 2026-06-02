@@ -135,11 +135,10 @@ function PipelineRoute({ user }) {
       <PipelineKanban
         user={user}
         filterBySalesperson={false}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`)}
         onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`)}
         onOpenQuestionnaire={(job) => navigate(`/jobs/${job.id}/questionnaire`)}
         onStartNewJobForClient={(clientData) => {
-          // Stash the prefill in sessionStorage so the URL doesn't
-          // explode with embedded JSON.
           const token = Math.random().toString(36).slice(2, 10);
           sessionStorage.setItem(`prefill:${token}`, JSON.stringify(clientData));
           navigate(`/new-job?prefill=${token}`);

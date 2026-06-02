@@ -552,6 +552,12 @@ function MobilePipelineView({
 export default function PipelineKanban({
   user, filterBySalesperson = false, readOnly = false,
   onOpenEstimateFlow, onOpenQuestionnaire, onStartNewJobForClient,
+  // Optional. When provided, clicking a card calls this instead of
+  // opening the internal JobFullView overlay — used by the Sales
+  // app (and future role apps) that route to /jobs/:id so refresh
+  // and shareable links work. When omitted (legacy callers) we
+  // fall back to the old overlay behaviour.
+  onOpenJob,
 }) {
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(() => {
@@ -576,6 +582,10 @@ export default function PipelineKanban({
   const [savingId, setSavingId] = useState(null);
   const [openJob, setOpenJob] = useState(null);
   const [deleteJob, setDeleteJob] = useState(null);
+
+  // Card click dispatches to onOpenJob when the host wants URL-based
+  // routing; otherwise opens the legacy in-place overlay.
+  const handleOpenJob = onOpenJob || setOpenJob;
 
   // True once we observe a "column does not exist" error from Supabase
   // for `pipeline_position`. Toggled at runtime so the kanban keeps
@@ -1082,11 +1092,14 @@ export default function PipelineKanban({
             setFilterService={setFilterService}
             cityOptions={cityOptions}
             serviceOptions={serviceOptions}
-            onOpenJob={setOpenJob}
+            onOpenJob={handleOpenJob}
           />
         )}
 
-        {openJob && (
+        {/* Internal overlay — only when the host didn't ask us to
+            route. When onOpenJob is provided we hand the click off
+            and the host renders JobFullView via its own route. */}
+        {!onOpenJob && openJob && (
           <JobFullView
             job={openJob}
             user={user}
@@ -1262,7 +1275,7 @@ export default function PipelineKanban({
                                 // the card details — JobFullView itself gates which tabs
                                 // and actions render based on user.role. Used by the
                                 // receptionist's read-only kanban view.
-                                onOpen={setOpenJob}
+                                onOpen={handleOpenJob}
                                 onDelete={setDeleteJob}
                                 canDelete={canDelete}
                                 isDragging={isDragging}
@@ -1297,7 +1310,10 @@ export default function PipelineKanban({
         </DragOverlay>
       </DndContext>
 
-      {openJob && (
+      {/* Desktop overlay — same gate as the mobile path above.
+          Hosts that supply onOpenJob render JobFullView via their
+          own /jobs/:id route, so we skip the internal overlay. */}
+      {!onOpenJob && openJob && (
         <JobFullView
           job={openJob}
           user={user}
