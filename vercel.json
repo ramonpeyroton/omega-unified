@@ -19,7 +19,8 @@
     { "source": "/previous-jobs",            "destination": "/" },
     { "source": "/new-job",                  "destination": "/" },
     { "source": "/daily-logs",               "destination": "/" },
-    { "source": "/jobs/:path*",              "destination": "/" }
+    { "source": "/jobs/:path*",              "destination": "/" },
+    { "source": "/((?!api/|assets/|.*\\..*).*)", "destination": "/" }
   ],
   "crons": [
     {
