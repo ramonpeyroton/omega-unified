@@ -80,12 +80,16 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
     let active = true;
     (async () => {
       try {
-        const { data: js } = await supabase
+        // The job list itself. Stays lean — only columns we render,
+        // none of the new ones from migrations 066/067 to avoid the
+        // entire query exploding if those haven't been run yet.
+        const { data: js, error: jobsErr } = await supabase
           .from('jobs')
-          .select('id, client_name, address, service, pipeline_status, last_chat_message_at, chat_members')
+          .select('id, client_name, address, service, pipeline_status, chat_members')
           .contains('chat_members', [userName])
           .order('client_name', { ascending: true })
           .limit(500);
+        if (jobsErr) console.warn('[DailyLogsRichTab] jobs query failed:', jobsErr);
         const filtered = (js || []).filter((j) =>
           ACTIVE_PHASES.has(j.pipeline_status || 'new_lead')
         );
@@ -98,11 +102,26 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
           return;
         }
 
-        const { data: rs } = await supabase
-          .from('chat_reads')
-          .select('job_id, last_read_at, is_starred')
-          .eq('user_name', userName)
-          .in('job_id', ids);
+        // Try with is_starred first (migration 067). If the column
+        // doesn't exist yet we retry without it so starring is just
+        // a no-op rather than breaking the whole panel.
+        let rs = null;
+        try {
+          const r = await supabase
+            .from('chat_reads')
+            .select('job_id, last_read_at, is_starred')
+            .eq('user_name', userName)
+            .in('job_id', ids);
+          if (r.error) throw r.error;
+          rs = r.data;
+        } catch {
+          const r2 = await supabase
+            .from('chat_reads')
+            .select('job_id, last_read_at')
+            .eq('user_name', userName)
+            .in('job_id', ids);
+          rs = r2.data;
+        }
         const readsMap = {};
         for (const r of (rs || [])) readsMap[r.job_id] = r;
         if (active) setReads(readsMap);
@@ -119,7 +138,9 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
           if (!latestMap[m.job_id]) latestMap[m.job_id] = m;
         }
         if (active) setLatest(latestMap);
-      } catch { /* swallow — empty state is fine */ }
+      } catch (err) {
+        console.warn('[DailyLogsRichTab] load failed:', err);
+      }
     })();
     return () => { active = false; };
   }, [userName]);
@@ -214,11 +235,11 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
 
   // ─── RENDER ──────────────────────────────────────────────────────
   return (
-    <div className="flex h-[640px] max-h-[calc(100vh-220px)] min-h-[500px] rounded-xl border border-gray-200 overflow-hidden bg-omega-charcoal">
+    <div className="flex h-[640px] max-h-[calc(100vh-220px)] min-h-[500px] rounded-xl border border-omega-orange/20 overflow-hidden bg-omega-pale">
       {/* ═══ LEFT RAIL ═══════════════════════════════════════════ */}
-      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-white/10">
+      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-omega-orange/15">
         {/* Filters (grey-circle area in Ramon's screenshot) */}
-        <nav className="px-2 pt-3 pb-2 space-y-0.5 border-b border-white/10">
+        <nav className="px-2 pt-3 pb-2 space-y-0.5 border-b border-omega-orange/15">
           {FILTER_ITEMS.map((f) => {
             const Icon = f.icon;
             const active = filter === f.id;
@@ -228,8 +249,8 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
                 onClick={() => setFilter(f.id)}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-[13px] transition-colors ${
                   active
-                    ? 'bg-white/15 text-white font-semibold'
-                    : 'text-white/70 hover:bg-white/5'
+                    ? 'bg-omega-orange text-white font-semibold'
+                    : 'text-omega-charcoal hover:bg-white'
                 }`}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
@@ -240,14 +261,14 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
         </nav>
 
         {/* Search */}
-        <div className="px-3 py-2 border-b border-white/10">
+        <div className="px-3 py-2 border-b border-omega-orange/15">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-omega-stone pointer-events-none" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter chats…"
-              className="w-full pl-7 pr-2 py-1.5 text-[12px] rounded bg-white/5 text-white placeholder-white/30 border border-white/10 focus:border-omega-orange focus:outline-none"
+              className="w-full pl-7 pr-2 py-1.5 text-[12px] rounded bg-white text-omega-charcoal placeholder-omega-stone border border-omega-orange/15 focus:border-omega-orange focus:outline-none"
             />
           </div>
         </div>
@@ -255,7 +276,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
         {/* List of chats */}
         <div className="flex-1 overflow-y-auto px-2 py-1">
           {visible.length === 0 ? (
-            <p className="text-[12px] text-white/40 italic px-2 py-2">
+            <p className="text-[12px] text-omega-stone italic px-2 py-2">
               {filter === 'all' ? 'No chats yet.' : 'No chats match this filter.'}
             </p>
           ) : (
@@ -266,9 +287,6 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
                   key={j.id}
                   onClick={() => {
                     if (j.id !== job?.id && typeof onSwitchJob === 'function') {
-                      // Fetch the full row so the JobFullView header has
-                      // everything it needs (the list query only pulled a
-                      // few columns to keep it lean).
                       supabase
                         .from('jobs').select('*').eq('id', j.id).maybeSingle()
                         .then(({ data }) => { if (data) onSwitchJob(data); });
@@ -276,8 +294,8 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
                   }}
                   className={`group flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-[13px] mb-0.5 ${
                     isSelected
-                      ? 'bg-white/15 text-white'
-                      : 'text-white/80 hover:bg-white/5'
+                      ? 'bg-omega-orange text-white'
+                      : 'text-omega-charcoal hover:bg-white'
                   }`}
                 >
                   <button
@@ -285,20 +303,24 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
                     onClick={(e) => { e.stopPropagation(); toggleStar(j.id); }}
                     className={`flex-shrink-0 transition-opacity ${
                       j.isStarred
-                        ? 'text-yellow-400 opacity-100'
-                        : 'text-white/30 opacity-0 group-hover:opacity-100'
+                        ? 'text-yellow-500 opacity-100'
+                        : `${isSelected ? 'text-white/60' : 'text-omega-stone'} opacity-0 group-hover:opacity-100`
                     }`}
                     title={j.isStarred ? 'Remove from starred' : 'Add to starred'}
                   >
                     <Star className="w-3 h-3" fill={j.isStarred ? 'currentColor' : 'none'} />
                   </button>
-                  <Hash className={`w-3 h-3 flex-shrink-0 ${j.isUnread ? 'text-white' : 'text-white/40'}`} />
-                  <span className={`flex-1 min-w-0 truncate ${j.isUnread ? 'font-bold' : ''}`}>
+                  <Hash className={`w-3 h-3 flex-shrink-0 ${
+                    isSelected ? 'text-white' : (j.isUnread ? 'text-omega-charcoal' : 'text-omega-stone')
+                  }`} />
+                  <span className={`flex-1 min-w-0 truncate ${j.isUnread && !isSelected ? 'font-bold' : ''}`}>
                     {j.label}
                   </span>
                   {j.isMentioned && (
                     <span
-                      className="flex-shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold bg-omega-orange text-white rounded-full"
+                      className={`flex-shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold rounded-full ${
+                        isSelected ? 'bg-white text-omega-orange' : 'bg-omega-orange text-white'
+                      }`}
                       title="You were mentioned"
                     >
                       @
