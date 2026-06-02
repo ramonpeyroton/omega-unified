@@ -45,9 +45,9 @@ export default async function handler(req, res) {
   try {
     const { data, error } = await supabase
       .from('audit_log')
-      .select('id, entity_id, action, created_at')
+      .select('id, entity_id, action, timestamp')
       .in('action', TRACKED_ACTIONS)
-      .gte('created_at', cutoff);
+      .gte('timestamp', cutoff);
     if (error) {
       return json(res, 500, { ok: false, error: error.message, step: 'audit_log_query' });
     }
@@ -66,9 +66,9 @@ export default async function handler(req, res) {
     buckets[action] = { this: new Set(), last: new Set() };
   }
   for (const row of rows) {
-    if (!row?.created_at) continue;
-    const inThis = row.created_at >= startThis;
-    const inLast = !inThis && row.created_at >= startLast;
+    if (!row?.timestamp) continue;
+    const inThis = row.timestamp >= startThis;
+    const inLast = !inThis && row.timestamp >= startLast;
     if (!inThis && !inLast) continue;
     const bucket = buckets[row.action];
     if (!bucket) continue;
