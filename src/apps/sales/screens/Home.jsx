@@ -81,15 +81,50 @@ const OVERVIEW_PHASES = [
     matches: (j) => ['contract_signed', 'in_progress', 'completed'].includes(j.pipeline_status) },
 ];
 
-// ─── Tiny inline sparkline (visual flourish, not real data) ─────────
-// 4 KPI cards each get a soft trend curve. Generating from a hash of
-// the metric value keeps each card stable across renders without
-// pulling historical data.
-function Sparkline({ color = '#E8732A' }) {
+// ─── Tiny inline sparkline (real data, oldest → newest) ────────────
+// Each KPI card now passes a `points` array (one value per month, 6
+// elements typical, oldest first). We map the values into the SVG
+// viewBox so the highest point sits near the top and the lowest sits
+// near the bottom. A flat series (all-equal values, or empty) draws a
+// straight middle line — better than fake curvature.
+function Sparkline({ points, color = '#E8732A' }) {
+  const W = 80;
+  const H = 28;
+  const PAD_Y = 3;
+
+  const series = Array.isArray(points) && points.length > 0
+    ? points.map((v) => Number(v) || 0)
+    : null;
+
+  let pathD = `M0,${H / 2} L${W},${H / 2}`;
+  if (series && series.length >= 2) {
+    const min = Math.min(...series);
+    const max = Math.max(...series);
+    const range = max - min || 1; // avoid /0 when every value matches
+    const stepX = W / (series.length - 1);
+    const coords = series.map((v, i) => {
+      const x = i * stepX;
+      // Higher value → smaller y (SVG y-axis grows downward).
+      const y = PAD_Y + (H - PAD_Y * 2) * (1 - (v - min) / range);
+      return [x, y];
+    });
+    pathD = coords
+      .map(([x, y], i) => (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`))
+      .join(' ');
+  } else if (series && series.length === 1) {
+    // Single point → tiny dot in the middle.
+    const v = series[0];
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
+        <circle cx={W / 2} cy={H / 2} r="2" fill={color} aria-label={`${v}`} />
+      </svg>
+    );
+  }
+
   return (
-    <svg viewBox="0 0 80 28" width="80" height="28" preserveAspectRatio="none" aria-hidden="true">
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" aria-hidden="true">
       <path
-        d="M0,22 C12,15 22,20 32,12 C42,4 52,16 62,9 C70,4 76,8 80,6"
+        d={pathD}
         fill="none"
         stroke={color}
         strokeWidth="2"
@@ -155,7 +190,7 @@ function MobileBottomBar({ activeId, onNavigate, notifCount }) {
 // re-define it here.
 
 // ─── KPI card ────────────────────────────────────────────────────────
-function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkColor }) {
+function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkColor, series }) {
   const positive = deltaPct >= 0;
   const Arrow = positive ? TrendingUp : TrendingDown;
   return (
@@ -188,7 +223,7 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkC
             </p>
           )}
         </div>
-        <Sparkline color={sparkColor} />
+        <Sparkline color={sparkColor} points={series} />
       </div>
     </div>
   );
@@ -393,11 +428,53 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
       .filter((e) => e.signed_at && inMonth(e.signed_at, 'last'))
       .reduce((acc, e) => acc + (Number(e.total_amount) || 0), 0);
 
+    // ─── Sparkline series (oldest → newest, 6 months) ───────────────
+    // Audit-driven series come straight from the server endpoint.
+    // Leads + Sales series are computed locally from jobs/estimates by
+    // walking the same six month windows the endpoint uses.
+    const HISTORY = 6;
+    const monthNow = new Date();
+    const monthWindows = []; // [{start, end}]  end=null on the newest one
+    for (let i = HISTORY - 1; i >= 0; i--) {
+      const start = new Date(monthNow.getFullYear(), monthNow.getMonth() - i, 1).toISOString();
+      const end   = i === 0
+        ? null
+        : new Date(monthNow.getFullYear(), monthNow.getMonth() - i + 1, 1).toISOString();
+      monthWindows.push({ start, end });
+    }
+    function rowsInWindow(iso, { start, end }) {
+      if (!iso) return false;
+      if (iso < start) return false;
+      if (end && iso >= end) return false;
+      return true;
+    }
+    const leadsSeries = monthWindows.map(
+      (w) => jobs.filter((j) => rowsInWindow(j.created_at, w)).length,
+    );
+    const salesSeries = monthWindows.map((w) =>
+      estimates
+        .filter((e) => rowsInWindow(e.signed_at, w))
+        .reduce((acc, e) => acc + (Number(e.total_amount) || 0), 0),
+    );
+    const estSentSeries = auditStats?.estimate_sent?.history || [];
+    const wonSeries = (() => {
+      // Sum contract.send + contract.sign per month, then max against
+      // a job-pipeline derived count for the same window so we keep the
+      // belt-and-braces behavior of the current month value.
+      const auditWon = (auditStats?.contract_sent?.history || []).map(
+        (v, i) => (v || 0) + ((auditStats?.contract_sign?.history || [])[i] || 0),
+      );
+      const jobsWon = monthWindows.map((w) => jobs.filter((j) =>
+        wonStatuses.has(j.pipeline_status) && rowsInWindow(j.updated_at || j.created_at, w),
+      ).length);
+      return monthWindows.map((_, i) => Math.max(auditWon[i] || 0, jobsWon[i] || 0));
+    })();
+
     return {
-      leads:       { value: leadsThis,    delta: delta(leadsThis, leadsLast) },
-      estimates:   { value: estSentThis,  delta: delta(estSentThis, estSentLast) },
-      won:         { value: wonThis,      delta: delta(wonThis, wonLast) },
-      sales:       { value: salesThis,    delta: delta(salesThis, salesLast) },
+      leads:       { value: leadsThis,    delta: delta(leadsThis, leadsLast),     series: leadsSeries  },
+      estimates:   { value: estSentThis,  delta: delta(estSentThis, estSentLast), series: estSentSeries },
+      won:         { value: wonThis,      delta: delta(wonThis, wonLast),         series: wonSeries     },
+      sales:       { value: salesThis,    delta: delta(salesThis, salesLast),     series: salesSeries   },
     };
   }, [jobs, estimates, auditStats]);
 
@@ -533,6 +610,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               label="Leads (This Month)"
               value={loading ? '—' : kpis.leads.value}
               deltaPct={loading ? null : kpis.leads.delta}
+              series={loading ? null : kpis.leads.series}
             />
             <KpiCard
               icon={FileText}
@@ -540,6 +618,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               label="Estimates Sent"
               value={loading ? '—' : kpis.estimates.value}
               deltaPct={loading ? null : kpis.estimates.delta}
+              series={loading ? null : kpis.estimates.series}
             />
             <KpiCard
               icon={CalendarCheck}
@@ -547,6 +626,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               label="Won"
               value={loading ? '—' : kpis.won.value}
               deltaPct={loading ? null : kpis.won.delta}
+              series={loading ? null : kpis.won.series}
             />
             <KpiCard
               icon={TrendingUp}
@@ -554,6 +634,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
               label="Sales (This Month)"
               value={loading ? '—' : fmtMoneyShort(kpis.sales.value)}
               deltaPct={loading ? null : kpis.sales.delta}
+              series={loading ? null : kpis.sales.series}
             />
           </section>
 

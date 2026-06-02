@@ -32,14 +32,22 @@ export default async function handler(req, res) {
   const sb = requireSupabase();
   if (!sb.ok) return json(res, 500, sb);
 
-  // Month windows: first of this month, first of previous month, and
-  // a cutoff one extra month back to bound the query. Computed in
-  // server-local time (Vercel = UTC), which is fine because audit_log
-  // timestamps are also UTC.
+  // Month windows. We build 6 buckets: index 0 = this month, index 5
+  // = 5 months ago. Sparklines on the home cards read this history
+  // left-to-right so the most recent month sits on the right.
+  const HISTORY_MONTHS = 6;
   const now = new Date();
-  const startThis = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const startLast = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString();
-  const cutoff    = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1)).toISOString();
+  // monthStarts[0] = first of this month, ..., monthStarts[6] = first of
+  // the month *before* the oldest bucket (acts as the lower cutoff).
+  const monthStarts = [];
+  for (let i = 0; i <= HISTORY_MONTHS; i++) {
+    monthStarts.push(
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString(),
+    );
+  }
+  const startThis = monthStarts[0];
+  const startLast = monthStarts[1];
+  const cutoff    = monthStarts[HISTORY_MONTHS]; // oldest bound
 
   let rows = [];
   try {
@@ -60,26 +68,42 @@ export default async function handler(req, res) {
     });
   }
 
-  // Bucket by (action, month) with dedup by entity_id.
+  // Bucket by (action, monthIndex). monthIndex 0 = this month,
+  // monthIndex (HISTORY_MONTHS-1) = oldest in the chart. Dedup by
+  // entity_id so a re-send doesn't double-count.
   const buckets = {};
   for (const action of TRACKED_ACTIONS) {
-    buckets[action] = { this: new Set(), last: new Set() };
+    buckets[action] = Array.from({ length: HISTORY_MONTHS }, () => new Set());
   }
   for (const row of rows) {
     if (!row?.timestamp) continue;
-    const inThis = row.timestamp >= startThis;
-    const inLast = !inThis && row.timestamp >= startLast;
-    if (!inThis && !inLast) continue;
+    const ts = row.timestamp;
+    // Find which bucket this row falls into. monthStarts is ordered
+    // newest -> oldest, so we walk forward until we find the first
+    // start that's <= our timestamp.
+    let monthIx = -1;
+    for (let i = 0; i < HISTORY_MONTHS; i++) {
+      if (ts >= monthStarts[i]) { monthIx = i; break; }
+    }
+    if (monthIx === -1) continue;
     const bucket = buckets[row.action];
     if (!bucket) continue;
     const id = row.entity_id || row.id;
-    (inThis ? bucket.this : bucket.last).add(id);
+    bucket[monthIx].add(id);
   }
 
+  // history is ordered OLDEST → NEWEST so callers can render a
+  // left-to-right sparkline directly.
   function pack(action) {
+    const arr = buckets[action] || [];
+    const history = [];
+    for (let i = HISTORY_MONTHS - 1; i >= 0; i--) {
+      history.push(arr[i] ? arr[i].size : 0);
+    }
     return {
-      this_month: buckets[action]?.this.size ?? 0,
-      last_month: buckets[action]?.last.size ?? 0,
+      this_month: arr[0]?.size ?? 0,
+      last_month: arr[1]?.size ?? 0,
+      history,
     };
   }
 
