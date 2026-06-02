@@ -9,7 +9,17 @@
     { "source": "/privacy",                  "destination": "/" },
     { "source": "/privacy-policy",           "destination": "/" },
     { "source": "/terms",                    "destination": "/" },
-    { "source": "/terms-and-conditions",     "destination": "/" }
+    { "source": "/terms-and-conditions",     "destination": "/" },
+    { "source": "/pipeline",                 "destination": "/" },
+    { "source": "/calendar",                 "destination": "/" },
+    { "source": "/estimates",                "destination": "/" },
+    { "source": "/notifications",            "destination": "/" },
+    { "source": "/leads",                    "destination": "/" },
+    { "source": "/commissions",              "destination": "/" },
+    { "source": "/previous-jobs",            "destination": "/" },
+    { "source": "/new-job",                  "destination": "/" },
+    { "source": "/daily-logs",               "destination": "/" },
+    { "source": "/jobs/:path*",              "destination": "/" }
   ],
   "crons": [
     {
