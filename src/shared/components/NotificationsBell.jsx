@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Bell, X, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { recipientRolesFor, renderNotificationText } from '../lib/notifications';
@@ -7,10 +7,18 @@ export default function NotificationsBell({ user, dark = false }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
 
+  // Each instance gets its OWN channel name. The Sales app renders TWO
+  // bells (mobile header + desktop header) and Supabase Realtime rejects
+  // duplicate subscribers on the same channel name — that was crashing
+  // the Sales dashboard to a blank screen.
+  const channelIdRef = useRef(
+    `notifications-bell-${Math.random().toString(36).slice(2, 10)}`
+  );
+
   useEffect(() => {
     load();
     const channel = supabase
-      .channel('notifications-bell')
+      .channel(channelIdRef.current)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, () => load())
       .subscribe();
     return () => supabase.removeChannel(channel);
