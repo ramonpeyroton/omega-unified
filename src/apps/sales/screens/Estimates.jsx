@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, FileText, Search, ChevronRight, DollarSign } from 'lucide-react';
+import { FileText, Search, ChevronRight, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // Status chip palette — matches the verbs carriers/clients see in the
@@ -115,13 +116,12 @@ export default function Estimates({ onBack, onOpenEstimate }) {
 
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10 flex items-center gap-3">
-        <button onClick={onBack} className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal">
-          <ArrowLeft className="w-4 h-4" /> Home
-        </button>
-        <h1 className="text-base font-bold text-omega-charcoal ml-2">Estimates</h1>
-        <span className="ml-auto text-xs text-omega-stone">{visible.length} shown</span>
-      </header>
+      <PageHeader
+        icon={FileText}
+        title="Estimates"
+        subtitle={`${visible.length} shown · sorted by latest activity`}
+        onBack={onBack}
+      />
 
       {/* Totals strip */}
       <div className="grid grid-cols-2 gap-3 px-4 pt-4">

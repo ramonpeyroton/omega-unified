@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  ArrowLeft, Bell, Mail, FileSignature, GitBranch, DollarSign,
+  Bell, Mail, FileSignature, GitBranch, DollarSign,
   AlertCircle, Clock, Check, Trash2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { recipientRolesFor, renderNotificationText } from '../../../shared/lib/notifications';
 import { tabForNotification } from '../../../shared/components/NotificationsBell';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // Per-type visual treatment. Picks an icon + tinted card so Attila
@@ -145,53 +146,18 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
 
   return (
     <div className="min-h-screen bg-omega-cloud">
-      <div className="bg-omega-charcoal px-5 pt-12 pb-5 sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => onNavigate('home')}
-            className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-white font-bold text-lg leading-tight">Notifications</h1>
-            <p className="text-[11px] text-white/70 mt-0.5">
-              {loading
-                ? 'Loading…'
-                : `${notifications.length} total${unreadCount > 0 ? ` · ${unreadCount} new` : ''}`}
-            </p>
-          </div>
-          {/* Bulk actions in the top-right (desktop). Mobile gets a
-              dedicated row below so the buttons stay easy to tap. */}
-          {unreadCount > 0 && (
-            <button
-              onClick={markAllRead}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold transition-colors"
-              title="Mark every unread notification as read"
-            >
-              <Check className="w-3.5 h-3.5" /> Mark all read
-            </button>
-          )}
-          {readCount > 0 && (
-            <button
-              onClick={clearAllRead}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/90 hover:text-white text-[12px] font-semibold transition-colors"
-              title="Permanently delete every notification you've already read"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Clear read ({readCount})
-            </button>
-          )}
-        </div>
-
-        {/* Mobile bulk-action bar (the header buttons are hidden on
-            phone to save room). */}
-        {(unreadCount > 0 || readCount > 0) && (
-          <div className="sm:hidden mt-3 flex gap-2">
+      <PageHeader
+        icon={Bell}
+        title="Notifications"
+        subtitle={loading ? 'Loading…' : `${notifications.length} total${unreadCount > 0 ? ` · ${unreadCount} new` : ''}`}
+        onBack={() => onNavigate('home')}
+        actions={(
+          <>
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-omega-charcoal hover:border-omega-orange text-[12px] font-semibold transition-colors"
+                title="Mark every unread notification as read"
               >
                 <Check className="w-3.5 h-3.5" /> Mark all read
               </button>
@@ -199,7 +165,35 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
             {readCount > 0 && (
               <button
                 onClick={clearAllRead}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-semibold"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-omega-stone hover:border-red-300 hover:text-red-600 text-[12px] font-semibold transition-colors"
+                title="Permanently delete every notification you've already read"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Clear read ({readCount})
+              </button>
+            )}
+          </>
+        )}
+      />
+
+      {/* Sub-header bar — filters + mobile bulk actions on a clean
+          white strip below the page header. Same chrome as everything
+          else in the Sales app now. */}
+      <div className="bg-white border-b border-omega-cloud px-4 sm:px-6 py-3 sticky top-[52px] sm:top-[60px] z-10">
+        {/* Mobile bulk-action bar (desktop has them in the header actions slot) */}
+        {(unreadCount > 0 || readCount > 0) && (
+          <div className="sm:hidden flex gap-2 mb-3">
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllRead}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-omega-charcoal text-[12px] font-semibold"
+              >
+                <Check className="w-3.5 h-3.5" /> Mark all read
+              </button>
+            )}
+            {readCount > 0 && (
+              <button
+                onClick={clearAllRead}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-omega-stone text-[12px] font-semibold"
               >
                 <Trash2 className="w-3.5 h-3.5" /> Clear ({readCount})
               </button>
@@ -207,9 +201,8 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
           </div>
         )}
 
-        {/* Unread / All toggle — default Unread so the screen reflects
-            what actually needs attention. */}
-        <div className="mt-3 inline-flex bg-white/10 rounded-full p-0.5">
+        {/* Unread / All toggle */}
+        <div className="inline-flex bg-omega-cloud rounded-full p-0.5">
           {[
             { id: 'unread', label: `Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}` },
             { id: 'all',    label: `All (${notifications.length})` },
@@ -220,7 +213,7 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
                 key={opt.id}
                 onClick={() => setReadFilter(opt.id)}
                 className={`px-3 py-1 rounded-full text-[12px] font-semibold transition-colors ${
-                  active ? 'bg-white text-omega-charcoal' : 'text-white/80 hover:text-white'
+                  active ? 'bg-white text-omega-charcoal shadow-sm' : 'text-omega-stone hover:text-omega-charcoal'
                 }`}
               >
                 {opt.label}
@@ -229,9 +222,7 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
           })}
         </div>
 
-        {/* Type filter pills — sticky in the dark header so it's always
-            within thumb reach on phone. Horizontally scrollable for
-            narrow screens. */}
+        {/* Type filter pills */}
         <div className="mt-3 -mx-1 px-1 flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
           {FILTERS.map((f) => {
             const active = filter === f.id;
@@ -244,14 +235,14 @@ export default function Notifications({ onNavigate, user, onOpenJob }) {
                 onClick={() => setFilter(f.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap transition-colors ${
                   active
-                    ? 'bg-white text-omega-charcoal'
-                    : 'bg-white/10 text-white/80 hover:bg-white/20'
+                    ? 'bg-omega-orange text-white'
+                    : 'bg-omega-cloud text-omega-stone hover:text-omega-charcoal'
                 }`}
               >
                 {f.label}
                 {count > 0 && (
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    active ? 'bg-omega-charcoal text-white' : 'bg-white/20 text-white'
+                    active ? 'bg-white/20 text-white' : 'bg-white text-omega-stone'
                   }`}>
                     {count}
                   </span>

@@ -11,3 +11,4 @@ export { default as IconChip } from './IconChip';
 export { default as PillToggle } from './PillToggle';
 export { default as CategoryBadge } from './CategoryBadge';
 export { default as Avatar } from './Avatar';
+export { default as PageHeader } from './PageHeader';

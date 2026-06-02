@@ -28,8 +28,9 @@
 
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, GitBranch, Calendar as CalendarIcon, ClipboardList, DollarSign } from 'lucide-react';
 
+import PageHeader from '../../shared/components/ui/PageHeader';
 import Home from './screens/Home';
 import NewJob from './screens/NewJob';
 import PDFUpload from './screens/PDFUpload';
@@ -131,7 +132,7 @@ function PipelineRoute({ user }) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <BackBar />
+      <PageHeader icon={GitBranch} title="Pipeline" subtitle="All your active deals" onBack={() => navigate('/')} />
       <PipelineKanban
         user={user}
         filterBySalesperson={false}
@@ -149,9 +150,10 @@ function PipelineRoute({ user }) {
 }
 
 function CalendarRoute({ user }) {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <BackBar />
+      <PageHeader icon={CalendarIcon} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
       <CalendarScreen user={user} />
     </div>
   );
@@ -185,7 +187,7 @@ function LeadsRoute({ user }) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <BackBar />
+      <PageHeader icon={ClipboardList} title="My Leads" subtitle="Every client you've added" onBack={() => navigate('/')} />
       <LeadsList
         user={user}
         onBack={() => navigate('/')}
@@ -196,9 +198,10 @@ function LeadsRoute({ user }) {
 }
 
 function CommissionsRoute({ user }) {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <BackBar />
+      <PageHeader icon={DollarSign} title="Commissions" subtitle="Your earnings, payable, and history" onBack={() => navigate('/')} />
       <CommissionsScreen user={user} />
     </div>
   );
