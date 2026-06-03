@@ -830,6 +830,43 @@ dimensões) pra `<a target="_blank">` simples. Mais confiável em iOS.
 - **DailyLogsRichTab** mostra a coluna esquerda inteira em viewport
   larga, com lista de chats expandindo até `w-96` (era `w-64`)
 
+### 🐛 Bugs corrigidos no final da sessão (importante pra próximo Claude)
+
+- **JobFullView race condition** (commit `f0a1016`):
+  - Sintoma: clicar em **"Open Estimate Flow"** ou **"Questionnaire"**
+    dentro do card do cliente, em vez de abrir o flow, voltava pra
+    `/pipeline`.
+  - Causa: o JobFullView chamava `onOpenEstimateFlow(job)` E em
+    seguida `onClose?.()`. Com URL routing, AMBOS viraram `navigate()`
+    e a segunda chamada sobrescrevia a primeira.
+  - Fix: remover o `onClose?.()` redundante das 7 ocorrências
+    (`onClick={() => { onOpen...(job); }}` agora — sem o close). A
+    navegação `navigate('/jobs/:id/estimate-flow')` já tira da rota
+    `/jobs/:id`, então o close manual é redundante.
+  - **Lição pra futuras integrações JobFullView**: nunca encadear
+    `onClose?.()` depois de um callback que navega; deixe o router
+    desmontar o componente.
+
+- **Sales Sidebar persistente** (commit `424a6ee`):
+  - SalesSidebar foi extraído de `Home.jsx` pra
+    `src/apps/sales/components/SalesSidebar.jsx`.
+  - O `SalesShell` no App.jsx envolve TODAS as rotas com a sidebar
+    + `<Outlet/>` — sidebar agora aparece em Home, Pipeline,
+    Estimates, Notifications, Leads, Commissions, Calendar, etc.
+  - Home.jsx ficou só com o conteúdo (KPIs + cards), sem sidebar
+    interno.
+  - Padrão idêntico ao Owner/Operations/Manager (mesma estratégia
+    de Shell + Outlet).
+
+- **Back button regra "sempre /pipeline"** (commit `50b8a36`):
+  - O botão Back do JobFullView agora SEMPRE volta pra `/pipeline`
+    como fallback, mesmo em hard refresh / link compartilhado.
+  - `location.state.from` continua tendo prioridade (volta pra
+    Estimates/Notifications/Leads se foi de lá), mas o fallback
+    final é `/pipeline` em vez de `/`.
+  - Replicar essa regra ao migrar Manager / Receptionist /
+    Marketing pra URL routing.
+
 ### ⚠️ PENDÊNCIAS — Ramon precisa fazer
 
 | Item | Onde | Prioridade |
