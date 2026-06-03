@@ -27,8 +27,9 @@ import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
+import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import Questionnaire from '../sales/screens/Questionnaire';
-import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar } from 'lucide-react';
+import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/omega-brain')) return 'omega-brain';
   if (pathname.startsWith('/leads')) return 'leads';
   if (pathname.startsWith('/commissions')) return 'commissions';
+  if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   return null; // job pages, etc — no sidebar highlight
 }
 
@@ -87,6 +89,7 @@ function MobileBottomBar({ notifCount }) {
     { id: 'dashboard',  icon: LayoutDashboard, label: 'Home' },
     { id: 'pipeline',   icon: GitBranch,        label: 'Pipeline' },
     { id: 'finance',    icon: DollarSign,        label: 'Finance' },
+    { id: 'daily-logs', icon: MessageCircle,     label: 'Logs' },
     { id: 'calendar',   icon: Calendar,          label: 'Calendar' },
     { id: 'notifications', icon: Bell,           label: 'Alerts', badge: notifCount },
   ];
@@ -159,6 +162,7 @@ function PipelineRoute({ user }) {
     <PipelineKanban
       user={user}
       filterBySalesperson={false}
+      onBack={() => navigate('/')}
       onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
       onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
     />
@@ -294,6 +298,7 @@ function OwnerRoutes({ user, onLogout, notifCount }) {
         <Route path="/omega-brain"     element={<OmegaBrainRoute />} />
         <Route path="/leads"           element={<LeadsRoute user={user} />} />
         <Route path="/commissions"     element={<CommissionsRoute user={user} />} />
+        <Route path="/daily-logs"      element={<MobileDailyLogs user={user} />} />
       </Route>
 
       {/* Job-scoped routes also live inside the shell so the Sidebar

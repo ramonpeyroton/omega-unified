@@ -136,6 +136,7 @@ function PipelineRoute({ user }) {
         user={user}
         filterBySalesperson={false}
         readOnly
+        onBack={() => navigate('/')}
         onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
       />
     </div>

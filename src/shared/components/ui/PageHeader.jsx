@@ -25,11 +25,15 @@ export default function PageHeader({
   onBack,
   backLabel = 'Home',
   actions,
+  // Sticky by default. Callers that already own a separate sticky element
+  // below the header (e.g. PipelineKanban's sticky search) pass false so the
+  // header scrolls away and doesn't sit on top of that element.
+  sticky = true,
   className = '',
 }) {
   return (
     <header
-      className={`sticky top-0 z-20 bg-white border-b border-omega-cloud px-4 sm:px-6 py-3 flex items-center gap-3 ${className}`}
+      className={`${sticky ? 'sticky top-0' : ''} z-20 bg-white border-b border-omega-cloud px-4 sm:px-6 py-3 flex items-center gap-3 ${className}`}
     >
       {onBack && (
         <button

@@ -128,8 +128,16 @@ export default function JobFullView({
   // the caller wins over the role-based default.
   const [editEstimateId, setEditEstimateId] = useState(null);
 
+  // On phones the per-project chat lives in its own bottom-bar section
+  // (/daily-logs), so the in-card Daily Logs tab is dropped and a job
+  // opened on mobile never lands on it — it starts on Report (or Details
+  // for the read-only roles). Desktop keeps the tab and the daily default.
+  const [isMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+
   const [tab, setTab] = useState(() => {
-    if (initialTab) return initialTab;
+    if (initialTab && !(isMobile && initialTab === 'daily')) return initialTab;
     return READ_ONLY_BASIC_ROLES.has(user?.role) ? 'details' : 'report';
   });
   const [estimate, setEstimate] = useState(null);
@@ -391,6 +399,10 @@ export default function JobFullView({
         { id: 'details',   label: 'Details',    icon: Info },
       ].filter(Boolean);
 
+  // Mobile drops the Daily Logs tab — the dedicated /daily-logs section
+  // replaces it there. There's always at least Report/Details left.
+  const visibleTabs = isMobile ? TABS.filter((t) => t.id !== 'daily') : TABS;
+
   return (
     <div className="fixed inset-0 z-40 bg-omega-cloud flex flex-col animate-[fadeIn_0.2s_ease-out]">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -508,7 +520,7 @@ export default function JobFullView({
         {/* Tabs */}
         <nav className="border-t border-white/10 overflow-x-auto scrollbar-hide">
           <div className="px-2 sm:px-4 flex gap-1 min-w-max">
-            {TABS.map((t) => {
+            {visibleTabs.map((t) => {
               const Icon = t.icon;
               const active = tab === t.id;
               return (

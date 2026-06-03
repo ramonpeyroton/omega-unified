@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Search, Star, Hash, Bell, FolderOpen, AtSign, MessageSquare,
+  Search, Star, Hash, Bell, FolderOpen, AtSign, MessageSquare, ArrowLeft,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import NativeProjectChat from './NativeProjectChat';
@@ -65,12 +65,22 @@ const FILTER_ITEMS = [
   { id: 'files',    label: 'Files',       icon: FolderOpen },
 ];
 
-export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
+export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = false, onPaneChange }) {
   const [jobs, setJobs]       = useState([]);
   const [reads, setReads]     = useState({}); // { jobId: { last_read_at, is_starred } }
   const [latest, setLatest]   = useState({}); // { jobId: latestMessageRow }
   const [filter, setFilter]   = useState('all');
   const [search, setSearch]   = useState('');
+
+  // The job whose chat is shown on the right. In-card mode (standalone=false)
+  // mirrors the parent-controlled `job`; standalone mode (the mobile Daily
+  // Logs section) owns it locally and starts empty (list view first).
+  const [activeJob, setActiveJob]   = useState(standalone ? null : job);
+  // Mobile-only: which single pane is visible below md. Desktop shows both.
+  const [mobilePane, setMobilePane] = useState('list'); // 'list' | 'chat'
+
+  // Keep activeJob in sync with the parent `job` in card mode.
+  useEffect(() => { if (!standalone) setActiveJob(job); }, [job, standalone]);
 
   const userName = user?.name || '';
 
@@ -200,15 +210,15 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
     return [...out].sort((a, b) => {
       // Always show the job currently open at the top so the user
       // doesn't lose it after a filter change.
-      if (a.id === job?.id) return -1;
-      if (b.id === job?.id) return 1;
+      if (a.id === activeJob?.id) return -1;
+      if (b.id === activeJob?.id) return 1;
       // Then starred, then most-recent activity.
       if (a.isStarred !== b.isStarred) return a.isStarred ? -1 : 1;
       const ta = a.last ? new Date(a.last.created_at).getTime() : 0;
       const tb = b.last ? new Date(b.last.created_at).getTime() : 0;
       return tb - ta;
     });
-  }, [decorated, search, filter, job?.id]);
+  }, [decorated, search, filter, activeJob?.id]);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────
   async function toggleStar(jobId) {
@@ -235,26 +245,35 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
 
   // ─── RENDER ──────────────────────────────────────────────────────
   return (
-    <div className="flex flex-1 min-h-0 rounded-xl border border-omega-orange/20 overflow-hidden bg-omega-pale">
+    <div className="flex flex-1 min-h-0 overflow-hidden bg-omega-pale rounded-none border-0 md:rounded-xl md:border md:border-omega-orange/20">
       {/* ═══ LEFT RAIL ═══════════════════════════════════════════ */}
-      <aside className="w-96 flex-shrink-0 flex flex-col border-r border-omega-orange/15">
+      <aside className={`w-full md:w-96 flex-shrink-0 flex-col border-r border-omega-orange/15 ${mobilePane === 'chat' ? 'hidden md:flex' : 'flex'}`}>
         {/* Filters (grey-circle area in Ramon's screenshot) */}
-        <nav className="px-2 pt-3 pb-2 space-y-0.5 border-b border-omega-orange/15">
+        {/* Mobile: a single row of icon-only mini-cards. Desktop (md+):
+            the original vertical list with labels. */}
+        <nav className="flex gap-1.5 px-2 pt-2 pb-2 md:block md:space-y-0.5 md:gap-0 border-b border-omega-orange/15">
           {FILTER_ITEMS.map((f) => {
             const Icon = f.icon;
             const active = filter === f.id;
             return (
               <button
                 key={f.id}
-                onClick={() => setFilter(f.id)}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-[13px] transition-colors ${
+                title={f.label}
+                aria-label={f.label}
+                onClick={() => {
+                  setFilter(f.id);
+                  // On mobile the right column is hidden until you pick a
+                  // chat — but "Files" lives there, so flip to it directly.
+                  if (f.id === 'files') { setMobilePane('chat'); onPaneChange?.('chat'); }
+                }}
+                className={`flex-1 md:w-full flex items-center justify-center md:justify-start gap-2 px-2 py-2 md:py-1.5 rounded text-[13px] transition-colors ${
                   active
                     ? 'bg-omega-orange text-white font-semibold'
-                    : 'text-omega-charcoal hover:bg-white'
+                    : 'text-omega-charcoal bg-white/60 md:bg-transparent hover:bg-white'
                 }`}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="flex-1 text-left">{f.label}</span>
+                <span className="hidden md:block flex-1 text-left">{f.label}</span>
               </button>
             );
           })}
@@ -281,18 +300,27 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
             </p>
           ) : (
             visible.map((j) => {
-              const isSelected = j.id === job?.id;
+              const isSelected = j.id === activeJob?.id;
               return (
                 <div
                   key={j.id}
                   onClick={() => {
-                    if (j.id !== job?.id && typeof onSwitchJob === 'function') {
-                      supabase
-                        .from('jobs').select('*').eq('id', j.id).maybeSingle()
-                        .then(({ data }) => { if (data) onSwitchJob(data); });
-                    }
+                    // Open this chat. On mobile we flip to the chat pane.
+                    // In card mode we also hand the new job up to the parent
+                    // (JobFullView) so its header swaps; in standalone mode
+                    // we just keep it locally.
+                    setMobilePane('chat');
+                    onPaneChange?.('chat');
+                    if (j.id === activeJob?.id) return;
+                    supabase
+                      .from('jobs').select('*').eq('id', j.id).maybeSingle()
+                      .then(({ data }) => {
+                        if (!data) return;
+                        setActiveJob(data);
+                        if (!standalone) onSwitchJob?.(data);
+                      });
                   }}
-                  className={`group flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-[13px] mb-0.5 ${
+                  className={`group flex items-center gap-1.5 px-2 py-1 md:py-1.5 mb-0 md:mb-0.5 rounded cursor-pointer text-[13px] leading-tight ${
                     isSelected
                       ? 'bg-omega-orange text-white'
                       : 'text-omega-charcoal hover:bg-white'
@@ -301,7 +329,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); toggleStar(j.id); }}
-                    className={`flex-shrink-0 transition-opacity ${
+                    className={`no-touch-min flex-shrink-0 transition-opacity ${
                       j.isStarred
                         ? 'text-yellow-500 opacity-100'
                         : `${isSelected ? 'text-white/60' : 'text-omega-stone'} opacity-0 group-hover:opacity-100`
@@ -338,11 +366,39 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob }) {
           flex container can clamp its height and pin the composer
           to the bottom. Without these, the children grow past the
           parent and the input scrolls out of view. */}
-      <main className="flex-1 min-w-0 min-h-0 bg-omega-cloud flex flex-col overflow-hidden">
+      <main
+        className={`flex-1 min-w-0 min-h-0 bg-omega-cloud flex-col overflow-hidden ${
+          mobilePane === 'list' ? 'hidden md:flex' : 'flex'
+        } ${mobilePane === 'chat' ? 'fixed inset-0 z-50 md:static md:z-auto' : ''}`}
+      >
+        {/* Mobile-only chat header — back to the list + channel label.
+            Hidden at md+ where the left rail is always visible. */}
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-omega-orange/15 bg-white flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => { setMobilePane('list'); onPaneChange?.('list'); }}
+            aria-label="Back to chats"
+            className="p-1 -ml-1 text-omega-charcoal"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <Hash className="w-4 h-4 text-omega-stone flex-shrink-0" />
+          <span className="font-semibold text-omega-charcoal truncate">
+            {filter === 'files'
+              ? 'All shared files'
+              : fmtChatLabel(activeJob?.client_name, activeJob?.address)}
+          </span>
+        </div>
+
         {filter === 'files' ? (
           <FilesView userName={userName} jobs={jobs} />
+        ) : activeJob ? (
+          <NativeProjectChat job={activeJob} user={user} embedded />
         ) : (
-          <NativeProjectChat job={job} user={user} embedded />
+          <div className="flex-1 flex flex-col items-center justify-center text-omega-stone p-6 text-center">
+            <MessageSquare className="w-10 h-10 mb-2 opacity-40" />
+            <p className="text-sm">Pick a chat to start reading.</p>
+          </div>
         )}
       </main>
     </div>

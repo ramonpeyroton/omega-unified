@@ -20,6 +20,12 @@ const NAV = [
   { id: 'notifications', label: 'Alerts',        icon: Bell },
 ];
 
+// The mobile bottom bar gets one extra entry: Daily Logs opens the
+// dedicated full-screen chat section (/daily-logs). On desktop that
+// lives as the collapsible "Daily Logs" inside the sidebar instead, so
+// we keep it OUT of NAV to avoid a duplicate there.
+const MOBILE_NAV = [...NAV, { id: 'daily-logs', label: 'Logs', icon: MessageCircle }];
+
 /**
  * Manager sidebar. Same visual language as Owner/Operations/Admin.
  * Collapses to a bottom bar on small screens so Gabriel can still
@@ -113,7 +119,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
 
       {/* Mobile bottom bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 overflow-x-auto scrollbar-hide">
-        {NAV.map(({ id, label, icon: Icon }) => {
+        {MOBILE_NAV.map(({ id, label, icon: Icon }) => {
           const active = screen === id || (id === 'dashboard' && screen === 'phase-board');
           return (
             <button

@@ -108,6 +108,7 @@ function PipelineRoute({ user }) {
     <PipelineKanban
       user={user}
       filterBySalesperson={false}
+      onBack={() => navigate('/')}
       onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
       onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
     />

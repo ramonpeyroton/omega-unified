@@ -1,0 +1,29 @@
+// MobileDailyLogs — the dedicated, full-screen "Daily Logs" section reached
+// from the mobile bottom bar (Sales / Owner / Manager). It's a thin wrapper
+// around DailyLogsRichTab in `standalone` mode: the list of project chats
+// fills the screen, tapping one opens that chat full-screen (a fixed overlay
+// the rich tab paints above the bottom bar), and the in-component back arrow
+// returns to the list.
+//
+// Mobile-only by design. On desktop (md+) the bottom bars are hidden so this
+// route isn't normally reached; if a desktop user types /daily-logs directly
+// it renders the familiar two-column layout — harmless.
+//
+// Height: `h-[calc(100dvh-4rem)]` reserves the 64px the fixed bottom bar
+// occupies so the chat list scrolls clear of it. The chat pane escapes this
+// via its own `fixed inset-0` overlay (see DailyLogsRichTab).
+
+import { useState } from 'react';
+import DailyLogsRichTab from './DailyLogsRichTab';
+
+export default function MobileDailyLogs({ user }) {
+  // Tracked for potential aria/active-state use; the bottom bar is covered
+  // by the chat overlay rather than toggled, so nothing else needs it yet.
+  const [, setPane] = useState('list');
+
+  return (
+    <div className="flex flex-col h-[calc(100dvh-4rem)] md:h-full min-h-0">
+      <DailyLogsRichTab standalone user={user} onPaneChange={setPane} />
+    </div>
+  );
+}

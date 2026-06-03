@@ -17,8 +17,9 @@ import {
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
-  Eye, EyeOff, ChevronDown, ChevronRight, SlidersHorizontal,
+  Eye, EyeOff, ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
 } from 'lucide-react';
+import PageHeader from './ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
@@ -432,10 +433,12 @@ function MobilePipelineView({
   cityOptions, serviceOptions, onOpenJob,
 }) {
   const [showFilters, setShowFilters] = useState(false);
-  // Keep track of which sections are expanded. Default: expand all non-empty.
+  // Which sections are collapsed. Default: ALL collapsed — the user opens
+  // the stage they want, or types in search to pull results directly (an
+  // active search/filter auto-expands the matching stages below).
   const [collapsed, setCollapsed] = useState(() => {
     const c = {};
-    PIPELINE_COLUMNS.forEach((col) => { c[col.id] = false; }); // all expanded
+    PIPELINE_COLUMNS.forEach((col) => { c[col.id] = true; }); // all collapsed
     return c;
   });
 
@@ -502,7 +505,9 @@ function MobilePipelineView({
         {PIPELINE_COLUMNS.map((col) => {
           const list = jobsByColumn[col.id] || [];
           if (list.length === 0) return null; // hide empty stages on mobile
-          const isCollapsed = collapsed[col.id];
+          // An active search/filter forces the matching stages open so the
+          // user "pulls" results by typing without tapping each header.
+          const isCollapsed = hasFilters ? false : collapsed[col.id];
 
           return (
             <div key={col.id} className="rounded-2xl overflow-hidden border border-gray-200 bg-white">
@@ -558,6 +563,10 @@ export default function PipelineKanban({
   // and shareable links work. When omitted (legacy callers) we
   // fall back to the old overlay behaviour.
   onOpenJob,
+  // Optional. When provided, the mobile pipeline header shows a "← Home"
+  // back button. Secondary-screen callers pass it; apps where pipeline is
+  // the landing screen (Marketing) omit it.
+  onBack,
 }) {
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(() => {
@@ -1067,10 +1076,10 @@ export default function PipelineKanban({
       <div className="flex-1 overflow-hidden flex flex-col bg-omega-cloud">
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-        <header className="px-4 py-4 bg-white border-b border-gray-200">
-          <h1 className="text-xl font-bold text-omega-charcoal">Pipeline</h1>
-          {loading && <p className="text-xs text-omega-stone mt-1">Loading…</p>}
-        </header>
+        {/* Consistent app-wide header — same thin bar as every other
+            secondary screen (← Home · icon chip · title). Non-sticky so it
+            scrolls away above the sticky search inside MobilePipelineView. */}
+        <PageHeader icon={GitBranch} title="Pipeline" onBack={onBack} sticky={false} />
 
         {loading ? (
           <div className="flex-1 flex items-center justify-center"><LoadingSpinner size={32} /></div>

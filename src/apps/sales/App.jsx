@@ -28,11 +28,14 @@
 
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { ArrowLeft, GitBranch, Calendar as CalendarIcon, ClipboardList, DollarSign } from 'lucide-react';
+import { ArrowLeft, Calendar as CalendarIcon, ClipboardList, DollarSign } from 'lucide-react';
 
 import PageHeader from '../../shared/components/ui/PageHeader';
 import SalesSidebar from './components/SalesSidebar';
-import Home from './screens/Home';
+import Home, { MobileBottomBar } from './screens/Home';
+import MobileMoreSheet from './components/MobileMoreSheet';
+import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
+import { SalesMobileMenuContext } from './mobileMenuContext';
 import NewJob from './screens/NewJob';
 import PDFUpload from './screens/PDFUpload';
 import Questionnaire from './screens/Questionnaire';
@@ -133,10 +136,10 @@ function PipelineRoute({ user }) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <PageHeader icon={GitBranch} title="Pipeline" subtitle="All your active deals" onBack={() => navigate('/')} />
       <PipelineKanban
         user={user}
         filterBySalesperson={false}
+        onBack={() => navigate('/')}
         onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
         onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
         onOpenQuestionnaire={(job) => navigate(`/jobs/${job.id}/questionnaire`, { state: { from: '/pipeline' } })}
@@ -374,6 +377,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/leads'))         return 'leads';
   if (pathname.startsWith('/commissions'))   return 'commissions';
   if (pathname.startsWith('/previous-jobs')) return 'previous-jobs';
+  if (pathname.startsWith('/daily-logs'))    return 'daily-logs';
   return null; // /new-job, /jobs/:id, etc — no sidebar highlight
 }
 
@@ -381,20 +385,40 @@ function SalesShell({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
   const activeId = screenIdFromPath(location.pathname);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Bottom-bar / hamburger navigation. The 'more' id has no route — it
+  // toggles the overflow sheet instead.
+  const handleNav = (id) => {
+    if (id === 'more') { setMoreOpen(true); return; }
+    navigate(id === 'home' ? '/' : `/${id}`);
+  };
 
   return (
-    <div className="flex min-h-screen bg-omega-cloud">
-      <SalesSidebar
-        activeId={activeId}
-        onNavigate={(id) => navigate(id === 'home' ? '/' : `/${id}`)}
-        user={user}
-        onLogout={onLogout}
-        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: location.pathname } })}
-      />
-      <main className="flex-1 min-w-0 pb-16 sm:pb-0">
-        <Outlet />
-      </main>
-    </div>
+    <SalesMobileMenuContext.Provider value={{ openMore: () => setMoreOpen(true) }}>
+      <div className="flex min-h-screen bg-omega-cloud">
+        <SalesSidebar
+          activeId={activeId}
+          onNavigate={(id) => navigate(id === 'home' ? '/' : `/${id}`)}
+          user={user}
+          onLogout={onLogout}
+          onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: location.pathname } })}
+        />
+        <main className="flex-1 min-w-0 pb-16 md:pb-0">
+          <Outlet />
+        </main>
+        {/* Persistent mobile bottom bar (md:hidden) — lifted out of Home so
+            it shows on every route, including the new /daily-logs section. */}
+        <MobileBottomBar activeId={activeId} onNavigate={handleNav} />
+        <MobileMoreSheet
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          onNavigate={handleNav}
+          user={user}
+          onLogout={onLogout}
+        />
+      </div>
+    </SalesMobileMenuContext.Provider>
   );
 }
 
@@ -413,6 +437,7 @@ export default function App({ user, onLogout }) {
           <Route path="/leads"                       element={<LeadsRoute user={user} />} />
           <Route path="/commissions"                 element={<CommissionsRoute user={user} />} />
           <Route path="/previous-jobs"               element={<PreviousJobsRoute user={user} />} />
+          <Route path="/daily-logs"                  element={<MobileDailyLogs user={user} />} />
           <Route path="/new-job"                     element={<NewJobRoute user={user} />} />
           <Route path="/jobs/:id"                    element={<JobFullViewRoute user={user} />} />
           <Route path="/jobs/:id/questionnaire"      element={<QuestionnaireRoute user={user} />} />

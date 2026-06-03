@@ -20,6 +20,7 @@ import Sidebar from './components/Sidebar';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import MaterialsRun from '../../shared/components/MaterialsRun';
 import JobFullView from '../../shared/components/JobFullView';
+import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import { supabase } from '../owner/lib/supabase';
 
@@ -56,6 +57,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/warehouse'))        return 'warehouse';
   if (pathname.startsWith('/calendar'))         return 'calendar';
   if (pathname.startsWith('/pipeline'))         return 'pipeline';
+  if (pathname.startsWith('/daily-logs'))       return 'daily-logs';
   if (pathname.includes('/phase-board'))        return 'phase-board';
   if (pathname.includes('/punch-list'))         return 'punch-list';
   return null;
@@ -207,6 +209,7 @@ function PipelineRoute({ user }) {
         user={user}
         filterBySalesperson={false}
         readOnly
+        onBack={() => navigate('/')}
         onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
       />
     </div>
@@ -230,6 +233,7 @@ export default function App({ user, onLogout }) {
           <Route path="/warehouse"                 element={<Warehouse user={user} />} />
           <Route path="/calendar"                  element={<CalendarScreen user={user} />} />
           <Route path="/pipeline"                  element={<PipelineRoute user={user} />} />
+          <Route path="/daily-logs"                element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"                  element={<JobFullViewRoute user={user} />} />
           <Route path="/jobs/:id/phase-board"      element={<PhaseBoardRoute user={user} darkMode={darkMode} />} />
           <Route path="/jobs/:id/punch-list"       element={<PunchListRoute darkMode={darkMode} />} />

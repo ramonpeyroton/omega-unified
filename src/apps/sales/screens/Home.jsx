@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useContext } from 'react';
 import {
   PlusCircle, Bell, LogOut, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, ArrowRight, TrendingUp, TrendingDown, MapPin, Phone,
   CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign, MessageCircle,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Menu, MoreHorizontal,
 } from 'lucide-react';
+import { SalesMobileMenuContext } from '../mobileMenuContext';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
@@ -160,18 +161,21 @@ const NAV_ITEMS = [
 ];
 
 // ─── Mobile bottom navigation bar ──────────────────────────────────
-// Shown only on sm and below (hidden sm:hidden). 5 items: Home,
-// Pipeline, + New Job (centre FAB), Calendar, Leads.
-function MobileBottomBar({ activeId, onNavigate, notifCount }) {
+// Shown only below md (the sidebar takes over at md+). Exported so the
+// SalesShell can render it persistently on every route (not just Home),
+// which is what lets the new "Logs" item reach /daily-logs from anywhere.
+// 6 items: Home, Pipeline, + New Job (centre FAB), Calendar, Leads, Logs.
+export function MobileBottomBar({ activeId, onNavigate }) {
   const items = [
-    { id: 'home',     icon: HomeIcon,     label: 'Home' },
-    { id: 'pipeline', icon: GitBranch,    label: 'Pipeline' },
-    { id: 'new-job',  icon: PlusCircle,   label: 'New Job',  fab: true },
-    { id: 'calendar', icon: CalendarIcon, label: 'Calendar' },
-    { id: 'leads',    icon: ClipboardList,label: 'Leads' },
+    { id: 'home',       icon: HomeIcon,       label: 'Home' },
+    { id: 'pipeline',   icon: GitBranch,      label: 'Pipeline' },
+    { id: 'new-job',    icon: PlusCircle,     label: 'New Job',  fab: true },
+    { id: 'calendar',   icon: CalendarIcon,   label: 'Calendar' },
+    { id: 'daily-logs', icon: MessageCircle,  label: 'Logs' },
+    { id: 'more',       icon: MoreHorizontal, label: 'More' },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex sm:hidden safe-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
       {items.map(({ id, icon: Icon, label, fab }) => (
         <button
           key={id}
@@ -203,23 +207,33 @@ function MobileBottomBar({ activeId, onNavigate, notifCount }) {
 // re-define it here.
 
 // ─── KPI card ────────────────────────────────────────────────────────
-function KpiCard({ icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkColor, series }) {
+function KpiCard({
+  icon: Icon, iconBg, iconColor, label, value, deltaPct, sparkColor, series,
+  // Mobile-only color overrides so the redesigned mobile card matches the
+  // dashboard mockup (orange / grey / green / orange) without touching the
+  // desktop card, which keeps its own iconBg / iconColor palette.
+  mBg, mFg, valueColor, deltaAccent,
+}) {
   const positive = deltaPct >= 0;
   const Arrow = positive ? TrendingUp : TrendingDown;
+  const deltaCls = deltaPct === 0
+    ? 'text-omega-stone'
+    : positive ? (deltaAccent || 'text-emerald-600') : 'text-red-600';
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-2 sm:p-5">
-      {/* Mobile: stacked icon + number (very compact) */}
-      <div className="flex flex-col items-center text-center sm:hidden gap-1 py-1">
-        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${iconBg}`}>
-          <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-3 sm:p-5">
+      {/* Mobile: rich card matching the dashboard mockup */}
+      <div className="flex flex-col items-center text-center sm:hidden">
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center ${mBg || iconBg}`}>
+          <Icon className={`w-5 h-5 ${mFg || iconColor}`} />
         </div>
-        <p className="text-base font-black text-omega-charcoal tabular-nums leading-none">{value}</p>
-        <p className="text-[9px] text-omega-stone font-semibold leading-tight line-clamp-2">{label}</p>
+        <p className={`text-2xl font-black tabular-nums leading-none mt-2 ${valueColor || 'text-omega-charcoal'}`}>{value}</p>
+        <p className="text-[11px] text-omega-stone font-semibold leading-tight mt-1 line-clamp-2">{label}</p>
         {Number.isFinite(deltaPct) && (
-          <p className={`text-[9px] font-bold inline-flex items-center gap-0.5 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
-            <Arrow className="w-2.5 h-2.5" />{Math.abs(Math.round(deltaPct))}%
+          <p className={`text-[11px] font-bold inline-flex items-center gap-0.5 mt-1.5 ${deltaCls}`}>
+            <Arrow className="w-3 h-3" />{Math.abs(Math.round(deltaPct))}%
           </p>
         )}
+        {series && <div className="w-full mt-2 flex justify-center"><Sparkline color={sparkColor} points={series} /></div>}
       </div>
       {/* Desktop: original layout */}
       <div className="hidden sm:flex items-start gap-3">
@@ -258,6 +272,41 @@ function PipelineRow({ phase, count, total }) {
   );
 }
 
+// ─── Decorative 3D-ish pipeline funnel (mobile only) ───────────────
+// Stylized silhouette matching the dashboard mockup — orange at the mouth
+// fading to charcoal at the tip. Decorative on purpose: the real per-stage
+// numbers live in the list beside it (the stage counts aren't monotonic, so
+// a width-by-count funnel would look broken).
+const FUNNEL_COLORS = ['#E8732A', '#F2944E', '#F8C39A', '#D9D9D9', '#9CA3AF', '#4B5563'];
+function PipelineFunnel() {
+  const hw = [48, 42, 36, 29, 23, 18, 14]; // half-widths at the 7 boundaries
+  const segH = 18, gap = 2, topPad = 5;
+  const yAt = (i) => topPad + i * (segH + gap);
+  const totalH = yAt(6) + 4;
+  return (
+    <svg viewBox={`0 0 100 ${totalH}`} className="w-full h-auto" aria-hidden="true">
+      {/* funnel mouth (3D rim) */}
+      <ellipse cx="50" cy={topPad} rx={hw[0]} ry="4" fill="#F59E5B" />
+      {FUNNEL_COLORS.map((c, i) => {
+        const yt = yAt(i), yb = yAt(i + 1);
+        const body = `${50 - hw[i]},${yt} ${50 + hw[i]},${yt} ${50 + hw[i + 1]},${yb} ${50 - hw[i + 1]},${yb}`;
+        const midT = (hw[i] + hw[i + 1]) / 2;
+        const sheen = `${50 - hw[i]},${yt} ${50 + hw[i]},${yt} ${50 + midT},${yt + segH * 0.45} ${50 - midT},${yt + segH * 0.45}`;
+        return (
+          <g key={i}>
+            <polygon points={body} fill={c} />
+            <polygon points={sheen} fill="#ffffff" opacity="0.15" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Stage-dot colors for the mobile pipeline list — orange at the top of the
+// funnel fading to dark grey at the bottom, matching the mockup.
+const STAGE_DOTS = ['bg-omega-orange', 'bg-omega-orange', 'bg-orange-300', 'bg-gray-300', 'bg-gray-400', 'bg-gray-700'];
+
 // ─── Activity icon by event kind ────────────────────────────────────
 function activityIconFor(kind) {
   switch (kind) {
@@ -286,6 +335,12 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   // from the browser returned silent empties for weeks.
   const [auditStats, setAuditStats] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Mobile top bar: the hamburger opens the shared "More" sheet (via the
+  // SalesShell context); the avatar opens the profile modal.
+  const { openMore } = useContext(SalesMobileMenuContext);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const { photoUrl, refresh: refreshProfile } = useUserProfile(user);
 
   // ─── Load dashboard data ─────────────────────────────────────────
   useEffect(() => {
@@ -575,21 +630,38 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   // shell.
   return (
     <>
-      <main className="flex-1 min-w-0 pb-16 sm:pb-0">
+      <main className="flex-1 min-w-0 pb-16 md:pb-0">
         {/* ── Mobile-only top bar ──────────────────────────────── */}
-        <header className="sm:hidden sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-omega-stone font-semibold">{getGreeting()},</p>
-            <p className="text-base font-black text-omega-charcoal truncate leading-tight">
-              {user?.name || 'there'} 👋
+        <header className="sm:hidden sticky top-0 z-30 bg-omega-cloud px-4 pt-3 pb-2">
+          {/* Icon row: hamburger · bell · avatar */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={openMore}
+              aria-label="Open menu"
+              className="no-touch-min p-1 -ml-1 text-omega-charcoal"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+            <div className="flex-1" />
+            {/* Realtime notifications bell — shared component with role-
+                scoped popover. Each instance uses its own Realtime channel
+                so the mobile and desktop bells coexist without colliding. */}
+            <NotificationsBell user={user} onOpenJob={onOpenJob} />
+            <button
+              onClick={() => setProfileOpen(true)}
+              aria-label="Open my profile"
+              className="no-touch-min rounded-full"
+            >
+              <Avatar name={user?.name || ''} photoUrl={photoUrl || undefined} size="md" color={colorFromName(user?.name || '')} />
+            </button>
+          </div>
+          {/* Greeting */}
+          <div className="mt-3">
+            <p className="text-sm text-omega-stone font-semibold">{getGreeting()},</p>
+            <p className="text-2xl font-black text-omega-charcoal leading-tight truncate">
+              {user?.name || 'there'} <span className="inline-block">👋</span>
             </p>
           </div>
-          {/* Realtime notifications bell — shared component with role-
-              scoped popover. Clicking a notification jumps to the linked
-              job at the right tab. Each instance uses its own Realtime
-              channel (see useRef in NotificationsBell) so the mobile
-              and desktop bells can coexist without colliding. */}
-          <NotificationsBell user={user} onOpenJob={onOpenJob} />
         </header>
 
         {/* ── Desktop top bar ──────────────────────────────────── */}
@@ -620,6 +692,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <KpiCard
               icon={TrendingUp}
               iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A"
+              mBg="bg-orange-100" mFg="text-omega-orange" valueColor="text-omega-orange" deltaAccent="text-omega-orange"
               label="Leads (This Month)"
               value={loading ? '—' : kpis.leads.value}
               deltaPct={loading ? null : kpis.leads.delta}
@@ -628,6 +701,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <KpiCard
               icon={FileText}
               iconBg="bg-violet-100" iconColor="text-violet-600" sparkColor="#8B5CF6"
+              mBg="bg-gray-100" mFg="text-gray-500" valueColor="text-omega-charcoal" deltaAccent="text-omega-stone"
               label="Estimates Sent"
               value={loading ? '—' : kpis.estimates.value}
               deltaPct={loading ? null : kpis.estimates.delta}
@@ -636,6 +710,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <KpiCard
               icon={CalendarCheck}
               iconBg="bg-emerald-100" iconColor="text-emerald-600" sparkColor="#10B981"
+              mBg="bg-emerald-100" mFg="text-emerald-600" valueColor="text-emerald-600" deltaAccent="text-emerald-600"
               label="Won"
               value={loading ? '—' : kpis.won.value}
               deltaPct={loading ? null : kpis.won.delta}
@@ -644,6 +719,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <KpiCard
               icon={TrendingUp}
               iconBg="bg-amber-100" iconColor="text-amber-600" sparkColor="#F59E0B"
+              mBg="bg-orange-100" mFg="text-omega-orange" valueColor="text-omega-orange" deltaAccent="text-omega-orange"
               label="Sales (This Month)"
               value={loading ? '—' : fmtMoneyShort(kpis.sales.value)}
               deltaPct={loading ? null : kpis.sales.delta}
@@ -681,18 +757,50 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                   View full pipeline
                 </button>
               </div>
-              <div className="divide-y divide-gray-100">
-                {pipelineRows.rows.map((r) => (
-                  <PipelineRow key={r.phase.key} {...r} />
-                ))}
+              {/* Desktop body — unchanged */}
+              <div className="hidden sm:block">
+                <div className="divide-y divide-gray-100">
+                  {pipelineRows.rows.map((r) => (
+                    <PipelineRow key={r.phase.key} {...r} />
+                  ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-omega-stone uppercase tracking-wider">
+                    Total Pipeline Value
+                  </span>
+                  <span className="text-lg font-black text-omega-charcoal tabular-nums">
+                    {fmtMoney(pipelineRows.totalValue)}
+                  </span>
+                </div>
               </div>
-              <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between">
-                <span className="text-xs font-semibold text-omega-stone uppercase tracking-wider">
-                  Total Pipeline Value
-                </span>
-                <span className="text-lg font-black text-omega-charcoal tabular-nums">
-                  {fmtMoney(pipelineRows.totalValue)}
-                </span>
+
+              {/* Mobile body — 3D funnel + stage list (mockup) */}
+              <div className="sm:hidden">
+                <div className="flex gap-2 items-center">
+                  <div className="w-24 flex-shrink-0">
+                    <PipelineFunnel />
+                  </div>
+                  <div className="flex-1 min-w-0 divide-y divide-gray-100">
+                    {pipelineRows.rows.map((r, i) => (
+                      <div key={r.phase.key} className="flex items-center gap-1.5 py-1.5">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STAGE_DOTS[i] || 'bg-gray-400'}`} />
+                        <span className="text-[12px] text-omega-charcoal truncate flex-1 min-w-0">{r.phase.label}</span>
+                        <span className="text-[12px] font-bold text-omega-charcoal tabular-nums w-4 text-right flex-shrink-0">{r.count}</span>
+                        <span className="text-[12px] font-bold text-omega-charcoal tabular-nums w-12 text-right flex-shrink-0">
+                          {r.total > 0 ? fmtMoneyShort(r.total) : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 bg-omega-pale rounded-xl px-3 py-2.5 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">
+                    Total Pipeline Value
+                  </span>
+                  <span className="text-base font-black text-omega-orange tabular-nums">
+                    {fmtMoney(pipelineRows.totalValue)}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -709,45 +817,92 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                   View calendar
                 </button>
               </div>
-              {events.length === 0 ? (
-                <p className="text-xs text-omega-stone py-6 text-center">No upcoming activities scheduled.</p>
-              ) : (
-                <div className="space-y-4">
-                  {(['today', 'tomorrow', 'later']).map((bucket) => {
-                    const list = groupedEvents[bucket];
-                    if (list.length === 0) return null;
-                    const label = bucket === 'today' ? 'Today' : bucket === 'tomorrow' ? 'Tomorrow' : 'Later';
-                    return (
-                      <div key={bucket}>
-                        <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest mb-2">
-                          {label}
-                        </p>
-                        <div className="space-y-2">
-                          {list.slice(0, 3).map((ev) => {
-                            const Icon = activityIconFor(ev.kind);
-                            return (
-                              <div key={ev.id} className="flex items-start gap-3">
-                                <span className="text-[11px] font-bold text-omega-stone tabular-nums w-12 mt-1 flex-shrink-0">
-                                  {fmtTime(ev.starts_at)}
-                                </span>
-                                <div className="flex-1 min-w-0 bg-omega-cloud rounded-xl px-3 py-2.5">
-                                  <p className="text-sm font-semibold text-omega-charcoal truncate">{ev.title}</p>
-                                  {ev.notes && (
-                                    <p className="text-[11px] text-omega-stone truncate">{ev.notes}</p>
-                                  )}
+              {/* Desktop body — unchanged */}
+              <div className="hidden sm:block">
+                {events.length === 0 ? (
+                  <p className="text-xs text-omega-stone py-6 text-center">No upcoming activities scheduled.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {(['today', 'tomorrow', 'later']).map((bucket) => {
+                      const list = groupedEvents[bucket];
+                      if (list.length === 0) return null;
+                      const label = bucket === 'today' ? 'Today' : bucket === 'tomorrow' ? 'Tomorrow' : 'Later';
+                      return (
+                        <div key={bucket}>
+                          <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest mb-2">
+                            {label}
+                          </p>
+                          <div className="space-y-2">
+                            {list.slice(0, 3).map((ev) => {
+                              const Icon = activityIconFor(ev.kind);
+                              return (
+                                <div key={ev.id} className="flex items-start gap-3">
+                                  <span className="text-[11px] font-bold text-omega-stone tabular-nums w-12 mt-1 flex-shrink-0">
+                                    {fmtTime(ev.starts_at)}
+                                  </span>
+                                  <div className="flex-1 min-w-0 bg-omega-cloud rounded-xl px-3 py-2.5">
+                                    <p className="text-sm font-semibold text-omega-charcoal truncate">{ev.title}</p>
+                                    {ev.notes && (
+                                      <p className="text-[11px] text-omega-stone truncate">{ev.notes}</p>
+                                    )}
+                                  </div>
+                                  <div className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
+                                    <Icon className="w-4 h-4" />
+                                  </div>
                                 </div>
-                                <div className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
-                                  <Icon className="w-4 h-4" />
-                                </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Mobile body — time · colored bar · title · icon (mockup) */}
+              <div className="sm:hidden">
+                {events.length === 0 ? (
+                  <p className="text-xs text-omega-stone py-6 text-center">No upcoming activities scheduled.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {(['today', 'tomorrow', 'later']).map((bucket) => {
+                      const list = groupedEvents[bucket];
+                      if (list.length === 0) return null;
+                      const label = bucket === 'today' ? 'Today' : bucket === 'tomorrow' ? 'Tomorrow' : 'Later';
+                      return (
+                        <div key={bucket}>
+                          <p className="text-[10px] font-bold text-omega-stone uppercase tracking-widest mb-2">
+                            {label}
+                          </p>
+                          <div className="space-y-3">
+                            {list.slice(0, 3).map((ev) => {
+                              const Icon = activityIconFor(ev.kind);
+                              return (
+                                <div key={ev.id} className="flex items-center gap-3 min-h-[42px]">
+                                  <span className="w-14 flex-shrink-0 text-right text-[13px] font-bold text-omega-orange tabular-nums leading-tight">
+                                    {fmtTime(ev.starts_at)}
+                                  </span>
+                                  <span className="self-stretch w-1 rounded-full bg-omega-orange flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-omega-charcoal truncate">{ev.title}</p>
+                                    {ev.notes && (
+                                      <p className="text-[12px] text-omega-stone truncate">{ev.notes}</p>
+                                    )}
+                                  </div>
+                                  <div className="w-10 h-10 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0">
+                                    <Icon className="w-4 h-4" />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Recent leads */}
@@ -808,9 +963,14 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
           </div>
         </div>
       </main>
-
-      {/* Mobile bottom navigation — hidden on sm+ (sidebar takes over) */}
-      <MobileBottomBar activeId="home" onNavigate={onNavigate} notifCount={notifCount} />
+      {/* The mobile bottom bar is now rendered by SalesShell (App.jsx) so
+          it persists across every route, not just Home. */}
+      <UserProfileModal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        user={user}
+        onUserUpdated={refreshProfile}
+      />
     </>
   );
 }
