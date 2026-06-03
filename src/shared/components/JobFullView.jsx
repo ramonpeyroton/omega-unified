@@ -4,6 +4,7 @@ import {
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
   AlertCircle, DollarSign, Clock, Receipt, ArrowRight, TrendingUp, Info, MessageSquare,
   FolderClosed, RotateCcw, UserPlus, Globe, Loader2, Plus, MoreHorizontal, UsersRound,
+  ChevronDown,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
@@ -140,6 +141,9 @@ export default function JobFullView({
     if (initialTab && !(isMobile && initialTab === 'daily')) return initialTab;
     return READ_ONLY_BASIC_ROLES.has(user?.role) ? 'details' : 'report';
   });
+  // Mobile only: the tab bar used to scroll sideways. Now a dropdown shows
+  // the current section and opens a menu of the rest.
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const [estimate, setEstimate] = useState(null);
   const [contract, setContract] = useState(null);
   const [toast, setToast] = useState(null);
@@ -517,8 +521,8 @@ export default function JobFullView({
           )}
         </div>
 
-        {/* Tabs */}
-        <nav className="border-t border-white/10 overflow-x-auto scrollbar-hide">
+        {/* Tabs — desktop/tablet: the underline tab row. */}
+        <nav className="hidden sm:block border-t border-white/10 overflow-x-auto scrollbar-hide">
           <div className="px-2 sm:px-4 flex gap-1 min-w-max">
             {visibleTabs.map((t) => {
               const Icon = t.icon;
@@ -539,6 +543,53 @@ export default function JobFullView({
             })}
           </div>
         </nav>
+
+        {/* Tabs — mobile: a dropdown of the current section (no side-scroll). */}
+        <div className="sm:hidden border-t border-white/10 px-4 py-2 relative">
+          {(() => {
+            const current = visibleTabs.find((t) => t.id === tab) || visibleTabs[0];
+            const CurrentIcon = current?.icon || Info;
+            return (
+              <>
+                <button
+                  onClick={() => setTabMenuOpen((o) => !o)}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/10 text-white font-semibold text-sm"
+                >
+                  <CurrentIcon className="w-4 h-4 flex-shrink-0 text-omega-orange" />
+                  <span className="flex-1 text-left truncate">{current?.label}</span>
+                  <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${tabMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {tabMenuOpen && (
+                  <>
+                    {/* tap-away backdrop */}
+                    <div className="fixed inset-0 z-30" onClick={() => setTabMenuOpen(false)} aria-hidden="true" />
+                    <div className="absolute left-4 right-4 top-full mt-1 z-40 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden max-h-[60vh] overflow-y-auto">
+                      {visibleTabs.map((t) => {
+                        const Icon = t.icon;
+                        const active = t.id === tab;
+                        return (
+                          <button
+                            key={t.id}
+                            onClick={() => { setTab(t.id); setTabMenuOpen(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors ${
+                              active
+                                ? 'bg-omega-pale text-omega-orange font-bold'
+                                : 'text-omega-charcoal hover:bg-gray-50'
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 flex-shrink-0" />
+                            <span className="flex-1 truncate">{t.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
+        </div>
       </header>
 
       {/* ─── Changes requested banner ──────────────────────── */}
