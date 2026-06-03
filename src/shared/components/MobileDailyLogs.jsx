@@ -14,15 +14,24 @@
 // via its own `fixed inset-0` overlay (see DailyLogsRichTab).
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MessageCircle } from 'lucide-react';
 import DailyLogsRichTab from './DailyLogsRichTab';
+import PageHeader from './ui/PageHeader';
 
 export default function MobileDailyLogs({ user }) {
+  const navigate = useNavigate();
   // Tracked for potential aria/active-state use; the bottom bar is covered
   // by the chat overlay rather than toggled, so nothing else needs it yet.
   const [, setPane] = useState('list');
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] md:h-full min-h-0">
+      {/* Same thin bar as every other secondary screen. The chat pane paints
+          a fixed overlay above this (with its own back-to-list header), so
+          this header belongs to the chat-list view. Non-sticky — the rich
+          tab owns its own internal scroll. */}
+      <PageHeader icon={MessageCircle} title="Daily Logs" onBack={() => navigate('/')} sticky={false} />
       <DailyLogsRichTab standalone user={user} onPaneChange={setPane} />
     </div>
   );
