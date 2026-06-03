@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowLeft, User, Phone, Mail, MapPin, Check, Calendar, Clock, Megaphone } from 'lucide-react';
+import { ArrowLeft, User, Phone, Mail, MapPin, Check, Calendar, Clock, Megaphone, PlusCircle } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { SERVICES } from '../data/questionnaire';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -123,21 +124,13 @@ export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient
 
   return (
     <div className="min-h-screen bg-omega-cloud">
-      {/* Header */}
-      <div className="bg-omega-charcoal px-5 pt-12 pb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => onNavigate('home')}
-            className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <p className="text-omega-fog text-xs font-medium">Sales</p>
-            <h1 className="text-white font-bold text-lg">New Lead</h1>
-          </div>
-        </div>
-      </div>
+      {/* Header — same thin bar as every other secondary screen. */}
+      <PageHeader
+        icon={PlusCircle}
+        title="New Job"
+        subtitle="Start a new client consultation"
+        onBack={() => onNavigate('home')}
+      />
 
       <div className="px-5 py-6 space-y-5 pb-32">
 

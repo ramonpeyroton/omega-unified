@@ -164,40 +164,35 @@ const NAV_ITEMS = [
 // Shown only below md (the sidebar takes over at md+). Exported so the
 // SalesShell can render it persistently on every route (not just Home),
 // which is what lets the new "Logs" item reach /daily-logs from anywhere.
-// 6 items: Home, Pipeline, + New Job (centre FAB), Calendar, Leads, Logs.
+// 6 uniform items: Home, Pipeline, New Job, Calendar, Logs, More. Every icon
+// shares the same neutral colour; only the item for the current route lights
+// up orange (Ramon's rule — no special FAB, the active page is the highlight).
 export function MobileBottomBar({ activeId, onNavigate }) {
   const items = [
     { id: 'home',       icon: HomeIcon,       label: 'Home' },
     { id: 'pipeline',   icon: GitBranch,      label: 'Pipeline' },
-    { id: 'new-job',    icon: PlusCircle,     label: 'New Job',  fab: true },
+    { id: 'new-job',    icon: PlusCircle,     label: 'New Job' },
     { id: 'calendar',   icon: CalendarIcon,   label: 'Calendar' },
     { id: 'daily-logs', icon: MessageCircle,  label: 'Logs' },
     { id: 'more',       icon: MoreHorizontal, label: 'More' },
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
-      {items.map(({ id, icon: Icon, label, fab }) => (
-        <button
-          key={id}
-          onClick={() => onNavigate(id)}
-          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 ${
-            fab
-              ? 'relative'
-              : activeId === id
-                ? 'text-omega-orange'
-                : 'text-omega-stone'
-          }`}
-        >
-          {fab ? (
-            <span className="w-12 h-12 rounded-full bg-omega-orange flex items-center justify-center shadow-lg -mt-5">
-              <Icon className="w-6 h-6 text-white" />
-            </span>
-          ) : (
+      {items.map(({ id, icon: Icon, label }) => {
+        const active = activeId === id;
+        return (
+          <button
+            key={id}
+            onClick={() => onNavigate(id)}
+            className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors ${
+              active ? 'text-omega-orange' : 'text-omega-stone'
+            }`}
+          >
             <Icon className="w-5 h-5" />
-          )}
-          <span className={`text-[10px] font-semibold ${fab ? 'text-omega-orange mt-0.5' : ''}`}>{label}</span>
-        </button>
-      ))}
+            <span className="text-[10px] font-semibold">{label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

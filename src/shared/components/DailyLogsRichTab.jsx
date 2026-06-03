@@ -266,10 +266,10 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
                   // chat — but "Files" lives there, so flip to it directly.
                   if (f.id === 'files') { setMobilePane('chat'); onPaneChange?.('chat'); }
                 }}
-                className={`flex-1 md:w-full flex items-center justify-center md:justify-start gap-2 px-2 py-2 md:py-1.5 rounded text-[13px] transition-colors ${
+                className={`flex-1 md:w-full flex items-center justify-center md:justify-start gap-2 px-2 py-2.5 md:py-1.5 rounded-xl md:rounded text-[13px] transition-colors ${
                   active
-                    ? 'bg-omega-orange text-white font-semibold'
-                    : 'text-omega-charcoal bg-white/60 md:bg-transparent hover:bg-white'
+                    ? 'bg-omega-orange text-white font-semibold shadow-sm'
+                    : 'text-omega-stone bg-gray-100 md:bg-transparent hover:bg-gray-200 md:hover:bg-white'
                 }`}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />

@@ -378,7 +378,8 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/commissions'))   return 'commissions';
   if (pathname.startsWith('/previous-jobs')) return 'previous-jobs';
   if (pathname.startsWith('/daily-logs'))    return 'daily-logs';
-  return null; // /new-job, /jobs/:id, etc — no sidebar highlight
+  if (pathname.startsWith('/new-job'))       return 'new-job';
+  return null; // /jobs/:id, etc — no sidebar highlight
 }
 
 function SalesShell({ user, onLogout }) {

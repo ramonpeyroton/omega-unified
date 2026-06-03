@@ -31,7 +31,7 @@ export default function MobileDailyLogs({ user }) {
           a fixed overlay above this (with its own back-to-list header), so
           this header belongs to the chat-list view. Non-sticky — the rich
           tab owns its own internal scroll. */}
-      <PageHeader icon={MessageCircle} title="Daily Logs" onBack={() => navigate('/')} sticky={false} />
+      <PageHeader icon={MessageCircle} title="Logs" onBack={() => navigate('/')} sticky={false} />
       <DailyLogsRichTab standalone user={user} onPaneChange={setPane} />
     </div>
   );
