@@ -496,7 +496,7 @@ export default function JobFullView({
               useful for the rightmost phases (Completed / Estimate
               Rejected) that often sit off-screen on the pipeline. */}
           {readOnlyBasic ? (
-            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${pipelinePalette.bg} ${pipelinePalette.text}`}>
+            <span className={`inline-flex items-center h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${pipelinePalette.bg} ${pipelinePalette.text}`}>
               {pipelineLabel}
             </span>
           ) : (
@@ -510,7 +510,7 @@ export default function JobFullView({
             />
           )}
           {job.service && (
-            <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-omega-orange text-white">
+            <span className="inline-flex items-center h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg bg-omega-orange text-white">
               {job.service}
             </span>
           )}
@@ -1254,7 +1254,7 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
   // "Move phase" affordance reads as a real button).
   const triggerCls = variant === 'pill'
     ? `inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold transition-colors disabled:opacity-60`
-    : `inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`;
+    : `inline-flex items-center gap-1.5 h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`;
 
   return (
     <div className="relative">

@@ -382,6 +382,15 @@ function screenIdFromPath(pathname) {
   return null; // /jobs/:id, etc — no sidebar highlight
 }
 
+// The persistent mobile bottom bar only belongs on top-level navigation
+// screens. Focused flows (New Job, the questionnaire, the job card) have
+// their own sticky CTA at the bottom, so the bar would sit on top of it —
+// hide it there.
+const BOTTOM_BAR_SCREENS = new Set([
+  'home', 'pipeline', 'calendar', 'daily-logs', 'leads',
+  'estimates', 'commissions', 'previous-jobs', 'notifications',
+]);
+
 function SalesShell({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -408,9 +417,11 @@ function SalesShell({ user, onLogout }) {
         <main className="flex-1 min-w-0 pb-16 md:pb-0">
           <Outlet />
         </main>
-        {/* Persistent mobile bottom bar (md:hidden) — lifted out of Home so
-            it shows on every route, including the new /daily-logs section. */}
-        <MobileBottomBar activeId={activeId} onNavigate={handleNav} />
+        {/* Persistent mobile bottom bar (md:hidden) — shown only on top-level
+            screens so it never covers a focused flow's sticky CTA. */}
+        {BOTTOM_BAR_SCREENS.has(activeId) && (
+          <MobileBottomBar activeId={activeId} onNavigate={handleNav} />
+        )}
         <MobileMoreSheet
           open={moreOpen}
           onClose={() => setMoreOpen(false)}
@@ -423,11 +434,24 @@ function SalesShell({ user, onLogout }) {
   );
 }
 
+// Resets the scroll position to the top whenever the route changes — without
+// it, opening a new screen while scrolled down lands you mid-page. Keyed on
+// pathname only so switching ?tab= inside a job card doesn't jump.
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.querySelector('main')?.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 // ─── Root ────────────────────────────────────────────────────────
 
 export default function App({ user, onLogout }) {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Routes>
         <Route element={<SalesShell user={user} onLogout={onLogout} />}>
           <Route path="/"                            element={<HomeRoute user={user} onLogout={onLogout} />} />

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Filter, Download, ChevronRight, Clock, CheckCircle, AlertCircle, FileText, X } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
@@ -147,19 +148,16 @@ export default function PreviousJobs({ user, onNavigate, onSelectJob }) {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {exportJob && <ExportModal job={exportJob} onClose={() => setExportJob(null)} />}
 
-      {/* Header */}
-      <div className="bg-omega-charcoal px-5 pt-12 pb-5">
-        <div className="flex items-center gap-3 mb-4">
-          <button onClick={() => onNavigate('home')} className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <p className="text-omega-fog text-xs">My Jobs</p>
-            <h1 className="text-white font-bold text-lg">Previous Jobs</h1>
-          </div>
-        </div>
+      {/* Header — same thin bar as every other secondary screen. */}
+      <PageHeader
+        icon={FileText}
+        title="Previous Jobs"
+        subtitle="Every job you've completed"
+        onBack={() => onNavigate('home')}
+      />
 
-        {/* Search */}
+      {/* Search */}
+      <div className="px-4 pt-4">
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-omega-stone" />
           <input
@@ -167,10 +165,10 @@ export default function PreviousJobs({ user, onNavigate, onSelectJob }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search client, address, service..."
-            className="w-full pl-10 pr-10 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-omega-stone focus:outline-none focus:border-omega-orange transition-colors text-sm"
+            className="w-full pl-10 pr-10 py-3 rounded-xl bg-white border border-gray-200 text-omega-charcoal placeholder-omega-stone focus:outline-none focus:border-omega-orange transition-colors text-sm"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-omega-stone">
+            <button onClick={() => setSearch('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-omega-stone hover:text-omega-charcoal">
               <X className="w-4 h-4" />
             </button>
           )}

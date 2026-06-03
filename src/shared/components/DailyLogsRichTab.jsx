@@ -279,15 +279,15 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
           })}
         </nav>
 
-        {/* Search */}
-        <div className="px-3 py-2 border-b border-omega-orange/15">
+        {/* Search — a roomy pill on mobile, the compact field on desktop. */}
+        <div className="px-3 py-2.5 md:py-2 border-b-0 md:border-b border-omega-orange/15">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-omega-stone pointer-events-none" />
+            <Search className="w-4 h-4 md:w-3.5 md:h-3.5 absolute left-3 md:left-2 top-1/2 -translate-y-1/2 text-omega-stone pointer-events-none" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter chats…"
-              className="w-full pl-7 pr-2 py-1.5 text-[12px] rounded bg-white text-omega-charcoal placeholder-omega-stone border border-omega-orange/15 focus:border-omega-orange focus:outline-none"
+              className="w-full pl-9 md:pl-7 pr-3 md:pr-2 py-2.5 md:py-1.5 text-sm md:text-[12px] rounded-full md:rounded bg-white text-omega-charcoal placeholder-omega-stone border border-gray-200 md:border-omega-orange/15 focus:border-omega-orange focus:outline-none"
             />
           </div>
         </div>
@@ -320,7 +320,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
                         if (!standalone) onSwitchJob?.(data);
                       });
                   }}
-                  className={`group flex items-center gap-1.5 px-2 py-1 md:py-1.5 mb-0 md:mb-0.5 rounded cursor-pointer text-[13px] leading-tight ${
+                  className={`group flex items-center gap-2 md:gap-1.5 px-2 py-2 md:py-1.5 mb-0 md:mb-0.5 rounded-lg md:rounded cursor-pointer text-[13px] leading-tight ${
                     isSelected
                       ? 'bg-omega-orange text-white'
                       : 'text-omega-charcoal hover:bg-white'
@@ -329,7 +329,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); toggleStar(j.id); }}
-                    className={`no-touch-min flex-shrink-0 transition-opacity ${
+                    className={`no-touch-min hidden md:inline-flex flex-shrink-0 transition-opacity ${
                       j.isStarred
                         ? 'text-yellow-500 opacity-100'
                         : `${isSelected ? 'text-white/60' : 'text-omega-stone'} opacity-0 group-hover:opacity-100`
