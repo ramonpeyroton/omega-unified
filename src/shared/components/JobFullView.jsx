@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import {
   ArrowLeft, Edit3, Save, X, Eye, EyeOff, Trash2, Calendar, MapPin, Phone, Mail,
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
@@ -569,18 +569,31 @@ export default function JobFullView({
                         const Icon = t.icon;
                         const active = t.id === tab;
                         return (
-                          <button
-                            key={t.id}
-                            onClick={() => { setTab(t.id); setTabMenuOpen(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors ${
-                              active
-                                ? 'bg-omega-pale text-omega-orange font-bold'
-                                : 'text-omega-charcoal hover:bg-gray-50'
-                            }`}
-                          >
-                            <Icon className="w-4 h-4 flex-shrink-0" />
-                            <span className="flex-1 truncate">{t.label}</span>
-                          </button>
+                          <Fragment key={t.id}>
+                            <button
+                              onClick={() => { setTab(t.id); setTabMenuOpen(false); }}
+                              className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors ${
+                                active
+                                  ? 'bg-omega-pale text-omega-orange font-bold'
+                                  : 'text-omega-charcoal hover:bg-gray-50'
+                              }`}
+                            >
+                              <Icon className="w-4 h-4 flex-shrink-0" />
+                              <span className="flex-1 truncate">{t.label}</span>
+                            </button>
+                            {/* Estimate Flow is an action, not a section — park it
+                                right under Estimate (Ramon's placement). */}
+                            {t.id === 'estimate' && onOpenEstimateFlow && (
+                              <button
+                                onClick={() => { setTabMenuOpen(false); onOpenEstimateFlow(job); }}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-omega-orange font-bold hover:bg-omega-pale transition-colors"
+                              >
+                                <Receipt className="w-4 h-4 flex-shrink-0" />
+                                <span className="flex-1 truncate">Open Estimate Flow</span>
+                                <ArrowRight className="w-4 h-4 flex-shrink-0" />
+                              </button>
+                            )}
+                          </Fragment>
                         );
                       })}
                     </div>
@@ -613,19 +626,8 @@ export default function JobFullView({
         </div>
       )}
 
-      {/* ─── Mobile sticky bottom bar — Estimate Flow ─────── */}
-      {onOpenEstimateFlow && (
-        <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 px-4 py-3 shadow-lg safe-area-bottom">
-          <button
-            onClick={() => { onOpenEstimateFlow(job); }}
-            className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold shadow-sm transition-colors"
-          >
-            <Receipt className="w-4 h-4" />
-            Open Estimate Flow
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      {/* Mobile Estimate Flow used to live in a sticky bottom bar; it now
+          sits inside the section dropdown (right under "Estimate"). */}
 
       {/* ─── Body ──────────────────────────────────────────── */}
       {/* On the Daily Logs tab we OWN the scrolling inside the chat
@@ -633,7 +635,7 @@ export default function JobFullView({
           must NOT scroll itself — otherwise the whole page scrolls
           and the composer slides off-screen. Every other tab keeps
           overflow-y-auto so long forms can scroll normally. */}
-      <div className={`flex-1 ${tab === 'daily' ? 'overflow-hidden' : `overflow-y-auto ${onOpenEstimateFlow ? 'pb-24 sm:pb-0' : ''}`}`}>
+      <div className={`flex-1 ${tab === 'daily' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {/* Daily Logs: full-height + no max-width + no padding so the
             rich tab can fill the space edge-to-edge.
             Other tabs: centered 5xl column with padding for readability. */}
