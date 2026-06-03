@@ -82,55 +82,68 @@ const OVERVIEW_PHASES = [
 ];
 
 // ─── Tiny inline sparkline (real data, oldest → newest) ────────────
-// Each KPI card now passes a `points` array (one value per month, 6
-// elements typical, oldest first). We map the values into the SVG
-// viewBox so the highest point sits near the top and the lowest sits
-// near the bottom. A flat series (all-equal values, or empty) draws a
-// straight middle line — better than fake curvature.
+// Each KPI card passes a `points` array (one value per month, 6
+// elements typical, oldest first). Baseline is always 0 — using
+// min(series) as baseline made every card's pick float at the top of
+// the viewBox, so a 1-lead month looked identical to a 31-estimate
+// month. With baseline=0 the curves keep their relative shape but a
+// small absolute value stays small on screen and a big absolute value
+// fills most of the box, so the cards differ visually at a glance.
+//
+// Area fill + a dot on the most recent point are pure visual polish:
+// they make the curve obvious even in a 80x28 box at a casual glance.
 function Sparkline({ points, color = '#E8732A' }) {
   const W = 80;
   const H = 28;
   const PAD_Y = 3;
+  const BASELINE_Y = H - PAD_Y; // where v=0 sits
 
   const series = Array.isArray(points) && points.length > 0
     ? points.map((v) => Number(v) || 0)
     : null;
 
-  let pathD = `M0,${H / 2} L${W},${H / 2}`;
-  if (series && series.length >= 2) {
-    const min = Math.min(...series);
-    const max = Math.max(...series);
-    const range = max - min || 1; // avoid /0 when every value matches
-    const stepX = W / (series.length - 1);
-    const coords = series.map((v, i) => {
-      const x = i * stepX;
-      // Higher value → smaller y (SVG y-axis grows downward).
-      const y = PAD_Y + (H - PAD_Y * 2) * (1 - (v - min) / range);
-      return [x, y];
-    });
-    pathD = coords
-      .map(([x, y], i) => (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`))
-      .join(' ');
-  } else if (series && series.length === 1) {
-    // Single point → tiny dot in the middle.
-    const v = series[0];
+  // Empty / no data → flat baseline.
+  if (!series || series.length === 0) {
     return (
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
-        <circle cx={W / 2} cy={H / 2} r="2" fill={color} aria-label={`${v}`} />
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" aria-hidden="true">
+        <line x1={0} y1={BASELINE_Y} x2={W} y2={BASELINE_Y} stroke={color} strokeOpacity={0.3} strokeWidth={1.5} />
       </svg>
     );
   }
 
+  // Single point → just a dot.
+  if (series.length === 1) {
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
+        <circle cx={W / 2} cy={H / 2} r="2" fill={color} />
+      </svg>
+    );
+  }
+
+  // Multi-point: scale from 0 → max(series). Baseline is anchored to
+  // the bottom so the visual area below the line is proportional to
+  // each card's actual numbers.
+  const max = Math.max(...series, 1); // avoid /0 if everything is zero
+  const stepX = W / (series.length - 1);
+  const coords = series.map((v, i) => {
+    const x = i * stepX;
+    const y = BASELINE_Y - (BASELINE_Y - PAD_Y) * (v / max);
+    return [x, y];
+  });
+  const linePath = coords
+    .map(([x, y], i) => (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`))
+    .join(' ');
+  // Close the path back down to the baseline so the fill is a proper
+  // area chart, not just a thick line.
+  const areaPath = `${linePath} L${W.toFixed(1)},${BASELINE_Y.toFixed(1)} L0,${BASELINE_Y.toFixed(1)} Z`;
+
+  const [lastX, lastY] = coords[coords.length - 1];
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" aria-hidden="true">
-      <path
-        d={pathD}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d={areaPath} fill={color} fillOpacity={0.16} stroke="none" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lastX} cy={lastY} r="2" fill={color} />
     </svg>
   );
 }
