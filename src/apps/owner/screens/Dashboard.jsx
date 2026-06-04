@@ -1023,10 +1023,9 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         {/* ─── Lead Origins Heat Map ─────────────────────────────── */}
         <LeadsHeatMap />
 
-        {/* ─── Cash & Payments + Action Center ──────────────────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ─── Cash & Payments ──────────────────────────────────── */}
+        <section>
           <CashAndPayments payments={data.payments} totalReceivable={data.totalReceivable} />
-          <ActionCenter actions={data.actions} onNavigate={onNavigate} />
         </section>
 
         <p className="text-[11px] text-omega-stone text-center pt-2">
@@ -1203,28 +1202,6 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
             </ul>
           )}
         </div>
-
-        {/* Action Center */}
-        {data.actions.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-omega-charcoal">Action Center</h2>
-            </div>
-            <ul className="divide-y divide-gray-100">
-              {data.actions.slice(0, 5).map((a) => (
-                <li key={a.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className={`w-2 h-8 rounded-full flex-shrink-0 ${
-                    a.priority === 'high' ? 'bg-red-500' : 'bg-amber-400'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-omega-charcoal truncate">{a.title}</p>
-                    <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* Sales funnel quick stats */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -1406,82 +1383,6 @@ function BottlenecksPanel({ bottlenecks }) {
                   <p className="text-[11px] text-omega-stone truncate">{b.subtitle}</p>
                 </div>
                 <span className="text-base font-black text-omega-charcoal tabular-nums">{b.count}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Action Center ───────────────────────────────────────────────
-function ActionCenter({ actions, onNavigate }) {
-  const priorityCls = {
-    high:   'bg-red-100 text-red-700 border-red-200',
-    medium: 'bg-amber-100 text-amber-800 border-amber-200',
-    low:    'bg-gray-100 text-gray-700 border-gray-200',
-  };
-  const buttonCls = {
-    high:   'bg-omega-orange hover:bg-omega-dark text-white',
-    medium: 'border border-gray-200 hover:border-omega-orange text-omega-charcoal',
-    low:    'border border-gray-200 hover:border-omega-orange text-omega-charcoal',
-  };
-
-  // Where each action type navigates to
-  const actionTarget = (a) => {
-    if (a.icon === 'invoice')  return 'finance';
-    if (a.icon === 'estimate') return 'pipeline';
-    if (a.icon === 'budget')   return 'pipeline';
-    if (a.icon === 'call')     return 'pipeline';
-    return null;
-  };
-
-  const buttonLabel = (a) => {
-    if (a.icon === 'invoice')  return 'Go to Finance';
-    if (a.icon === 'estimate') return 'Review';
-    if (a.icon === 'budget')   return 'Review';
-    if (a.icon === 'call')     return 'View Pipeline';
-    return 'View';
-  };
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
-        <h2 className="text-base font-bold text-omega-charcoal">Action Center</h2>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone">
-          {actions.length} {actions.length === 1 ? 'item' : 'items'}
-        </span>
-      </div>
-      <div className="p-5">
-      {actions.length === 0 ? (
-        <p className="text-sm text-omega-stone italic py-6 text-center">Inbox zero. Nothing pending.</p>
-      ) : (
-        <ul className="divide-y divide-gray-100">
-          {actions.map((a) => {
-            const target = actionTarget(a);
-            return (
-              <li key={a.id} className="py-2.5 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-omega-charcoal truncate">{a.title}</p>
-                  <p className="text-[11px] text-omega-stone truncate">{a.subtitle}</p>
-                </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border flex-shrink-0 ${priorityCls[a.priority] || priorityCls.medium}`}>
-                  {a.priority}
-                </span>
-                {a.due && (
-                  <span className="text-[11px] font-semibold text-omega-stone tabular-nums flex-shrink-0">
-                    {new Date(a.due).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={target ? () => onNavigate?.(target) : undefined}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex-shrink-0 transition-opacity ${buttonCls[a.priority] || buttonCls.medium} ${!target ? 'opacity-40 cursor-default' : ''}`}
-                >
-                  {buttonLabel(a)}
-                </button>
               </li>
             );
           })}
