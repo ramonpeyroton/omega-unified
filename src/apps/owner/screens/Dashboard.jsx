@@ -1203,42 +1203,6 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
           )}
         </div>
 
-        {/* Sales funnel quick stats */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="text-sm font-bold text-omega-charcoal flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-omega-orange" /> Pipeline · {rangeLabel(bounds.start, bounds.end)}
-            </h2>
-          </div>
-          <div className="grid grid-cols-4 divide-x divide-gray-100">
-            {[
-              { label: 'Leads',       value: data.funnel.leadsCount },
-              { label: 'Appts',       value: data.funnel.monthAppts },
-              { label: 'Estimates',   value: data.funnel.monthEstSent },
-              { label: 'Closed',      value: data.funnel.monthClosed },
-            ].map((s) => (
-              <div key={s.label} className="flex flex-col items-center py-4">
-                <p className="text-lg font-black text-omega-charcoal tabular-nums">{s.value}</p>
-                <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wide mt-0.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Cash & Payments quick row */}
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label: 'Due This Week', value: fmtMoney(data.payments.dueThisWeek), urgent: data.payments.dueThisWeek > 0 },
-            { label: 'Overdue',       value: fmtMoney(data.payments.overdue),     urgent: data.payments.overdue > 0 },
-            { label: 'Next 30 Days',  value: fmtMoney(data.payments.upcoming30),  urgent: false },
-          ].map((p) => (
-            <div key={p.label} className={`rounded-xl p-3 text-center ${p.urgent ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-100'}`}>
-              <p className={`text-sm font-black tabular-nums ${p.urgent ? 'text-red-700' : 'text-omega-charcoal'}`}>{p.value}</p>
-              <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wide mt-0.5 leading-tight">{p.label}</p>
-            </div>
-          ))}
-        </div>
-
       </div>
     </div>
   );
