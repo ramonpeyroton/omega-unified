@@ -96,7 +96,16 @@ export async function ensureMilestonesForContract(contract) {
     .from('payment_milestones')
     .insert(rows)
     .select();
-  if (error) throw error;
+  if (error) {
+    // 23505 = unique_violation. Another caller (typically the DocuSign
+    // webhook racing the Finance / EstimateFlow loader) already
+    // materialized this contract's milestones between our existence check
+    // above and this insert. The unique index on (contract_id, order_idx)
+    // — migration 068 — turns that old check-then-insert race into a clean
+    // no-op here instead of a duplicated 8-row plan.
+    if (error.code === '23505') return { created: 0, alreadyExisted: true };
+    throw error;
+  }
   return { created: data?.length || 0, alreadyExisted: false };
 }
 
@@ -235,7 +244,13 @@ export async function ensureSubPaymentsForAgreement(agreement) {
     .from('sub_payments')
     .insert(rows)
     .select();
-  if (error) throw error;
+  if (error) {
+    // 23505 = unique_violation — a concurrent caller already materialized
+    // this agreement's payments. Guarded by the unique index on
+    // (agreement_id, order_idx) in migration 068. Treat as a no-op.
+    if (error.code === '23505') return { created: 0, alreadyExisted: true };
+    throw error;
+  }
   return { created: data?.length || 0, alreadyExisted: false };
 }
 
