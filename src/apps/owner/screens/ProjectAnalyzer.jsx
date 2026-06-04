@@ -252,7 +252,7 @@ function formatTs(ts) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
-export default function ProjectAnalyzer() {
+export default function ProjectAnalyzer({ onBack }) {
   const [file, setFile] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -436,6 +436,7 @@ export default function ProjectAnalyzer() {
       )}
 
       <PageHeader
+        onBack={onBack}
         icon={FileText}
         title="Project Analyzer"
         subtitle="Upload architectural plans, scope of work, or any project document — Omega AI extracts structured insights"

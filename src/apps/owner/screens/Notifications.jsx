@@ -4,7 +4,7 @@ import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 
-export default function Notifications() {
+export default function Notifications({ onBack }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,6 +41,7 @@ export default function Notifications() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <PageHeader
+        onBack={onBack}
         icon={Bell}
         title="Notifications"
         subtitle={unseen > 0 ? `${unseen} unread` : 'All caught up'}

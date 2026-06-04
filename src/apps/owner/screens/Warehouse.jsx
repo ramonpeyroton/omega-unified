@@ -521,7 +521,7 @@ function ItemRow({ item, onUpdated, zebra }) {
 }
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-export default function Warehouse() {
+export default function Warehouse({ onBack }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -608,6 +608,7 @@ export default function Warehouse() {
       {showScan && <AIScanModal onClose={() => setShowScan(false)} onAdd={handleAIAddItems} />}
 
       <PageHeader
+        onBack={onBack}
         icon={Package}
         title="Warehouse"
         subtitle={<>{items.length} items{outCount > 0 && <> · <span className="text-red-600 font-medium">{outCount} out of stock</span></>}{lowStockCount > 0 && <> · <span className="text-amber-600 font-medium">{lowStockCount} low stock</span></>}</>}

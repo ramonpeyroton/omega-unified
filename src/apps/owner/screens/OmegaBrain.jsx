@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 
-export default function OmegaBrain() {
+export default function OmegaBrain({ onBack }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [entry, setEntry] = useState('');
@@ -65,6 +65,7 @@ export default function OmegaBrain() {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       <PageHeader
+        onBack={onBack}
         icon={Brain}
         title="Omega Brain"
         subtitle="Train Omega AI with real project data — injected into every report and estimate"

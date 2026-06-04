@@ -72,7 +72,7 @@ function SubModal({ sub, onSave, onClose }) {
   );
 }
 
-export default function Subcontractors() {
+export default function Subcontractors({ onBack }) {
   const [subs, setSubs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -130,6 +130,7 @@ export default function Subcontractors() {
       {modal && <SubModal sub={modal.sub} onSave={saveSub} onClose={() => setModal(null)} />}
 
       <PageHeader
+        onBack={onBack}
         icon={Users}
         title="Subcontractors"
         subtitle={`${subs.length} in database`}

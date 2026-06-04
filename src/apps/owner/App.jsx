@@ -28,7 +28,9 @@ import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import Questionnaire from '../sales/screens/Questionnaire';
-import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle } from 'lucide-react';
+import PageHeader from '../../shared/components/ui/PageHeader';
+import MobileMoreSheet from './components/MobileMoreSheet';
+import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle, MoreHorizontal } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -79,7 +81,7 @@ function navigateForId(navigate, id) {
 
 // ─── Mobile bottom bar — uses location instead of state ───────────
 
-function MobileBottomBar({ notifCount }) {
+function MobileBottomBar({ notifCount, onMore }) {
   const navigate = useNavigate();
   const location = useLocation();
   const screen = screenIdFromPath(location.pathname);
@@ -88,16 +90,17 @@ function MobileBottomBar({ notifCount }) {
     { id: 'dashboard',  icon: LayoutDashboard, label: 'Home' },
     { id: 'pipeline',   icon: GitBranch,        label: 'Pipeline' },
     { id: 'finance',    icon: DollarSign,        label: 'Finance' },
-    { id: 'daily-logs', icon: MessageCircle,     label: 'Logs' },
     { id: 'calendar',   icon: Calendar,          label: 'Calendar' },
+    { id: 'daily-logs', icon: MessageCircle,     label: 'Logs' },
     { id: 'notifications', icon: Bell,           label: 'Alerts', badge: notifCount },
+    { id: 'more',       icon: MoreHorizontal,    label: 'More' },
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden">
       {items.map(({ id, icon: Icon, label, badge }) => (
         <button
           key={id}
-          onClick={() => navigateForId(navigate, id)}
+          onClick={() => (id === 'more' ? onMore?.() : navigateForId(navigate, id))}
           className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 relative ${
             screen === id ? 'text-omega-orange' : 'text-omega-stone'
           }`}
@@ -121,6 +124,7 @@ function OwnerShell({ user, notifCount, onLogout, children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const screen = screenIdFromPath(location.pathname);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -136,7 +140,14 @@ function OwnerShell({ user, notifCount, onLogout, children }) {
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
         {children}
       </main>
-      <MobileBottomBar notifCount={notifCount} />
+      <MobileBottomBar notifCount={notifCount} onMore={() => setMoreOpen(true)} />
+      <MobileMoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        onNavigate={(id) => navigateForId(navigate, id)}
+        user={user}
+        onLogout={onLogout}
+      />
     </div>
   );
 }
@@ -167,13 +178,24 @@ function PipelineRoute({ user }) {
   );
 }
 
-function CalendarRoute({ user })       { return <CalendarScreen user={user} />; }
-function FinanceRoute({ user })        { return <FinanceScreen user={user} />; }
-function NotificationsRoute()          { return <Notifications />; }
-function SubcontractorsRoute()         { return <Subcontractors />; }
-function ProjectAnalyzerRoute()        { return <ProjectAnalyzer />; }
-function WarehouseRoute()              { return <Warehouse />; }
-function OmegaBrainRoute()             { return <OmegaBrain />; }
+function CalendarRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <PageHeader icon={Calendar} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
+      <div className="flex-1 min-h-0 overflow-hidden"><CalendarScreen user={user} /></div>
+    </div>
+  );
+}
+function FinanceRoute({ user }) {
+  const navigate = useNavigate();
+  return <FinanceScreen user={user} onBack={() => navigate('/')} />;
+}
+function NotificationsRoute()   { const navigate = useNavigate(); return <Notifications onBack={() => navigate('/')} />; }
+function SubcontractorsRoute()  { const navigate = useNavigate(); return <Subcontractors onBack={() => navigate('/')} />; }
+function ProjectAnalyzerRoute() { const navigate = useNavigate(); return <ProjectAnalyzer onBack={() => navigate('/')} />; }
+function WarehouseRoute()       { const navigate = useNavigate(); return <Warehouse onBack={() => navigate('/')} />; }
+function OmegaBrainRoute()      { const navigate = useNavigate(); return <OmegaBrain onBack={() => navigate('/')} />; }
 function CommissionsRoute({ user })    { return <CommissionsScreen user={user} />; }
 
 function LeadsRoute({ user }) {

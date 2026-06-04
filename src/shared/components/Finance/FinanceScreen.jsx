@@ -14,7 +14,7 @@ import {
   DollarSign, Building2, Users, Wallet, X, Plus, Pencil, Save,
   Check, AlertTriangle, Clock, ArrowDownCircle, ArrowUpCircle, Loader2,
   Trash2, ChevronRight, Banknote, FileText, Receipt, Printer, RefreshCw,
-  TrendingUp, TrendingDown,
+  TrendingUp, TrendingDown, ArrowLeft,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
@@ -53,7 +53,7 @@ function todayISO() {
 // ROOT
 // ─────────────────────────────────────────────────────────────────────
 
-export default function FinanceScreen({ user }) {
+export default function FinanceScreen({ user, onBack }) {
   const [tab, setTab] = useState('clients');
   const [accounts, setAccounts] = useState([]);
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -81,40 +81,51 @@ export default function FinanceScreen({ user }) {
 
   return (
     <div className="flex-1 overflow-auto bg-omega-cloud">
-      <header className="px-6 md:px-8 py-6 bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-omega-charcoal flex items-center gap-2">
-              <DollarSign className="w-6 h-6 text-omega-orange" /> Finance
-            </h1>
-            <p className="text-sm text-omega-stone mt-1">
+      {/* Header — matches the shared PageHeader sizing (chip + title +
+          subtitle), with the tab bar kept right below it. */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="px-4 sm:px-6 py-3 flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" /> Home
+            </button>
+          )}
+          <div className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0 ml-1">
+            <DollarSign className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-base sm:text-lg font-bold text-omega-charcoal truncate leading-tight">Finance</h1>
+            <p className="hidden sm:block text-xs text-omega-stone mt-0.5 truncate">
               Control receivables, sub payments and print your QB report.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => { setRefreshNonce((n) => n + 1); loadAccounts(); }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal"
               title="Reload everything from Supabase"
             >
-              <RefreshCw className="w-4 h-4" /> Refresh
+              <RefreshCw className="w-4 h-4" /> <span className="hidden sm:inline">Refresh</span>
             </button>
             <button
               onClick={() => setAccountsOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange hover:text-omega-orange text-sm font-semibold text-omega-charcoal"
             >
-              <Banknote className="w-4 h-4" /> Bank Accounts
-              <span className="ml-1 text-[11px] text-omega-stone">({accounts.length})</span>
+              <Banknote className="w-4 h-4" /> <span className="hidden sm:inline">Bank Accounts</span>
+              <span className="text-[11px] text-omega-stone">({accounts.length})</span>
             </button>
           </div>
         </div>
 
-        <nav className="mt-5 flex gap-1 border-b border-gray-100 -mb-6">
+        <nav className="px-4 sm:px-6 flex gap-1 border-t border-gray-100 overflow-x-auto scrollbar-hide">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`px-4 py-3 inline-flex items-center gap-2 text-sm font-semibold border-b-2 transition ${
+              className={`px-4 py-3 inline-flex items-center gap-2 text-sm font-semibold border-b-2 whitespace-nowrap transition ${
                 tab === id
                   ? 'border-omega-orange text-omega-orange'
                   : 'border-transparent text-omega-stone hover:text-omega-charcoal'
