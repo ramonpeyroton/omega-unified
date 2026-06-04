@@ -415,31 +415,92 @@ export default function JobFullView({
       {/* Light on phones (matches the rest of the new mobile aesthetic),
           dark charcoal on desktop where it's always lived. */}
       <header className="bg-white text-omega-charcoal border-b border-gray-200 sm:bg-omega-charcoal sm:text-white sm:border-transparent">
-        <div className="px-4 sm:px-6 py-4 flex items-center gap-3">
-          <button
-            onClick={onClose}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-omega-pale text-omega-charcoal hover:bg-omega-orange/10 sm:bg-white/10 sm:text-white sm:hover:bg-white/20 text-sm font-semibold transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">Back</span>
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] uppercase tracking-widest text-omega-stone sm:text-omega-fog font-semibold">Job</p>
-            <h1 className="font-bold text-lg sm:text-xl leading-tight truncate">
+        {/* ── Mobile header — rearranged per Ramon: name + address on the
+            left, the call/email/questionnaire icons and the pipeline-status
+            button stacked on the right, and the service-type chip below. ── */}
+        <div className="sm:hidden px-4 py-4">
+          {/* Top row: back (left) + icons & pipeline status (right) */}
+          <div className="flex items-start justify-between gap-3">
+            <button
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-9 rounded-xl bg-omega-pale text-omega-charcoal hover:bg-omega-orange/10 transition-colors flex-shrink-0 text-sm font-semibold"
+              aria-label="Back to pipeline"
+            >
+              <ArrowLeft className="w-4 h-4" /> Pipeline
+            </button>
+
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {job.client_phone && (
+                <a href={`tel:${job.client_phone}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Call">
+                  <Phone className="w-4 h-4" />
+                </a>
+              )}
+              {job.client_email && (
+                <a href={`mailto:${job.client_email}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Email">
+                  <Mail className="w-4 h-4" />
+                </a>
+              )}
+              {onOpenQuestionnaire && (
+                <button onClick={() => { onOpenQuestionnaire(job); }} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Questionnaire">
+                  <ClipboardEdit className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Name + address — pulled down to a full-width block below the
+              controls (Ramon's placement). */}
+          <div className="mt-3 min-w-0">
+            <p className="text-[10px] uppercase tracking-widest text-omega-stone font-semibold">Job</p>
+            <h1 className="font-bold text-xl leading-tight text-omega-charcoal truncate">
               {job.client_name || job.name || 'Untitled'}
             </h1>
+            {job.address && (
+              <p className="mt-0.5 text-xs text-omega-stone flex items-center gap-1 min-w-0">
+                <MapPin className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{job.address}</span>
+              </p>
+            )}
           </div>
-          {/* Mobile quick-dial icons — always visible on small screens */}
-          <div className="flex sm:hidden items-center gap-1">
-            {job.client_phone && (
-              <a href={`tel:${job.client_phone}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Call">
-                <Phone className="w-4 h-4" />
-              </a>
+
+          {/* Service-type chip + pipeline status, side by side (status pulled
+              down next to the service per Ramon). */}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {job.service && (
+              <span className="inline-flex items-center justify-center min-w-[7rem] h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg bg-omega-orange text-white">
+                {job.service}
+              </span>
             )}
-            {job.client_email && (
-              <a href={`mailto:${job.client_email}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Email">
-                <Mail className="w-4 h-4" />
-              </a>
+            {readOnlyBasic ? (
+              <span className={`inline-flex items-center justify-center min-w-[7rem] h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${pipelinePalette.bg} ${pipelinePalette.text}`}>
+                {pipelineLabel}
+              </span>
+            ) : (
+              <PipelineStatusPicker
+                currentKey={pipelineKey}
+                user={user}
+                jobId={job.id}
+                onMoved={(updated) => { setJob(updated); onJobUpdated?.(updated); }}
+                palette={pipelinePalette}
+                label={pipelineLabel}
+              />
             )}
+          </div>
+        </div>
+
+        {/* ── Desktop header (unchanged charcoal layout) ── */}
+        <div className="hidden sm:flex px-6 py-4 items-center gap-3">
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 text-white hover:bg-white/20 text-sm font-semibold transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" /> <span>Back</span>
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] uppercase tracking-widest text-omega-fog font-semibold">Job</p>
+            <h1 className="font-bold text-xl leading-tight truncate">
+              {job.client_name || job.name || 'Untitled'}
+            </h1>
           </div>
 
           {/* Quick actions (desktop). The Estimate Flow shortcut now
@@ -492,7 +553,7 @@ export default function JobFullView({
           </div>
         </div>
 
-        <div className="px-4 sm:px-6 pb-3 flex items-center gap-2 flex-wrap">
+        <div className="hidden sm:flex px-6 pb-3 items-center gap-2 flex-wrap">
           {/* Pipeline status — click to move the job to another phase
               without having to drag-and-drop on the Kanban. Especially
               useful for the rightmost phases (Completed / Estimate
@@ -1202,7 +1263,7 @@ function DetailsTab({
 // works regardless of viewport width, and is the only path for
 // receptionists / readOnlyBasic roles (which we explicitly hide it
 // from at the call site).
-function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label, variant = 'badge' }) {
+function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label, variant = 'badge', menuAlign = 'left' }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   // PIN-gate state: when the user picks a terminal phase (Estimate
@@ -1277,7 +1338,7 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
         <>
           {/* Click-outside catcher — covers the screen below the menu. */}
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full mt-1 z-40 w-56 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-40 w-56 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden`}>
             <div className="px-3 py-2 border-b border-gray-100">
               <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">Move to phase</p>
             </div>
