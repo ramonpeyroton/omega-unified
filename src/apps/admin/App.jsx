@@ -6,7 +6,6 @@ import CompanySettings from './screens/CompanySettings';
 import AuditLog from './screens/AuditLog';
 import MessageTemplates from './screens/MessageTemplates';
 import ScreenOverride from './screens/ScreenOverride';
-import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -75,7 +74,6 @@ export default function App({ user, onLogout }) {
           onJobDeleted={() => { setFullViewJob(null); setFullViewInitialTab(null); }}
         />
       )}
-      <JarvisChat user={user} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 // Operations sub-app — migrated to URL-based routing (same pattern as
-// Sales and Owner). Persistent Sidebar + JarvisChat shell, with
+// Sales and Owner). Persistent Sidebar shell, with
 // <Routes> swapping the main content per URL. JobFullView is a real
 // route so refresh and shared links preserve the open card. Back
 // inside a card always goes to /pipeline.
@@ -13,7 +13,6 @@ import ContractManager from './screens/ContractManager';
 import SubcontractorManager from './screens/SubcontractorManager';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
-import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -84,7 +83,6 @@ function OperationsShell({ user, onLogout }) {
       <main className="flex-1 flex flex-col overflow-hidden">
         <Outlet />
       </main>
-      <JarvisChat user={user} />
     </div>
   );
 }

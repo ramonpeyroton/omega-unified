@@ -1,6 +1,6 @@
 // Owner sub-app — migrated to URL-based routing (same pattern as Sales).
 //
-// The Sidebar + JarvisChat + MobileBottomBar wrap a persistent layout
+// The Sidebar + MobileBottomBar wrap a persistent layout
 // shell; the <Routes> inside the <main> swap per URL. The JobFullView
 // becomes a real route (/jobs/:id?tab=X) so refresh and shared links
 // preserve the open card. Back from a job ALWAYS lands on /pipeline,
@@ -21,7 +21,6 @@ import Sidebar from './components/Sidebar';
 import { supabase } from './lib/supabase';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
-import JarvisChat from '../../shared/components/JarvisChat';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -137,7 +136,6 @@ function OwnerShell({ user, notifCount, onLogout, children }) {
       <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
         {children}
       </main>
-      <JarvisChat user={user} />
       <MobileBottomBar notifCount={notifCount} />
     </div>
   );
@@ -317,7 +315,7 @@ function OwnerRoutes({ user, onLogout, notifCount }) {
 }
 
 // React Router v6 nested layout helper — keeps OwnerShell mounted
-// between route swaps so the Sidebar / JarvisChat don't re-mount
+// between route swaps so the Sidebar doesn't re-mount
 // on every nav.
 import { Outlet } from 'react-router-dom';
 function OwnerShellWrapper({ user, onLogout, notifCount }) {

@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, 
 import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
-import JarvisChat from '../../shared/components/JarvisChat';
 import LeadsList from '../receptionist/screens/LeadsList';
 import JobFullView from '../../shared/components/JobFullView';
 import DailyLogsList from '../../shared/components/DailyLogsList';
@@ -89,8 +88,6 @@ function MarketingShell({ user, onLogout }) {
       <main className="flex-1 overflow-hidden flex flex-col">
         <Outlet />
       </main>
-
-      <JarvisChat user={user} />
     </div>
   );
 }
