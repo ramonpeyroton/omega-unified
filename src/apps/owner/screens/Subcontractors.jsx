@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus, Phone, Mail, X, Edit2, Trash2, UserPlus, Users } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
@@ -128,16 +129,17 @@ export default function Subcontractors() {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {modal && <SubModal sub={modal.sub} onSave={saveSub} onClose={() => setModal(null)} />}
 
-      <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center gap-4">
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-omega-charcoal">Subcontractors</h1>
-          <p className="text-xs text-omega-stone">{subs.length} in database</p>
-        </div>
-        <button onClick={() => setModal({})} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange text-white text-sm font-semibold hover:bg-omega-dark transition-colors">
-          <Plus className="w-4 h-4" />
-          Add Sub
-        </button>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Subcontractors"
+        subtitle={`${subs.length} in database`}
+        actions={(
+          <button onClick={() => setModal({})} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange text-white text-sm font-semibold hover:bg-omega-dark transition-colors">
+            <Plus className="w-4 h-4" />
+            Add Sub
+          </button>
+        )}
+      />
 
       <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center gap-3">
         <div className="relative flex-1">

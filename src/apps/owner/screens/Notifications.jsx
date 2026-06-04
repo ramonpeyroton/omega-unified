@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -39,17 +40,16 @@ export default function Notifications() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center gap-4">
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-omega-charcoal">Notifications</h1>
-          <p className="text-xs text-omega-stone">{unseen > 0 ? `${unseen} unread` : 'All caught up'}</p>
-        </div>
-        {unseen > 0 && (
+      <PageHeader
+        icon={Bell}
+        title="Notifications"
+        subtitle={unseen > 0 ? `${unseen} unread` : 'All caught up'}
+        actions={unseen > 0 && (
           <button onClick={markAllRead} className="flex items-center gap-2 text-sm text-omega-orange font-semibold hover:text-omega-dark transition-colors">
             <CheckCheck className="w-4 h-4" />Mark all read
           </button>
         )}
-      </div>
+      />
 
       <div className="flex-1 overflow-y-auto p-6">
         {loading ? (

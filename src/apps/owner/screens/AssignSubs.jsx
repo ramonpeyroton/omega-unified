@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Phone, Mail, Check, X, UserCheck, MessageCircle, UserX } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
@@ -188,15 +189,13 @@ export default function AssignSubs({ job, phases, onNavigate }) {
         />
       )}
 
-      <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center gap-4">
-        <button onClick={() => onNavigate('job-detail')} className="p-2 rounded-xl border border-gray-200 text-omega-stone hover:text-omega-charcoal transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div>
-          <h1 className="text-xl font-bold text-omega-charcoal">Assign Subcontractors</h1>
-          <p className="text-xs text-omega-stone">{job.client_name} · {job.service}</p>
-        </div>
-      </div>
+      <PageHeader
+        icon={UserCheck}
+        title="Assign Subcontractors"
+        subtitle={`${job.client_name} · ${job.service}`}
+        onBack={() => onNavigate('job-detail')}
+        backLabel="Back"
+      />
 
       <div className="flex-1 overflow-hidden flex">
         {/* Phase list */}

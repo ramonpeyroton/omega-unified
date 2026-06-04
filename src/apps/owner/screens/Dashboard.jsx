@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import LeadsHeatMap from '../components/LeadsHeatMap';
+import Logo from '../components/Logo';
 
 // Owner Dashboard — Phase 1 of Ramon's redesign:
 //   • 6 KPI cards (MTD vs last month delta).
@@ -1087,14 +1088,10 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
     <div className="md:hidden flex flex-col min-h-full">
 
       {/* ── Light header (matches the new mobile aesthetic) ─────── */}
-      <div className="bg-white border-b border-gray-200 px-4 pt-6 pb-4">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <p className="text-omega-stone text-[11px] font-bold uppercase tracking-widest leading-none">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-            </p>
-            <h1 className="text-xl font-black text-omega-charcoal mt-1">Dashboard 📊</h1>
-          </div>
+      <div className="bg-white border-b border-gray-200 px-4 pt-5 pb-4">
+        {/* Brand row — logo so the dashboard is clearly identified as Omega */}
+        <div className="flex items-center justify-between mb-4">
+          <Logo size="sm" />
           <button
             onClick={onRefresh}
             className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10 transition-colors"
@@ -1102,6 +1099,12 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
           >
             <RefreshCw className="w-5 h-5" />
           </button>
+        </div>
+        <div className="mb-4">
+          <p className="text-omega-stone text-[11px] font-bold uppercase tracking-widest leading-none">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+          </p>
+          <h1 className="text-xl font-black text-omega-charcoal mt-1">Dashboard 📊</h1>
         </div>
 
         {/* 6 KPIs — one row; defined cards so they read on the light header */}

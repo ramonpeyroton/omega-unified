@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, Plus, Trash2, Save, Lightbulb } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
@@ -63,17 +64,11 @@ export default function OmegaBrain() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      <div className="px-6 py-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-omega-pale flex items-center justify-center">
-            <Brain className="w-5 h-5 text-omega-orange" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-omega-charcoal">Omega Brain</h1>
-            <p className="text-xs text-omega-stone">Train Omega AI with real project data — injected into every report and estimate</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={Brain}
+        title="Omega Brain"
+        subtitle="Train Omega AI with real project data — injected into every report and estimate"
+      />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-6">

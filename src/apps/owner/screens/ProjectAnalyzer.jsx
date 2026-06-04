@@ -3,6 +3,7 @@ import {
   Upload, FileText, Link, Download, Save, X, AlertTriangle,
   ShoppingCart, ClipboardList, Clock, RefreshCw, History,
 } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import { fetchBrainEntries } from '../lib/anthropic';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -434,10 +435,11 @@ export default function ProjectAnalyzer() {
         </div>
       )}
 
-      <div className="px-6 py-4 border-b border-gray-200 bg-white">
-        <h1 className="text-xl font-bold text-omega-charcoal">Project Analyzer</h1>
-        <p className="text-xs text-omega-stone mt-0.5">Upload architectural plans, scope of work, or any project document — Omega AI extracts structured insights</p>
-      </div>
+      <PageHeader
+        icon={FileText}
+        title="Project Analyzer"
+        subtitle="Upload architectural plans, scope of work, or any project document — Omega AI extracts structured insights"
+      />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-5">
