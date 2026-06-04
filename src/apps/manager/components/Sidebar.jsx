@@ -118,7 +118,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
       </aside>
 
       {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 overflow-x-auto scrollbar-hide">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 overflow-x-auto scrollbar-hide safe-bottom">
         {MOBILE_NAV.map(({ id, label, icon: Icon }) => {
           const active = screen === id || (id === 'dashboard' && screen === 'phase-board');
           return (

@@ -96,7 +96,7 @@ function MobileBottomBar({ notifCount, onMore }) {
     { id: 'more',       icon: MoreHorizontal,    label: 'More' },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
       {items.map(({ id, icon: Icon, label, badge }) => (
         <button
           key={id}
@@ -137,7 +137,7 @@ function OwnerShell({ user, notifCount, onLogout, children }) {
         user={user}
         onOpenJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: location.pathname } })}
       />
-      <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
+      <main className="flex-1 flex flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         {children}
       </main>
       <MobileBottomBar notifCount={notifCount} onMore={() => setMoreOpen(true)} />
