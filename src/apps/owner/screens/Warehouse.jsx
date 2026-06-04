@@ -612,17 +612,17 @@ export default function Warehouse({ onBack }) {
         icon={Package}
         title="Warehouse"
         subtitle={<>{items.length} items{outCount > 0 && <> · <span className="text-red-600 font-medium">{outCount} out of stock</span></>}{lowStockCount > 0 && <> · <span className="text-amber-600 font-medium">{lowStockCount} low stock</span></>}</>}
-        actions={(
-          <>
-            <button onClick={() => setShowScan(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-omega-charcoal text-sm font-medium hover:bg-gray-50 transition-colors">
-              <Camera className="w-4 h-4" />Scan
-            </button>
-            <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange text-white text-sm font-semibold hover:bg-omega-dark transition-colors">
-              <Plus className="w-4 h-4" />Add Item
-            </button>
-          </>
-        )}
       />
+
+      {/* Action bar — kept below the header (no buttons in the head). */}
+      <div className="px-4 sm:px-6 py-3 bg-white border-b border-gray-100 flex justify-end gap-2 flex-shrink-0">
+        <button onClick={() => setShowScan(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-omega-charcoal text-sm font-medium hover:bg-gray-50 transition-colors">
+          <Camera className="w-4 h-4" />Scan
+        </button>
+        <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-orange text-white text-sm font-semibold hover:bg-omega-dark transition-colors">
+          <Plus className="w-4 h-4" />Add Item
+        </button>
+      </div>
 
       {/* Search + Filter */}
       <div className="px-6 py-3 bg-white border-b border-gray-100 flex items-center gap-3 flex-wrap flex-shrink-0">
