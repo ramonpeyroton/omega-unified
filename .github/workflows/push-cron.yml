@@ -1,0 +1,24 @@
+name: Push event reminders
+
+# Free external cron (the Vercel Hobby plan only allows once-a-day crons).
+# Every 15 minutes this pings our endpoint, which sends "2 hours before" event
+# reminders. The endpoint is idempotent (reminder_sent_at dedupes), so an
+# occasional double-fire from GitHub's scheduler is harmless.
+#
+# Setup: add a repo secret named OMEGA_API_SECRET (Settings -> Secrets and
+# variables -> Actions) with the SAME value as the Vercel OMEGA_API_SECRET.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger 2h-before event reminders
+        run: |
+          curl -sS --fail-with-body -X GET \
+            -H "x-omega-secret: ${{ secrets.OMEGA_API_SECRET }}" \
+            "https://omega-unified.vercel.app/api/daily-owner-update?task=reminders"

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/apiFetch';
 import Avatar, { colorFromName } from './ui/Avatar';
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // post-compression hard cap
@@ -377,6 +378,22 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
         .select()
         .single();
       if (e) throw e;
+
+      // Push the mentioned users a notification (best-effort, non-blocking).
+      if (mentions.length) {
+        const preview = (text || '').slice(0, 120) || 'mentioned you in Daily Logs';
+        apiFetch('/api/daily-owner-update?task=send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userNames: mentions,
+            title: `${user?.name || 'Someone'} mentioned you`,
+            body: preview,
+            url: `/jobs/${job.id}?tab=daily`,
+            tag: `chat-${job.id}`,
+          }),
+        }).catch(() => {});
+      }
 
       // Replace optimistic placeholder with the real row.
       setMessages((prev) => prev.map((m) => m.id === tempId ? data : m));

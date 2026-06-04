@@ -18,7 +18,9 @@
 // and spam the owner's bell.
 
 import { createClient } from '@supabase/supabase-js';
+import webpush from 'web-push';
 import { pollGmailInvoices } from './_lib/gmailPoller.js';
+import { requireSecret } from './_lib/requireSecret.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -28,6 +30,132 @@ const supabase = (SUPABASE_URL && SUPABASE_KEY)
   ? createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } })
   : null;
 
+// ─── Web Push setup (folded into this function to stay under Vercel's
+// 12-function Hobby limit; routed by ?task=) ──────────────────────────
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
+let vapidReady = false;
+if (VAPID_PUBLIC && VAPID_PRIVATE) {
+  webpush.setVapidDetails('mailto:notifications@omegadevelopment.app', VAPID_PUBLIC, VAPID_PRIVATE);
+  vapidReady = true;
+}
+
+// Send a push to every subscribed device of the given user names. Prunes dead
+// subscriptions (410 Gone / 404). payload = { title, body, url, tag }.
+async function sendPushToUsers(userNames, payload) {
+  if (!vapidReady || !supabase) return { sent: 0, note: 'push not configured' };
+  const names = (Array.isArray(userNames) ? userNames : []).filter(Boolean);
+  if (names.length === 0) return { sent: 0 };
+
+  const { data: subs } = await supabase
+    .from('user_push_subscriptions')
+    .select('id, endpoint, p256dh, auth')
+    .in('user_name', names);
+  if (!subs || subs.length === 0) return { sent: 0 };
+
+  const body = JSON.stringify(payload);
+  const dead = [];
+  let sent = 0;
+  await Promise.all(subs.map(async (s) => {
+    try {
+      await webpush.sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        body
+      );
+      sent++;
+    } catch (err) {
+      const code = err?.statusCode;
+      if (code === 410 || code === 404) dead.push(s.id);
+    }
+  }));
+  if (dead.length) {
+    await supabase.from('user_push_subscriptions').delete().in('id', dead);
+  }
+  return { sent, removed: dead.length };
+}
+
+function etTime(iso) {
+  return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+}
+function eventAssignees(ev) {
+  if (Array.isArray(ev.assigned_to_names) && ev.assigned_to_names.length) return ev.assigned_to_names;
+  return ev.assigned_to_name ? [ev.assigned_to_name] : [];
+}
+
+// 2h-before reminders. Window [now+105min, now+120min) matches the 15-min cron
+// cadence; reminder_sent_at dedupes so each event fires once.
+async function sendEventReminders() {
+  if (!vapidReady || !supabase) return { reminded: 0 };
+  const now = Date.now();
+  const start = new Date(now + 105 * 60 * 1000).toISOString();
+  const end   = new Date(now + 120 * 60 * 1000).toISOString();
+  const { data: events } = await supabase
+    .from('calendar_events')
+    .select('id, title, starts_at, location, assigned_to_names, assigned_to_name, job_id')
+    .is('reminder_sent_at', null)
+    .gte('starts_at', start)
+    .lt('starts_at', end);
+  if (!events || events.length === 0) return { reminded: 0 };
+
+  let reminded = 0;
+  for (const ev of events) {
+    const names = eventAssignees(ev);
+    if (names.length) {
+      await sendPushToUsers(names, {
+        title: `Soon: ${ev.title}`,
+        body: `Starts at ${etTime(ev.starts_at)}${ev.location ? ` · ${ev.location}` : ''}`,
+        url: ev.job_id ? `/jobs/${ev.job_id}?tab=daily` : '/calendar',
+        tag: `event-${ev.id}`,
+      });
+      reminded++;
+    }
+    await supabase.from('calendar_events')
+      .update({ reminder_sent_at: new Date().toISOString() })
+      .eq('id', ev.id);
+  }
+  return { reminded };
+}
+
+// Start-of-day summary: one push per user listing today's (ET) events.
+async function sendDailySummaries() {
+  if (!vapidReady || !supabase) return { summaries: 0 };
+  const now = new Date();
+  const horizon = new Date(now.getTime() + 18 * 60 * 60 * 1000).toISOString();
+  const { data: events } = await supabase
+    .from('calendar_events')
+    .select('title, starts_at, assigned_to_names, assigned_to_name')
+    .gte('starts_at', now.toISOString())
+    .lt('starts_at', horizon)
+    .order('starts_at', { ascending: true });
+  if (!events || events.length === 0) return { summaries: 0 };
+
+  const todayET = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+  const todays = events.filter(
+    (e) => new Date(e.starts_at).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === todayET
+  );
+  if (todays.length === 0) return { summaries: 0 };
+
+  const byUser = {};
+  for (const e of todays) {
+    for (const n of eventAssignees(e)) (byUser[n] ||= []).push(e);
+  }
+
+  let summaries = 0;
+  for (const [name, list] of Object.entries(byUser)) {
+    const lines = list.slice(0, 5)
+      .map((e) => `${etTime(e.starts_at)} ${e.title}`)
+      .join(' · ');
+    await sendPushToUsers([name], {
+      title: `Today: ${list.length} event${list.length === 1 ? '' : 's'}`,
+      body: lines,
+      url: '/calendar',
+      tag: 'daily-summary',
+    });
+    summaries++;
+  }
+  return { summaries };
+}
+
 function json(res, status, body) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
@@ -35,6 +163,32 @@ function json(res, status, body) {
 }
 
 export default async function handler(req, res) {
+  const task = (req.query?.task || '').toString();
+
+  // ── task=send: push to specific users (Daily Log mentions, etc.). ──
+  // Client-triggered → guarded by the shared x-omega-secret.
+  if (task === 'send') {
+    if (!requireSecret(req, res)) return;
+    if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
+    const p = req.body || {};
+    const result = await sendPushToUsers(p.userNames, {
+      title: p.title || 'Omega',
+      body:  p.body || '',
+      url:   p.url || '/',
+      tag:   p.tag || undefined,
+    });
+    return json(res, 200, { ok: true, ...result });
+  }
+
+  // ── task=reminders: 2h-before event reminders (external 15-min cron). ──
+  if (task === 'reminders') {
+    if (!requireSecret(req, res)) return;
+    if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
+    const result = await sendEventReminders();
+    return json(res, 200, { ok: true, ...result });
+  }
+
+  // ── default (no task): the daily owner cron + start-of-day summaries. ──
   // Vercel cron sets Authorization: Bearer ${CRON_SECRET}. If the env
   // is empty (e.g. local dev), allow GET so we can manually trigger.
   if (CRON_SECRET) {
@@ -158,6 +312,11 @@ export default async function handler(req, res) {
     gmailResult = { ok: false, reason: err.message };
   }
 
+  // ─── Start-of-day push summaries ─────────────────────────────────
+  // One push per user listing today's calendar events. Non-fatal.
+  let pushSummaries = { summaries: 0 };
+  try { pushSummaries = await sendDailySummaries(); } catch { /* non-fatal */ }
+
   return json(res, 200, {
     ok: true,
     jobs_active: jobs.length,
@@ -166,5 +325,6 @@ export default async function handler(req, res) {
     pending_offers: pendingOffers.length,
     offer_reminders_created: offerReminders,
     gmail: gmailResult,
+    push_summaries: pushSummaries.summaries,
   });
 }
