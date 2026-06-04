@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
+import PageHeader from './ui/PageHeader';
 
 // ─────────────────────────────────────────────────────────────────
 // CommissionsScreen — role-aware commissions ledger.
@@ -61,7 +62,7 @@ function cmp(a, b) {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 }
 
-export default function CommissionsScreen({ user }) {
+export default function CommissionsScreen({ user, onBack }) {
   const role        = user?.role || '';
   const isAdmin     = ADMIN_ROLES.has(role);
   const isSales     = role === 'sales';
@@ -279,30 +280,26 @@ export default function CommissionsScreen({ user }) {
 
   return (
     <div className="flex-1 flex flex-col bg-omega-cloud overflow-hidden">
-      <header className="bg-white border-b border-gray-200 px-6 md:px-8 py-5 flex-shrink-0">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-xl font-bold text-omega-charcoal inline-flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-omega-orange" /> Commissions
-            </h1>
-            <p className="text-xs text-omega-stone mt-0.5">
-              {isAdmin
-                ? 'Full ledger. Click any column header to sort. Click Amount, %, or Paid to edit.'
-                : isReception
-                  ? 'One row per client. Amount sums every visit + signed bonus you earned.'
-                  : 'Auto-generated when contracts are signed.'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-bold">
-              Unpaid: {money(totalUnpaid)}
-            </span>
-            <span className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
-              Paid: {money(totalPaid)}
-            </span>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        onBack={onBack}
+        icon={DollarSign}
+        title="Commissions"
+        subtitle={isAdmin
+          ? 'Full ledger. Click any column header to sort. Click Amount, %, or Paid to edit.'
+          : isReception
+            ? 'One row per client. Amount sums every visit + signed bonus you earned.'
+            : 'Auto-generated when contracts are signed.'}
+      />
+
+      {/* Totals — kept below the header (no chips crowding the title). */}
+      <div className="px-4 sm:px-6 py-2 bg-white border-b border-gray-200 flex items-center gap-2 text-xs flex-wrap flex-shrink-0">
+        <span className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-bold">
+          Unpaid: {money(totalUnpaid)}
+        </span>
+        <span className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+          Paid: {money(totalPaid)}
+        </span>
+      </div>
 
       <div className="bg-white border-b border-gray-200 px-6 md:px-8 py-2 flex flex-wrap gap-2 items-center flex-shrink-0">
         <div className="relative flex-1 min-w-[220px] max-w-md">

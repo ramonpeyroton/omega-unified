@@ -196,7 +196,7 @@ function SubcontractorsRoute()  { const navigate = useNavigate(); return <Subcon
 function ProjectAnalyzerRoute() { const navigate = useNavigate(); return <ProjectAnalyzer onBack={() => navigate('/')} />; }
 function WarehouseRoute()       { const navigate = useNavigate(); return <Warehouse onBack={() => navigate('/')} />; }
 function OmegaBrainRoute()      { const navigate = useNavigate(); return <OmegaBrain onBack={() => navigate('/')} />; }
-function CommissionsRoute({ user })    { return <CommissionsScreen user={user} />; }
+function CommissionsRoute({ user })    { const navigate = useNavigate(); return <CommissionsScreen user={user} onBack={() => navigate('/')} />; }
 
 function LeadsRoute({ user }) {
   const navigate = useNavigate();

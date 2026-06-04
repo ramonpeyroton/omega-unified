@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Pencil, X, Search, ArrowUp, ArrowDown, ArrowUpDown,
   Edit3, Save, Lock, Eye, EyeOff, ExternalLink, Trash2,
-  LayoutGrid, List, SlidersHorizontal,
+  LayoutGrid, List, SlidersHorizontal, ClipboardList,
 } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import Toast from '../components/Toast';
 import PhoneInput from '../../../shared/components/PhoneInput';
@@ -406,10 +407,12 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
     <div className="flex-1 flex flex-col bg-omega-cloud overflow-hidden">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      <header className="bg-white border-b border-gray-200 px-6 md:px-8 py-5 flex-shrink-0">
-        <h1 className="text-xl font-bold text-omega-charcoal">My Leads</h1>
-        <p className="text-xs text-omega-stone mt-0.5">All leads — search, filter, and toggle between list and cards view.</p>
-      </header>
+      <PageHeader
+        onBack={onBack}
+        icon={ClipboardList}
+        title="My Leads"
+        subtitle="All leads — search, filter, and toggle between list and cards view."
+      />
 
       {/* ── Toolbar ──────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-200 px-6 md:px-8 py-2 flex flex-wrap gap-2 items-center flex-shrink-0">

@@ -191,7 +191,6 @@ function LeadsRoute({ user }) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <PageHeader icon={ClipboardList} title="My Leads" subtitle="Every client you've added" onBack={() => navigate('/')} />
       <LeadsList
         user={user}
         onBack={() => navigate('/')}
@@ -205,8 +204,7 @@ function CommissionsRoute({ user }) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-omega-cloud flex flex-col">
-      <PageHeader icon={DollarSign} title="Commissions" subtitle="Your earnings, payable, and history" onBack={() => navigate('/')} />
-      <CommissionsScreen user={user} />
+      <CommissionsScreen user={user} onBack={() => navigate('/')} />
     </div>
   );
 }
