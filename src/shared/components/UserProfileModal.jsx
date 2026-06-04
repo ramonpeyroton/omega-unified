@@ -22,7 +22,11 @@
 //   * Hard 4 MB cap after compression.
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Camera, Loader2, Phone, MapPin, User as UserIcon, Save } from 'lucide-react';
+import { X, Camera, Loader2, Phone, MapPin, User as UserIcon, Save, Bell, BellOff } from 'lucide-react';
+import {
+  isPushSupported, isSubscribed, permissionState, iosNeedsInstall,
+  subscribeUser, unsubscribeUser,
+} from '../lib/push';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../lib/supabase';
 import Avatar, { colorFromName } from './ui/Avatar';
@@ -284,6 +288,8 @@ export default function UserProfileModal({ open, onClose, user, onUserUpdated })
           {error && (
             <p className="text-xs text-red-600 px-1">{error}</p>
           )}
+
+          <PushSection user={user} />
         </div>
 
         {/* Footer */}
@@ -313,6 +319,88 @@ export default function UserProfileModal({ open, onClose, user, onUserUpdated })
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Push notifications opt-in. iOS users must first install the PWA (Add to Home
+// Screen); we detect that and show the install steps instead of the Enable
+// button until they're running standalone.
+function PushSection({ user }) {
+  const [supported, setSupported] = useState(false);
+  const [perm, setPerm] = useState('default');
+  const [subscribed, setSubscribed] = useState(false);
+  const [needsInstall, setNeedsInstall] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const refresh = async () => {
+    setSupported(isPushSupported());
+    setPerm(permissionState());
+    setNeedsInstall(iosNeedsInstall());
+    setSubscribed(await isSubscribed());
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const enable = async () => {
+    setBusy(true); setMsg(null);
+    const res = await subscribeUser(user);
+    if (!res.ok) setMsg(res.error);
+    await refresh();
+    setBusy(false);
+  };
+  const disable = async () => {
+    setBusy(true); setMsg(null);
+    await unsubscribeUser();
+    await refresh();
+    setBusy(false);
+  };
+
+  return (
+    <div className="border-t border-gray-100 pt-4 mt-1">
+      <div className="flex items-center gap-2 mb-2">
+        <Bell className="w-4 h-4 text-omega-orange" />
+        <p className="text-sm font-bold text-omega-charcoal">Push notifications</p>
+      </div>
+
+      {!supported ? (
+        <p className="text-xs text-omega-stone">Not supported on this device or browser.</p>
+      ) : needsInstall ? (
+        <div className="text-xs text-omega-stone space-y-1 bg-omega-cloud rounded-xl p-3">
+          <p className="font-semibold text-omega-charcoal">Install Omega first (iPhone):</p>
+          <p>1. Tap the <strong>Share</strong> button in Safari.</p>
+          <p>2. Choose <strong>Add to Home Screen</strong>.</p>
+          <p>3. Open <strong>Omega</strong> from your Home Screen, then come back here to enable.</p>
+        </div>
+      ) : perm === 'denied' ? (
+        <p className="text-xs text-omega-stone">
+          Notifications are blocked. Enable them for Omega in your device settings, then reopen the app.
+        </p>
+      ) : subscribed ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-emerald-700 font-semibold inline-flex items-center gap-1.5">
+            <Bell className="w-3.5 h-3.5" /> On for this device.
+          </p>
+          <button
+            onClick={disable}
+            disabled={busy}
+            className="text-xs font-semibold text-omega-stone hover:text-red-600 inline-flex items-center gap-1 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellOff className="w-3.5 h-3.5" />} Turn off
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={enable}
+          disabled={busy}
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-omega-orange hover:bg-omega-dark disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />} Enable notifications
+        </button>
+      )}
+
+      {msg && <p className="text-xs text-red-600 mt-2">{msg}</p>}
     </div>
   );
 }
