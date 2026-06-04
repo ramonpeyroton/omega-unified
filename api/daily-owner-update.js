@@ -35,9 +35,16 @@ const supabase = (SUPABASE_URL && SUPABASE_KEY)
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
 let vapidReady = false;
+let vapidError = null;
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails('mailto:notifications@omegadevelopment.app', VAPID_PUBLIC, VAPID_PRIVATE);
-  vapidReady = true;
+  try {
+    // Trim in case the env values picked up stray whitespace/newlines.
+    webpush.setVapidDetails('mailto:notifications@omegadevelopment.app', VAPID_PUBLIC.trim(), VAPID_PRIVATE.trim());
+    vapidReady = true;
+  } catch (err) {
+    vapidError = err?.message || 'invalid VAPID keys';
+    console.error('[push] setVapidDetails failed:', vapidError);
+  }
 }
 
 // Send a push to every subscribed device of the given user names. Prunes dead
@@ -170,14 +177,21 @@ export default async function handler(req, res) {
   if (task === 'send') {
     if (!requireSecret(req, res)) return;
     if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
-    const p = req.body || {};
-    const result = await sendPushToUsers(p.userNames, {
-      title: p.title || 'Omega',
-      body:  p.body || '',
-      url:   p.url || '/',
-      tag:   p.tag || undefined,
-    });
-    return json(res, 200, { ok: true, ...result });
+    if (!vapidReady) return json(res, 200, { ok: false, sent: 0, vapidReady, vapidError, hint: 'VAPID keys missing or invalid on the server' });
+    try {
+      let p = req.body;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
+      p = p || {};
+      const result = await sendPushToUsers(p.userNames, {
+        title: p.title || 'Omega',
+        body:  p.body || '',
+        url:   p.url || '/',
+        tag:   p.tag || undefined,
+      });
+      return json(res, 200, { ok: true, ...result });
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err?.message || 'send failed' });
+    }
   }
 
   // ── task=reminders: 2h-before event reminders (external 15-min cron). ──
