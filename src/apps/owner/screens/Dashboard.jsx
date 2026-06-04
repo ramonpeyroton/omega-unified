@@ -1086,34 +1086,35 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
   return (
     <div className="md:hidden flex flex-col min-h-full">
 
-      {/* ── Dark header ───────────────────────────────────────── */}
-      <div className="bg-omega-charcoal px-4 pt-10 pb-5">
-        <div className="flex items-start justify-between mb-5">
+      {/* ── Light header (matches the new mobile aesthetic) ─────── */}
+      <div className="bg-white border-b border-gray-200 px-4 pt-6 pb-4">
+        <div className="flex items-start justify-between mb-4">
           <div>
-            <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest leading-none">
+            <p className="text-omega-stone text-[11px] font-bold uppercase tracking-widest leading-none">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </p>
-            <h1 className="text-xl font-black text-white mt-1">Dashboard 📊</h1>
+            <h1 className="text-xl font-black text-omega-charcoal mt-1">Dashboard 📊</h1>
           </div>
           <button
             onClick={onRefresh}
-            className="p-2 rounded-xl bg-white/10 border border-white/10"
+            className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10 transition-colors"
+            aria-label="Refresh"
           >
-            <RefreshCw className="w-5 h-5 text-white" />
+            <RefreshCw className="w-5 h-5" />
           </button>
         </div>
 
-        {/* 6 KPIs — uma linha, sem scroll, todos iguais */}
+        {/* 6 KPIs — one row; defined cards so they read on the light header */}
         <div className="flex gap-1.5">
           {kpis.map((k) => (
             <div
               key={k.label}
-              className={`flex-1 min-w-0 bg-white rounded-xl border-t-[3px] ${k.accent} flex flex-col items-center justify-center text-center py-2.5 px-0.5`}
+              className={`flex-1 min-w-0 bg-white rounded-xl border border-gray-100 shadow-sm border-t-[3px] ${k.accent} flex flex-col items-center justify-center text-center py-2.5 px-0.5`}
             >
-              <p className="text-[7px] font-bold uppercase tracking-wider text-omega-stone leading-none">{k.label}</p>
+              <p className="text-[8px] font-bold uppercase tracking-wider text-omega-stone leading-none">{k.label}</p>
               <p className={`text-[13px] font-black tabular-nums leading-none mt-1 ${k.valueColor}`}>{k.value}</p>
               {k.delta && Number.isFinite(k.delta?.raw) && (
-                <p className={`text-[8px] font-bold leading-none mt-0.5 ${k.delta.positive ? 'text-emerald-500' : 'text-red-400'}`}>
+                <p className={`text-[9px] font-bold leading-none mt-0.5 ${k.delta.positive ? 'text-emerald-500' : 'text-red-400'}`}>
                   {k.delta.positive ? '↑' : '↓'}
                 </p>
               )}
