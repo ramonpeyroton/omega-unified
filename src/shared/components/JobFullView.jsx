@@ -412,16 +412,18 @@ export default function JobFullView({
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* ─── Top bar ───────────────────────────────────────── */}
-      <header className="bg-omega-charcoal text-white">
+      {/* Light on phones (matches the rest of the new mobile aesthetic),
+          dark charcoal on desktop where it's always lived. */}
+      <header className="bg-white text-omega-charcoal border-b border-gray-200 sm:bg-omega-charcoal sm:text-white sm:border-transparent">
         <div className="px-4 sm:px-6 py-4 flex items-center gap-3">
           <button
             onClick={onClose}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-omega-pale text-omega-charcoal hover:bg-omega-orange/10 sm:bg-white/10 sm:text-white sm:hover:bg-white/20 text-sm font-semibold transition-colors"
           >
             <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">Back</span>
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] uppercase tracking-widest text-omega-fog font-semibold">Job</p>
+            <p className="text-[10px] uppercase tracking-widest text-omega-stone sm:text-omega-fog font-semibold">Job</p>
             <h1 className="font-bold text-lg sm:text-xl leading-tight truncate">
               {job.client_name || job.name || 'Untitled'}
             </h1>
@@ -429,12 +431,12 @@ export default function JobFullView({
           {/* Mobile quick-dial icons — always visible on small screens */}
           <div className="flex sm:hidden items-center gap-1">
             {job.client_phone && (
-              <a href={`tel:${job.client_phone}`} className="p-2 rounded-xl bg-white/10 hover:bg-white/20" title="Call">
+              <a href={`tel:${job.client_phone}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Call">
                 <Phone className="w-4 h-4" />
               </a>
             )}
             {job.client_email && (
-              <a href={`mailto:${job.client_email}`} className="p-2 rounded-xl bg-white/10 hover:bg-white/20" title="Email">
+              <a href={`mailto:${job.client_email}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Email">
                 <Mail className="w-4 h-4" />
               </a>
             )}
@@ -496,7 +498,7 @@ export default function JobFullView({
               useful for the rightmost phases (Completed / Estimate
               Rejected) that often sit off-screen on the pipeline. */}
           {readOnlyBasic ? (
-            <span className={`inline-flex items-center h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${pipelinePalette.bg} ${pipelinePalette.text}`}>
+            <span className={`inline-flex items-center justify-center min-w-[7rem] h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${pipelinePalette.bg} ${pipelinePalette.text}`}>
               {pipelineLabel}
             </span>
           ) : (
@@ -510,12 +512,12 @@ export default function JobFullView({
             />
           )}
           {job.service && (
-            <span className="inline-flex items-center h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg bg-omega-orange text-white">
+            <span className="inline-flex items-center justify-center min-w-[7rem] h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg bg-omega-orange text-white">
               {job.service}
             </span>
           )}
           {job.address && (
-            <span className="text-xs text-omega-fog inline-flex items-center gap-1 truncate">
+            <span className="text-xs text-omega-stone sm:text-omega-fog inline-flex items-center gap-1 truncate">
               <MapPin className="w-3 h-3" />{job.address}
             </span>
           )}
@@ -545,7 +547,7 @@ export default function JobFullView({
         </nav>
 
         {/* Tabs — mobile: a dropdown of the current section (no side-scroll). */}
-        <div className="sm:hidden border-t border-white/10 px-4 py-2 relative">
+        <div className="sm:hidden border-t border-gray-200 px-4 py-2 relative">
           {(() => {
             const current = visibleTabs.find((t) => t.id === tab) || visibleTabs[0];
             const CurrentIcon = current?.icon || Info;
@@ -553,7 +555,7 @@ export default function JobFullView({
               <>
                 <button
                   onClick={() => setTabMenuOpen((o) => !o)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/10 text-white font-semibold text-sm"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-omega-cloud text-omega-charcoal border border-gray-200 font-semibold text-sm"
                 >
                   <CurrentIcon className="w-4 h-4 flex-shrink-0 text-omega-orange" />
                   <span className="flex-1 text-left truncate">{current?.label}</span>
@@ -586,11 +588,10 @@ export default function JobFullView({
                             {t.id === 'estimate' && onOpenEstimateFlow && (
                               <button
                                 onClick={() => { setTabMenuOpen(false); onOpenEstimateFlow(job); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-omega-orange font-bold hover:bg-omega-pale transition-colors"
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-omega-charcoal hover:bg-gray-50 transition-colors"
                               >
                                 <Receipt className="w-4 h-4 flex-shrink-0" />
-                                <span className="flex-1 truncate">Open Estimate Flow</span>
-                                <ArrowRight className="w-4 h-4 flex-shrink-0" />
+                                <span className="flex-1 truncate">Estimate Flow</span>
                               </button>
                             )}
                           </Fragment>
@@ -1256,7 +1257,7 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
   // "Move phase" affordance reads as a real button).
   const triggerCls = variant === 'pill'
     ? `inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold transition-colors disabled:opacity-60`
-    : `inline-flex items-center gap-1.5 h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`;
+    : `inline-flex items-center justify-center gap-1.5 min-w-[7rem] h-8 text-[11px] font-bold uppercase tracking-wider px-3 rounded-lg ${palette.bg} ${palette.text} hover:opacity-90 transition-opacity disabled:opacity-60`;
 
   return (
     <div className="relative">
