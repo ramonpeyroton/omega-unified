@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
+import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
+import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import QuickTasksList from '../../../shared/components/QuickTasksList';
 import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
 import { logAudit } from '../../../shared/lib/audit';
@@ -32,6 +34,7 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
   const [notifCount, setNotifCount]   = useState(0);
   // Job currently feeding the Receipt capture modal. Null when closed.
   const [receiptJob, setReceiptJob]   = useState(null);
+  const { photoUrl } = useUserProfile(user);
 
   useEffect(() => {
     (async () => {
@@ -205,12 +208,6 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
     });
   }, [materials]);
 
-  // Issues count fed to the bell badge & the Issues card header.
-  const issuesCount = issues.length;
-  const eventsToday = todayEvents.length;
-  const jobsTodayCount = activeJobs.length;
-  const jobsInProgressLabel = `${jobsTodayCount} in progress`;
-
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
       <div className="p-4 md:p-6 lg:p-8 space-y-5 max-w-6xl mx-auto">
@@ -219,19 +216,27 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
             so the home screen is clearly identified as Omega. ───── */}
         <div className="flex items-center justify-between gap-3">
           <Logo size="sm" />
-          <button
-            onClick={() => onNavigate?.('notifications')}
-            className="relative p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm hover:border-omega-orange transition-colors"
-            title="Notifications"
-            aria-label="Notifications"
-          >
-            <Bell className="w-5 h-5 text-omega-charcoal" />
-            {notifCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
-                {notifCount > 9 ? '9+' : notifCount}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <Avatar
+              name={user?.name || ''}
+              photoUrl={photoUrl || undefined}
+              size="sm"
+              color={colorFromName(user?.name || '')}
+            />
+            <button
+              onClick={() => onNavigate?.('notifications')}
+              className="relative p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm hover:border-omega-orange transition-colors"
+              title="Notifications"
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5 text-omega-charcoal" />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center text-[10px] font-bold rounded-full bg-omega-orange text-white">
+                  {notifCount > 9 ? '9+' : notifCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
         <header>
           <h1 className="text-2xl sm:text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
@@ -239,104 +244,6 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
           </h1>
           <p className="text-sm text-omega-stone mt-1">{nowLabel}</p>
         </header>
-
-        {/* ─── 3 compact KPI cards — always 3 cols ───────────── */}
-        <section className="grid grid-cols-3 gap-2">
-          <KpiCard
-            icon={Briefcase}
-            iconBg="bg-orange-100"
-            iconColor="text-omega-orange"
-            value={jobsTodayCount}
-            label="Jobs Today"
-            onClick={() => onNavigate?.('dashboard')}
-          />
-          <KpiCard
-            icon={AlertTriangle}
-            iconBg="bg-red-100"
-            iconColor="text-red-500"
-            value={issuesCount}
-            label="Issues"
-            onClick={() => document.getElementById('manager-issues')?.scrollIntoView({ behavior: 'smooth' })}
-          />
-          <KpiCard
-            icon={CalendarDays}
-            iconBg="bg-violet-100"
-            iconColor="text-violet-600"
-            value={eventsToday}
-            label="Events"
-            onClick={() => onNavigate?.('calendar')}
-          />
-        </section>
-
-        {/* ─── Quick Actions — single row, compact icons ─────── */}
-        <section className="grid grid-cols-4 gap-2">
-          <ActionTile
-            icon={Plus}
-            label="Add Task"
-            sublabel="New task"
-            color="bg-omega-orange"
-            onClick={() => document.getElementById('manager-punch-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          />
-          <ActionTile
-            icon={Box}
-            label="Materials"
-            sublabel="Buy list"
-            color="bg-emerald-500"
-            onClick={() => onNavigate?.('materials-run')}
-          />
-          <ActionTile
-            icon={Camera}
-            label="Receipt"
-            sublabel="Snap photo"
-            color="bg-blue-500"
-            onClick={() => document.getElementById('manager-jobs-today')?.scrollIntoView({ behavior: 'smooth' })}
-          />
-          <ActionTile
-            icon={Calendar}
-            label="Schedule"
-            sublabel="Calendar"
-            color="bg-violet-500"
-            onClick={() => onNavigate?.('calendar')}
-          />
-        </section>
-
-        {/* ─── Issues That Need Attention (only when there are some) */}
-        {issues.length > 0 && (
-          <section id="manager-issues" className="bg-white rounded-2xl border border-gray-100 shadow-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
-                Issues That Need Attention
-                <span className="text-[11px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full">{issues.length}</span>
-              </h2>
-            </div>
-            <ul className="divide-y divide-gray-100">
-              {issues.map((it) => {
-                const Icon = it.icon;
-                const tone = it.tone === 'red'
-                  ? { bg: 'bg-red-50', icon: 'text-red-500' }
-                  : it.tone === 'blue'
-                    ? { bg: 'bg-blue-50', icon: 'text-blue-500' }
-                    : { bg: 'bg-omega-pale', icon: 'text-omega-orange' };
-                return (
-                  <li key={it.id} className="py-2.5 flex items-center gap-3">
-                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tone.bg}`}>
-                      <Icon className={`w-4 h-4 ${tone.icon}`} />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-omega-charcoal truncate">{it.title}</p>
-                      <p className="text-[11px] text-omega-stone truncate">{it.subtitle}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {/* ─── To Do List ─────────────────────────────────────── */}
-        <section id="manager-punch-list">
-          <QuickTasksList user={user} />
-        </section>
 
         {/* ─── Today's Jobs ──────────────────────────────────── */}
         <section id="manager-jobs-today" className="bg-white rounded-2xl border border-gray-100 shadow-card p-4 sm:p-5">
@@ -422,6 +329,11 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
           )}
         </section>
 
+        {/* ─── To Do List ─────────────────────────────────────── */}
+        <section id="manager-punch-list">
+          <QuickTasksList user={user} />
+        </section>
+
         {/* ─── Materials Run ──────────────────────────────────── */}
         <section>
           <MaterialsInline
@@ -448,38 +360,6 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
         />
       )}
     </div>
-  );
-}
-
-// ─── KPI card — compact, always 3-column on mobile ───────────────────
-function KpiCard({ icon: Icon, iconBg, iconColor, value, label, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex flex-col items-center text-center gap-1 active:scale-95 transition-transform w-full"
-    >
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${iconBg}`}>
-        <Icon className={`w-4 h-4 ${iconColor}`} />
-      </div>
-      <p className="text-2xl font-black text-omega-charcoal tabular-nums leading-none">{value}</p>
-      <p className="text-[11px] font-semibold text-omega-stone leading-tight">{label}</p>
-    </button>
-  );
-}
-
-// ─── Quick Action tile — compact, single-row ─────────────────────────
-function ActionTile({ icon: Icon, label, sublabel, color, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-card-hover active:scale-95 transition-all p-2.5 flex flex-col items-center gap-1.5 w-full"
-    >
-      <span className={`w-10 h-10 rounded-full ${color} flex items-center justify-center text-white shadow-sm`}>
-        <Icon className="w-5 h-5" />
-      </span>
-      <span className="text-[11px] font-bold text-omega-charcoal leading-tight text-center">{label}</span>
-      {sublabel && <span className="text-[10px] text-omega-stone leading-tight text-center">{sublabel}</span>}
-    </button>
   );
 }
 
