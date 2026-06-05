@@ -58,6 +58,11 @@ const PIN_GATED_PHASES = new Set(['estimate_rejected']);
 // The actual PIN (3333) is still required inside DeleteJobModal.
 const CAN_DELETE_JOB = new Set(['owner', 'operations', 'admin']);
 
+// Roles that must NEVER see money on the pipeline (deal amounts, column
+// totals). Gabriel (manager) runs the field and Ramon's rule is "no money,
+// no contracts" for him; marketing/screen are also money-free.
+const HIDE_MONEY_ROLES = new Set(['manager', 'marketing', 'screen']);
+
 // ─── Pipeline columns ──────────────────────────────────────────────
 // Column metadata is derived from phaseBreakdown.js so order, label
 // and color all live in ONE place. Anyone needing column metadata
@@ -368,7 +373,7 @@ function DroppableColumn({ columnId, children, isOver }) {
 // ─── Mobile list card ─────────────────────────────────────────────
 // Compact single-row card for the mobile list view. No cover photo,
 // just the key info: name, address, service badge, time, amount.
-function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob, hasUnread, onOpen }) {
+function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob, hasUnread, onOpen, hideMoney }) {
   const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
   const address = [job.address, job.city].filter(Boolean).join(', ');
   const est    = estByJob[job.id];
@@ -414,7 +419,7 @@ function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob,
         </div>
       </div>
 
-      {amount > 0 && (
+      {amount > 0 && !hideMoney && (
         <div className="text-right flex-shrink-0">
           <p className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoneyShort(amount)}</p>
         </div>
@@ -430,7 +435,7 @@ function MobilePipelineView({
   visibleJobs, jobsByColumn, estByJob, anyEstByJob, costByJob, coiWarningByJob,
   lastReadByJob, searchText, setSearchText, clearFilters,
   filterCity, setFilterCity, filterService, setFilterService,
-  cityOptions, serviceOptions, onOpenJob,
+  cityOptions, serviceOptions, onOpenJob, hideMoney,
 }) {
   const [showFilters, setShowFilters] = useState(false);
   // Which sections are collapsed. Default: ALL collapsed — the user opens
@@ -541,6 +546,7 @@ function MobilePipelineView({
                       coiWarningByJob={coiWarningByJob}
                       hasUnread={isJobUnread(job, lastReadByJob[job.id])}
                       onOpen={onOpenJob}
+                      hideMoney={hideMoney}
                     />
                   ))}
                 </div>
@@ -568,6 +574,8 @@ export default function PipelineKanban({
   // the landing screen (Marketing) omit it.
   onBack,
 }) {
+  // Manager / marketing / screen never see deal values or column totals.
+  const hideMoney = HIDE_MONEY_ROLES.has(user?.role);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(() => {
     const handler = () => setIsMobile(window.innerWidth < 640);
@@ -1085,6 +1093,7 @@ export default function PipelineKanban({
           <div className="flex-1 flex items-center justify-center"><LoadingSpinner size={32} /></div>
         ) : (
           <MobilePipelineView
+            hideMoney={hideMoney}
             visibleJobs={visibleJobs}
             jobsByColumn={jobsByColumn}
             estByJob={estByJob}
@@ -1257,10 +1266,13 @@ export default function PipelineKanban({
                         {list.length}
                       </span>
                     </div>
-                    {/* Disguised total — small, semi-transparent, non-shouty */}
-                    <p className="text-[11px] font-semibold text-white/70 mt-0.5 tabular-nums">
-                      {fmtMoneyShort(total)}
-                    </p>
+                    {/* Disguised total — small, semi-transparent, non-shouty.
+                        Hidden entirely for money-free roles (manager, etc.). */}
+                    {!hideMoney && (
+                      <p className="text-[11px] font-semibold text-white/70 mt-0.5 tabular-nums">
+                        {fmtMoneyShort(total)}
+                      </p>
+                    )}
                   </div>
 
                   <DroppableColumn columnId={col.id} isOver={overColumn === col.id}>
