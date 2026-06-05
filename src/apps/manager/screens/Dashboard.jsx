@@ -7,6 +7,12 @@ import ProgressRing from '../components/ProgressRing';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { serviceBadgeLabel } from '../../../shared/data/services';
 
+// Drop a trailing ZIP from the address for DISPLAY only (the full address,
+// zip included, is still handed to Google Maps for accurate routing).
+function stripZip(a) {
+  return (a || '').replace(/\s*\d{5}(-\d{4})?\s*$/, '').replace(/,\s*$/, '').trim();
+}
+
 function calcJobProgress(phases) {
   if (!phases || phases.length === 0) return 0;
   let total = 0, done = 0;
@@ -61,11 +67,8 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
               <MapPin className="w-3.5 h-3.5 text-omega-orange flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-omega-charcoal dark:text-gray-100 leading-snug break-words">
-                  {job.address}
+                  {stripZip(job.address)}
                 </p>
-                {job.city && (
-                  <p className="text-[11px] text-omega-stone font-medium">{job.city}</p>
-                )}
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([job.address, job.city].filter(Boolean).join(', '))}`}
                   target="_blank"
