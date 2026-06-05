@@ -79,23 +79,27 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
         <ProgressRing pct={pct} size={56} />
       </div>
 
-      <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-omega-stone">Phases</span>
-            <span className="text-xs font-semibold text-omega-charcoal dark:text-gray-300">{started}/{total}</span>
+      {/* Phases bar only when the job actually has phases — a 0/0 · 0% done
+          row reads like the job is stalled, so we hide it entirely. */}
+      {total > 0 && (
+        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-omega-stone">Phases</span>
+              <span className="text-xs font-semibold text-omega-charcoal dark:text-gray-300">{started}/{total}</span>
+            </div>
+            <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-omega-orange rounded-full transition-all duration-700"
+                style={{ width: `${(started / total) * 100}%` }}
+              />
+            </div>
           </div>
-          <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-omega-orange rounded-full transition-all duration-700"
-              style={{ width: `${total > 0 ? (started / total) * 100 : 0}%` }}
-            />
-          </div>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-omega-pale text-omega-orange">
+            {pct}% done
+          </span>
         </div>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-omega-pale text-omega-orange">
-          {pct}% done
-        </span>
-      </div>
+      )}
     </button>
   );
 }
