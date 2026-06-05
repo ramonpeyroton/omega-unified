@@ -5,6 +5,7 @@ import PageHeader from '../../../shared/components/ui/PageHeader';
 import Logo from '../components/Logo';
 import ProgressRing from '../components/ProgressRing';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { serviceBadgeLabel } from '../../../shared/data/services';
 
 function calcJobProgress(phases) {
   if (!phases || phases.length === 0) return 0;
@@ -47,7 +48,7 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
           <p className="font-bold text-omega-charcoal dark:text-white text-base">{job.client_name}</p>
           {job.service && (
             <p className="text-[11px] uppercase tracking-wider text-omega-orange font-bold mt-0.5">
-              {job.service}
+              {serviceBadgeLabel(job.service)}
             </p>
           )}
           {/* Address gets top billing — Gabriel needs to eyeball it

@@ -26,6 +26,24 @@ export const SERVICES = [
 // Quick lookup: id → label.
 export const SERVICE_LABEL = Object.fromEntries(SERVICES.map((s) => [s.id, s.label]));
 
+// Short display labels for the service BADGE shown on cards. Single-word
+// services stay terse (addition → ADDITION, deck → DECK); the concatenated
+// multi-word ones get spaced out so they read right (newconstruction →
+// "New Construction", building_plans → "Building Plans"). Handles the
+// comma-separated multi-service case too.
+const SERVICE_BADGE = {
+  newconstruction: 'New Construction',
+  partialreno:     'Partial Reno',
+  fullreno:        'Full Reno',
+  building_plans:  'Building Plans',
+};
+export function serviceBadgeLabel(value) {
+  if (!value) return '';
+  return parseJobServices(value)
+    .map((id) => SERVICE_BADGE[id] || id.replace(/_/g, ' '))
+    .join(', ');
+}
+
 // Parse the comma-separated string we persist on jobs.service into an
 // array of ids. Tolerates whitespace, empty strings, and the legacy
 // case where the column held labels instead of ids (matches by label
