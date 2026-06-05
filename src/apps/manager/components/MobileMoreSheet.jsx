@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import {
-  X, GitBranch, ShoppingCart, Calendar, Package, Bell, LogOut,
+  X, GitBranch, ShoppingCart, Calendar, Package, LogOut,
 } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
@@ -16,7 +16,6 @@ const ITEMS = [
   { id: 'materials-run', label: 'Materials', icon: ShoppingCart },
   { id: 'calendar',      label: 'Calendar',  icon: Calendar },
   { id: 'warehouse',     label: 'Warehouse', icon: Package },
-  { id: 'notifications', label: 'Alerts',    icon: Bell },
 ];
 
 export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLogout }) {
