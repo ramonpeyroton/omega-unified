@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, LogOut, Sun, Moon, HardHat, RefreshCw, Package, Sun as SunIcon, ShoppingCart, Calendar, MapPin, Navigation } from 'lucide-react';
+import { Bell, LogOut, Sun, Moon, HardHat, RefreshCw, Package, Sun as SunIcon, ShoppingCart, Calendar, MapPin, Navigation, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import Logo from '../components/Logo';
@@ -81,31 +81,33 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
               </div>
             </div>
           )}
-        </div>
-        <ProgressRing pct={pct} size={56} />
-      </div>
 
-      {/* Phases bar only when the job actually has phases — a 0/0 · 0% done
-          row reads like the job is stalled, so we hide it entirely. */}
-      {total > 0 && (
-        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-omega-stone">Phases</span>
-              <span className="text-xs font-semibold text-omega-charcoal dark:text-gray-300">{started}/{total}</span>
-            </div>
-            <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+          {/* Thin progress bar — replaces the % ring. */}
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-omega-orange rounded-full transition-all duration-700"
-                style={{ width: `${(started / total) * 100}%` }}
+                style={{ width: `${pct}%` }}
               />
             </div>
+            <span className="text-[10px] font-bold text-omega-stone tabular-nums flex-shrink-0">{pct}%</span>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-omega-pale text-omega-orange">
-            {pct}% done
-          </span>
         </div>
-      )}
+
+        {/* Mini cover photo — same job cover used on the pipeline. */}
+        {job.cover_photo_url ? (
+          <img
+            src={job.cover_photo_url}
+            alt=""
+            className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-gray-100 dark:border-gray-700"
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-xl bg-omega-pale flex items-center justify-center flex-shrink-0">
+            <ImageIcon className="w-5 h-5 text-omega-orange/40" />
+          </div>
+        )}
+      </div>
+
     </button>
   );
 }
