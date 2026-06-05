@@ -45,12 +45,14 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-omega-charcoal dark:text-white text-base">{job.client_name}</p>
-          {job.service && (
-            <p className="text-[11px] uppercase tracking-wider text-omega-orange font-bold mt-0.5">
-              {serviceBadgeLabel(job.service)}
-            </p>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-bold text-omega-charcoal dark:text-white text-base">{job.client_name}</p>
+            {job.service && (
+              <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-omega-pale text-omega-orange flex-shrink-0">
+                {serviceBadgeLabel(job.service)}
+              </span>
+            )}
+          </div>
           {/* Address gets top billing — Gabriel needs to eyeball it
               from the van, so we make it larger and add a pin + map
               shortcut that opens Google Maps navigation. */}
