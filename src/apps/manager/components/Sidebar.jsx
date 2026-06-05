@@ -14,7 +14,7 @@ const NAV = [
   { id: 'dashboard',     label: 'Jobs',          icon: HardHat },
   { id: 'pipeline',      label: 'Pipeline',      icon: GitBranch },
   { id: 'receipts',      label: 'Receipts',      icon: Receipt },
-  { id: 'materials-run', label: 'Materials Run', icon: ShoppingCart },
+  { id: 'materials-run', label: 'Materials',     icon: ShoppingCart },
   { id: 'calendar',      label: 'Calendar',      icon: Calendar },
   { id: 'warehouse',     label: 'Warehouse',     icon: Package },
   { id: 'notifications', label: 'Alerts',        icon: Bell },
@@ -118,19 +118,19 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
       </aside>
 
       {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 overflow-x-auto scrollbar-hide safe-bottom">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 safe-bottom">
         {MOBILE_NAV.map(({ id, label, icon: Icon }) => {
           const active = screen === id || (id === 'dashboard' && screen === 'phase-board');
           return (
             <button
               key={id}
               onClick={() => onNavigate(id)}
-              className={`flex-1 min-w-[64px] flex flex-col items-center gap-0.5 py-2 transition-colors ${
+              className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 transition-colors ${
                 active ? 'text-omega-orange' : 'text-omega-stone hover:text-omega-charcoal'
               }`}
             >
-              <Icon className="w-4 h-4" />
-              <span className="text-[9px] font-bold uppercase tracking-wider">{label}</span>
+              <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+              <span className="text-[9px] font-semibold tracking-tight leading-none truncate max-w-full">{label}</span>
             </button>
           );
         })}
