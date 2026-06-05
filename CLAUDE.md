@@ -576,6 +576,107 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-06-04/05 (Push notifications + redesign mobile dos 3 apps de campo + Jarvis out)** — Ramon + Claude (Opus 4.8).
+
+Sessão LONGA (2 dias), muitos commits. Resumo por tema:
+
+### 🔔 Push notifications (Web Push / PWA) — feature COMPLETA, em produção
+Time é **só iPhone**. Entregue 100% no plano grátis (Vercel Hobby).
+- **PWA instalável:** `public/manifest.webmanifest`, `public/sw.js` (service
+  worker: trata `push` + `notificationclick` com deep-link), metas no
+  `index.html`, registro do SW em `src/main.jsx`. **Favicon** adicionado
+  (`<link rel="icon" href="/logo.png">`).
+- **Infra:** `migrations/069_push_subscriptions.sql` (tabela
+  `user_push_subscriptions` + `calendar_events.reminder_sent_at`),
+  dependência `web-push`, helper client `src/shared/lib/push.js`. UI de ativar
+  + guia de instalação iOS no `UserProfileModal.jsx`.
+- **Worker de envio:** TUDO dentro de `api/daily-owner-update.js` (sem função
+  nova — limite de 12) roteando por `?task=`:
+  - `POST ?task=send` (protegido por `OMEGA_API_SECRET`) → menção no Daily Log.
+  - `GET ?task=reminders` (cron externo 15min) → lembrete 2h antes do evento.
+  - `GET` sem task (cron Vercel diário) → resumo do dia por usuário.
+- **Cron externo grátis:** `.github/workflows/push-cron.yml` (a cada 15min,
+  curl no `?task=reminders`).
+- **Gatilho de menção:** `NativeProjectChat.jsx` chama `apiFetch
+  ('/api/daily-owner-update?task=send', {userNames: mentions, ...})` após
+  inserir a mensagem.
+- **Caveat iOS (Apple):** cada pessoa precisa **Adicionar à Tela de Início**
+  (instalar PWA) E **dar permissão dentro do app instalado**. Sem isso, sem push.
+- **ENV (Ramon setou + redeploy):** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+  `VITE_VAPID_PUBLIC_KEY` (client), `OMEGA_API_SECRET` (server) =
+  `VITE_OMEGA_API_SECRET` (client, **mesmo valor**) + GitHub repo secret.
+  **`VITE_*` são build-time → exigem redeploy.**
+- **🪤 Pegadinha cara (resolvida):** menção salvava certo mas **não chegava
+  push**. Causa: o `apiFetch` do browser manda `x-omega-secret` =
+  `VITE_OMEGA_API_SECRET`; se esse ≠ `OMEGA_API_SECRET` (server), o endpoint
+  dá **401 silencioso** (`.catch(()=>{})` engole). **Lição:** todo endpoint
+  protegido (twilio, ai-proxy, send-estimate, daily-owner-update…) depende do
+  `VITE_OMEGA_API_SECRET` bater com `OMEGA_API_SECRET`, E de um redeploy após
+  setar. Diagnóstico: curl com secret = 200; sem/errado = 401.
+
+### 🗑️ Jarvis removido
+Chat IA flutuante apagado de todos os apps. Deletados `JarvisChat.jsx` e
+`jarvisTools.js`. `groq.js` fica (client genérico, usado pelo Screen). **Não
+reintroduzir.**
+
+### 📱 Redesign mobile dos 3 apps de campo (Attila/Inácio/Gabriel)
+Padrão consolidado — **só mobile**, desktop intacto:
+- **`PageHeader` é o padrão de head** de toda tela secundária (barra fina
+  branca: `← Home/Back · chip do ícone · título · subtítulo`). Aplicado em
+  Sales, Owner e Manager (telas próprias + rotas das compartilhadas
+  Calendar/Finance). Telas "home" (Sales Home, Owner/Manager dashboards)
+  mantêm header próprio (com logo).
+- **Regra de UI travada:** **NUNCA botões dentro do head** — sempre puxar pra
+  uma barra de ações ABAIXO do `PageHeader` (senão sobrepõe o título no mobile).
+- **Barra de baixo (mobile):** itens uniformes, **ativo em laranja**, sem FAB.
+  Excedente vai num **menu "More" (•••)** → bottom sheet (`MobileMoreSheet.jsx`,
+  um por app: sales/owner/manager) com Perfil + Sign Out. **Respeitar
+  `safe-bottom`** (safe-area iPhone) na barra + `pb-[calc(4rem+env(safe-area-
+  inset-bottom))]` no `<main>`.
+- **`JobFullView` (card do cliente) mobile:** header CLARO (branco), abas
+  viraram **dropdown da seção atual** (em vez de barra que rola), Estimate Flow
+  movido pro dropdown, badges com mesmo tamanho (`min-w-[7rem] h-8`), header
+  reorganizado (nome+endereço, ícones call/email/questionário, status+serviço
+  lado a lado, "← Pipeline").
+- **Daily Logs mobile:** seção dedicada via bottom-bar (`MobileDailyLogs.jsx` +
+  `DailyLogsRichTab` responsivo: lista↔chat com overlay `fixed inset-0 z-50`).
+- **Sales:** dashboard mobile redesenhado (mockup do Ramon) — KPI cards, funil
+  CSS.
+- **`PipelineKanban` mobile:** header interno removido (usa `PageHeader` da
+  rota); **esconde TODO valor $ pra `HIDE_MONEY_ROLES` = {manager, marketing,
+  screen}** (Gabriel não vê dinheiro — regra do Ramon).
+
+### 🧰 App do Manager (Gabriel)
+- **Today → dashboard:** `MobileRedirect` foi pra raiz do router (roda 1× no
+  load) → abrir o app cai em `/receipts`, mas clicar em **Today** mostra o
+  dashboard (Job of the Day) em vez de bouncar.
+- **Barra de baixo:** Today · Jobs · Receipts · Logs · Alerts · More.
+- **Cards (Active Jobs):** chip do serviço ao lado do nome, endereço sem CEP +
+  sem cidade redundante (CEP fica no link do Maps), **miniatura da foto de
+  capa** (`job.cover_photo_url`) no lugar do anel, **barra fina** de progresso.
+  Progresso vem do **`job.phase_data`** (`progressFromPhaseData`), NÃO da tabela
+  legacy `job_phases` (que dava 0% falso).
+- **`serviceBadgeLabel(value)`** novo em `src/shared/data/services.js` — espaça
+  nomes concatenados (newconstruction → "New Construction").
+
+### 💬 Daily Logs / Chat — 2 fixes
+- **Manager vê todos os jobs ativos no Daily Logs:** `chat_members` é
+  preenchido por trigger pra todos **exceto manager/admin/screen**. O
+  `DailyLogsRichTab` agora **pula o filtro `chat_members`** pra esses roles
+  (`ROLES_WITHOUT_CHAT_ACL`), senão a lista do Gabriel ficava vazia.
+- **@menção com picker:** `NativeProjectChat` ganhou autocomplete — digita `@`
+  e abre dropdown filtrando a base = **usuários ativos ∪ chat_members** (managers
+  também são marcáveis). Picker insere `@Nome Completo`.
+
+### ⚠️ Pendências
+- **Rodar migration 069** no Supabase se ainda não (push já funciona em prod →
+  provavelmente já rodada).
+- **Replicar headers/More-sheet** no **Operations (Brenda)** e **Receptionist**
+  (só Sales/Owner/Manager feitos).
+- Migrations antigas 065/066/067 — ver entrada de Junho/02 abaixo.
+
+---
+
 **2026-06-02 (Sessão massiva: Slack out, Daily Logs nativo, URL routing, Acorn, mais)** — Ramon + Claude (Opus 4.7 / Sonnet 4.6).
 
 Foi uma sessão LONGA com muitas frentes. Lista organizada por tema:
