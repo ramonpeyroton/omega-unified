@@ -132,7 +132,49 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   const scrollRef    = useRef(null);
   const textareaRef  = useRef(null);
 
-  const members = Array.isArray(job?.chat_members) ? job.chat_members : [];
+  // Who can be @mentioned: every active teammate (managers are excluded from
+  // chat_members by a DB trigger, so without this they couldn't be tagged),
+  // unioned with whoever the job already lists.
+  const [activeUserNames, setActiveUserNames] = useState([]);
+  useEffect(() => {
+    let on = true;
+    supabase.from('users').select('name').eq('active', true)
+      .then(({ data }) => { if (on) setActiveUserNames((data || []).map((u) => u.name).filter(Boolean)); });
+    return () => { on = false; };
+  }, []);
+  const members = useMemo(() => {
+    const fromJob = Array.isArray(job?.chat_members) ? job.chat_members : [];
+    return [...new Set([...activeUserNames, ...fromJob])];
+  }, [activeUserNames, job?.chat_members]);
+
+  // ── @mention autocomplete picker ───────────────────────────────────
+  const [mentionOpen, setMentionOpen]       = useState(false);
+  const [mentionMatches, setMentionMatches] = useState([]);
+  const mentionStartRef = useRef(0);
+
+  function handleBodyChange(e) {
+    const val = e.target.value;
+    setBody(val);
+    const caret = e.target.selectionStart ?? val.length;
+    // Match an @token (no spaces) directly before the caret.
+    const m = val.slice(0, caret).match(/@([A-Za-zÀ-ÿ][\w.-]*)?$/);
+    if (m && members.length) {
+      const token = (m[1] || '').toLowerCase();
+      const matches = members.filter((n) => n.toLowerCase().includes(token)).slice(0, 6);
+      mentionStartRef.current = caret - m[0].length;
+      setMentionMatches(matches);
+      setMentionOpen(matches.length > 0);
+    } else {
+      setMentionOpen(false);
+    }
+  }
+
+  function pickMention(name) {
+    const caret = textareaRef.current?.selectionStart ?? body.length;
+    setBody(body.slice(0, mentionStartRef.current) + `@${name} ` + body.slice(caret));
+    setMentionOpen(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }
 
   // Initial load.
   useEffect(() => {
@@ -614,15 +656,34 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
           </button>
 
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={1}
-            placeholder="Type a message — use @Name to mention. Enter to send, Shift+Enter for a new line."
-            className="flex-1 resize-none px-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-omega-orange focus:outline-none max-h-32"
-          />
+          <div className="relative flex-1">
+            {mentionOpen && (
+              <div className="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-20">
+                {mentionMatches.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); pickMention(name); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-omega-pale"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-omega-pale text-omega-orange flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                      {name.trim().charAt(0).toUpperCase()}
+                    </span>
+                    <span className="truncate">{name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={handleBodyChange}
+              onKeyDown={onKeyDown}
+              rows={1}
+              placeholder="Type a message — use @Name to mention. Enter to send, Shift+Enter for a new line."
+              className="w-full resize-none px-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-omega-orange focus:outline-none max-h-32"
+            />
+          </div>
 
           <button
             type="button"
