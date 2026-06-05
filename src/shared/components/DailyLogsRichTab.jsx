@@ -93,12 +93,20 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
         // The job list itself. Stays lean — only columns we render,
         // none of the new ones from migrations 066/067 to avoid the
         // entire query exploding if those haven't been run yet.
-        const { data: js, error: jobsErr } = await supabase
+        // jobs.chat_members is auto-filled for everyone EXCEPT manager /
+        // admin / screen (DB trigger), so those roles would see an empty
+        // list if we filtered by it. For them, show every active job's chat
+        // instead (Gabriel runs the field on all in-progress jobs).
+        const ROLES_WITHOUT_CHAT_ACL = new Set(['manager', 'admin', 'screen']);
+        let jobsQuery = supabase
           .from('jobs')
           .select('id, client_name, address, service, pipeline_status, chat_members')
-          .contains('chat_members', [userName])
           .order('client_name', { ascending: true })
           .limit(500);
+        if (!ROLES_WITHOUT_CHAT_ACL.has(user?.role)) {
+          jobsQuery = jobsQuery.contains('chat_members', [userName]);
+        }
+        const { data: js, error: jobsErr } = await jobsQuery;
         if (jobsErr) console.warn('[DailyLogsRichTab] jobs query failed:', jobsErr);
         const filtered = (js || []).filter((j) =>
           ACTIVE_PHASES.has(j.pipeline_status || 'new_lead')
