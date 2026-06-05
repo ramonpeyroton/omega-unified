@@ -94,14 +94,17 @@ function ManagerShell({ user, onLogout, darkMode }) {
   );
 }
 
-// ─── Mobile redirect — once on first mount ───────────────────────
-
+// ─── Initial mobile landing — ONCE, on app load ───────────────────
+// Rendered at the router root (not inside TodayRoute) so it fires a
+// single time when the app first opens. If the app loads on "/" on a
+// phone, bounce to /receipts (Gabriel's daily driver). Crucially it does
+// NOT re-fire when he later taps "Today" → "/", so Today now shows the
+// dashboard (Job of the Day) instead of bouncing straight to Receipts.
 function MobileRedirect() {
   const navigate = useNavigate();
-  const location = useLocation();
   useEffect(() => {
-    if (location.pathname !== '/') return;
     if (typeof window === 'undefined') return;
+    if (window.location.pathname !== '/') return;
     if (window.matchMedia('(max-width: 768px)').matches) {
       navigate('/receipts', { replace: true });
     }
@@ -115,15 +118,12 @@ function MobileRedirect() {
 function TodayRoute({ user }) {
   const navigate = useNavigate();
   return (
-    <>
-      <MobileRedirect />
-      <JobOfTheDay
-        user={user}
-        onNavigate={(id) => navigateForId(navigate, id)}
-        onSelectJob={(job) => navigate(`/jobs/${job.id}/phase-board`, { state: { from: '/' } })}
-        onOpenFullJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
-      />
-    </>
+    <JobOfTheDay
+      user={user}
+      onNavigate={(id) => navigateForId(navigate, id)}
+      onSelectJob={(job) => navigate(`/jobs/${job.id}/phase-board`, { state: { from: '/' } })}
+      onOpenFullJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+    />
   );
 }
 
@@ -235,6 +235,7 @@ export default function App({ user, onLogout }) {
 
   return (
     <BrowserRouter>
+      <MobileRedirect />
       <Routes>
         <Route element={<ManagerShell user={user} onLogout={onLogout} darkMode={darkMode} />}>
           <Route path="/"                          element={<TodayRoute user={user} />} />
