@@ -22,6 +22,8 @@ import MaterialsRun from '../../shared/components/MaterialsRun';
 import JobFullView from '../../shared/components/JobFullView';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import PipelineKanban from '../../shared/components/PipelineKanban';
+import PageHeader from '../../shared/components/ui/PageHeader';
+import { Calendar as CalendarIcon } from 'lucide-react';
 import { supabase } from '../owner/lib/supabase';
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -201,6 +203,16 @@ function JobFullViewRoute({ user }) {
   );
 }
 
+function CalendarRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <PageHeader icon={CalendarIcon} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
+      <div className="flex-1 overflow-hidden"><CalendarScreen user={user} /></div>
+    </div>
+  );
+}
+
 function PipelineRoute({ user }) {
   const navigate = useNavigate();
   return (
@@ -231,7 +243,7 @@ export default function App({ user, onLogout }) {
           <Route path="/receipts"                  element={<QuickReceipts user={user} />} />
           <Route path="/notifications"             element={<Notifications user={user} onNavigate={() => {}} darkMode={darkMode} />} />
           <Route path="/warehouse"                 element={<Warehouse user={user} />} />
-          <Route path="/calendar"                  element={<CalendarScreen user={user} />} />
+          <Route path="/calendar"                  element={<CalendarRoute user={user} />} />
           <Route path="/pipeline"                  element={<PipelineRoute user={user} />} />
           <Route path="/daily-logs"                element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"                  element={<JobFullViewRoute user={user} />} />

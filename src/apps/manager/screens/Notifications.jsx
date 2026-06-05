@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Bell, Check } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import { recipientRolesFor } from '../../../shared/lib/notifications';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -41,14 +42,7 @@ export default function Notifications({ user, onNavigate, darkMode }) {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-omega-cloud'}`}>
-      <div className="bg-omega-charcoal px-5 pt-12 pb-5">
-        <div className="flex items-center gap-3">
-          <button onClick={() => onNavigate('dashboard')} className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-white font-bold text-lg">Notifications</h1>
-        </div>
-      </div>
+      <PageHeader icon={Bell} title="Notifications" onBack={() => onNavigate('home')} />
 
       <div className="px-4 py-5">
         {loading ? (

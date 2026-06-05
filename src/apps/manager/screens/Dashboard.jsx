@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, LogOut, Sun, Moon, HardHat, RefreshCw, Package, Sun as SunIcon, ShoppingCart, Calendar, MapPin, Navigation } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import Logo from '../components/Logo';
 import ProgressRing from '../components/ProgressRing';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -173,28 +174,23 @@ export default function Dashboard({ user, onSelectJob, onLogout, onNavigate, dar
     <div className={`flex-1 overflow-y-auto ${darkMode ? 'dark bg-gray-900' : 'bg-omega-cloud'}`}>
       {/* Clean page header — the shared sidebar already shows the role
           and a logout/notifications bell, so we just label the screen. */}
-      <header className="bg-white border-b border-gray-200 px-6 md:px-8 py-5 sticky top-0 z-10">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-omega-stone font-bold">Field Manager</p>
-            <h1 className="text-xl font-bold text-omega-charcoal">Active Jobs</h1>
-          </div>
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            className="p-2 rounded-xl border border-gray-200 hover:border-omega-orange text-omega-stone"
-            title="Toggle dark mode"
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-        </div>
-      </header>
+      <PageHeader icon={HardHat} title="Active Jobs" subtitle="Field Manager" onBack={() => onNavigate('home')} />
 
       <div className="px-4 py-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs text-omega-stone">{jobs.length} in progress</p>
-          <button onClick={loadData} className="p-2 rounded-xl bg-white border border-gray-200 text-omega-stone hover:text-omega-orange transition-colors dark:bg-gray-800 dark:border-gray-700">
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2 rounded-xl border border-gray-200 hover:border-omega-orange text-omega-stone dark:bg-gray-800 dark:border-gray-700"
+              title="Toggle dark mode"
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            <button onClick={loadData} className="p-2 rounded-xl bg-white border border-gray-200 text-omega-stone hover:text-omega-orange transition-colors dark:bg-gray-800 dark:border-gray-700">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {loading ? (

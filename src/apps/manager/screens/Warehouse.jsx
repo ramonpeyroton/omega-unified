@@ -3,6 +3,7 @@ import {
   Package, Search, Plus, Minus, Edit2, X, CheckCircle, Camera,
   Image as ImageIcon, ArrowLeft, Save,
 } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import { scanMaterialsImage } from '../lib/anthropic';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -702,18 +703,12 @@ export default function Warehouse({ user, onNavigate }) {
         />
       )}
 
-      <div className="bg-omega-charcoal px-5 pt-12 pb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => onNavigate?.('dashboard')} className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <p className="text-omega-fog text-xs font-medium">Field Manager</p>
-            <h1 className="text-white font-bold text-xl">Warehouse</h1>
-          </div>
-        </div>
-        <p className="text-omega-fog text-xs pl-11">{items.length} items in inventory</p>
-      </div>
+      <PageHeader
+        icon={Package}
+        title="Warehouse"
+        subtitle={`${items.length} items in inventory`}
+        onBack={() => onNavigate?.('home')}
+      />
 
       <div className="px-4 py-4 space-y-3">
         {/* Search + Scan */}

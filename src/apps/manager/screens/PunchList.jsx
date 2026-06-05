@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Plus, CheckSquare, Square, Trash2 } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
@@ -44,18 +45,13 @@ export default function PunchList({ job, onNavigate, darkMode }) {
     <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-omega-cloud'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      <div className="bg-omega-charcoal px-5 pt-12 pb-5">
-        <div className="flex items-center gap-3 mb-2">
-          <button onClick={() => onNavigate('phase-board')} className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <p className="text-omega-fog text-xs">{job.client_name}</p>
-            <h1 className="text-white font-bold text-lg">Punch List</h1>
-          </div>
-        </div>
-        <p className="text-omega-stone text-xs pl-11">{done}/{items.length} completed</p>
-      </div>
+      <PageHeader
+        icon={CheckSquare}
+        title="Punch List"
+        subtitle={`${job.client_name} · ${done}/${items.length} completed`}
+        onBack={() => onNavigate('phase-board')}
+        backLabel="Back"
+      />
 
       <div className="px-4 py-5">
         {/* Add new */}
