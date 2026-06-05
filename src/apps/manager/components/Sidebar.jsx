@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch, MessageCircle, ChevronDown, ChevronRight, Receipt } from 'lucide-react';
+import { Sun, HardHat, ShoppingCart, Calendar, Package, Bell, LogOut, GitBranch, MessageCircle, ChevronDown, ChevronRight, Receipt, MoreHorizontal } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import DailyLogsList from '../../../shared/components/DailyLogsList';
+import MobileMoreSheet from './MobileMoreSheet';
 
 // Punch List is per-job (reached from inside a job, not the sidebar).
 // The personal scratchpad "My Punch List" lives on the Today screen.
@@ -20,11 +21,16 @@ const NAV = [
   { id: 'notifications', label: 'Alerts',        icon: Bell },
 ];
 
-// The mobile bottom bar gets one extra entry: Daily Logs opens the
-// dedicated full-screen chat section (/daily-logs). On desktop that
-// lives as the collapsible "Daily Logs" inside the sidebar instead, so
-// we keep it OUT of NAV to avoid a duplicate there.
-const MOBILE_NAV = [...NAV, { id: 'daily-logs', label: 'Logs', icon: MessageCircle }];
+// The mobile bottom bar keeps just the four most-used destinations plus a
+// "More" sheet for the rest (Pipeline, Materials, Calendar, Warehouse,
+// Alerts). On desktop everything stays in the sidebar (NAV).
+const BOTTOM_BAR = [
+  { id: 'today',      label: 'Today',    icon: Sun },
+  { id: 'dashboard',  label: 'Jobs',     icon: HardHat },
+  { id: 'receipts',   label: 'Receipts', icon: Receipt },
+  { id: 'daily-logs', label: 'Logs',     icon: MessageCircle },
+  { id: 'more',       label: 'More',     icon: MoreHorizontal },
+];
 
 /**
  * Manager sidebar. Same visual language as Owner/Operations/Admin.
@@ -34,6 +40,7 @@ const MOBILE_NAV = [...NAV, { id: 'daily-logs', label: 'Logs', icon: MessageCirc
 export default function Sidebar({ screen, onNavigate, onLogout, userName, user, onOpenJob }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
 
   return (
@@ -119,22 +126,32 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
 
       {/* Mobile bottom bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30 safe-bottom">
-        {MOBILE_NAV.map(({ id, label, icon: Icon }) => {
-          const active = screen === id || (id === 'dashboard' && screen === 'phase-board');
+        {BOTTOM_BAR.map(({ id, label, icon: Icon }) => {
+          const active = id === 'more'
+            ? moreOpen
+            : screen === id || (id === 'dashboard' && screen === 'phase-board');
           return (
             <button
               key={id}
-              onClick={() => onNavigate(id)}
+              onClick={() => (id === 'more' ? setMoreOpen(true) : onNavigate(id))}
               className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 transition-colors ${
                 active ? 'text-omega-orange' : 'text-omega-stone hover:text-omega-charcoal'
               }`}
             >
-              <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-              <span className="text-[9px] font-semibold tracking-tight leading-none truncate max-w-full">{label}</span>
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              <span className="text-[10px] font-semibold leading-none truncate max-w-full">{label}</span>
             </button>
           );
         })}
       </nav>
+
+      <MobileMoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        onNavigate={onNavigate}
+        user={user}
+        onLogout={onLogout}
+      />
     </>
   );
 }
