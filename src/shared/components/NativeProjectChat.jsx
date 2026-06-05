@@ -422,17 +422,22 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
       if (e) throw e;
 
       // Push the mentioned users a notification (best-effort, non-blocking).
+      // Format (iOS Lock Screen renders 2-3 lines):
+      //   Gabriel Ramanho mentioned you
+      //   #ClientName Chat:
+      //   @ramon you can go and ...
       if (mentions.length) {
-        const preview = (text || '').slice(0, 120) || 'mentioned you in Daily Logs';
+        const chatTag = (job?.client_name || 'Project').replace(/[^\p{L}\p{N}]/gu, '');
+        const msgText = (text || '').slice(0, 180) || 'mentioned you in Daily Logs';
         apiFetch('/api/daily-owner-update?task=send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             userNames: mentions,
             title: `${user?.name || 'Someone'} mentioned you`,
-            body: preview,
-            url: `/jobs/${job.id}?tab=daily`,
-            tag: `chat-${job.id}`,
+            body:  `#${chatTag} Chat:\n${msgText}`,
+            url:   `/jobs/${job.id}?tab=daily`,
+            tag:   `chat-${job.id}`,
           }),
         }).catch(() => {});
       }
