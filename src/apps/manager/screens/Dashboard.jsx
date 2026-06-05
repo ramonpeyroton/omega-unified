@@ -6,6 +6,7 @@ import Logo from '../components/Logo';
 import ProgressRing from '../components/ProgressRing';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { serviceBadgeLabel } from '../../../shared/data/services';
+import { progressFromPhaseData } from '../../../shared/config/phaseBreakdown';
 
 // Drop a trailing ZIP from the address for DISPLAY only (the full address,
 // zip included, is still handed to Google Maps for accurate routing).
@@ -29,7 +30,10 @@ function calcJobProgress(phases) {
 }
 
 function JobCard({ job, phases, onClick, materialsPending = 0 }) {
-  const pct = calcJobProgress(phases);
+  // Progress comes from the NEW phase_data JSONB (same source the phase
+  // board uses inside the job) — not the legacy job_phases table, which is
+  // empty for these jobs and was showing a false 0%.
+  const pct = progressFromPhaseData(job.phase_data).progress || 0;
   const started = phases?.filter((p) => p.started).length || 0;
   const total = phases?.length || 0;
 
