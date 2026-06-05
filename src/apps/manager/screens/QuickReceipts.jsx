@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Receipt, MapPin, CheckCircle2, Loader2, X } from 'lucide-react';
+import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../../../shared/lib/supabase';
 import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
 import Toast from '../../../shared/components/Toast';
@@ -73,18 +74,14 @@ export default function QuickReceipts({ user }) {
 
       {/* Sticky header. Big touch target on the search row; on mobile
           the input is large enough to comfortably one-thumb. */}
-      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center">
-            <Receipt className="w-5 h-5 text-omega-orange" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-base font-bold text-omega-charcoal leading-tight">Quick Receipts</h1>
-            <p className="text-[11px] text-omega-stone">
-              {loading ? 'Loading…' : `${filteredJobs.length} client${filteredJobs.length === 1 ? '' : 's'} ready`}
-            </p>
-          </div>
-        </div>
+      <PageHeader
+        icon={Receipt}
+        title="Quick Receipts"
+        subtitle={loading ? 'Loading…' : `${filteredJobs.length} client${filteredJobs.length === 1 ? '' : 's'} ready`}
+      />
+
+      {/* Search bar — its own row under the header. */}
+      <div className="bg-white border-b border-gray-200 px-4 py-2.5">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone pointer-events-none" />
           <input
@@ -107,7 +104,7 @@ export default function QuickReceipts({ user }) {
             </button>
           )}
         </div>
-      </header>
+      </div>
 
       {/* Job list — chunky rows, ≥56px tall for safe thumb tapping. */}
       <ul className="px-3 py-3 space-y-2">

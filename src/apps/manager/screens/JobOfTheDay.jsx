@@ -5,6 +5,7 @@ import {
   Edit3, AlertCircle, Box, Bell, Receipt,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import Logo from '../components/Logo';
 import QuickTasksList from '../../../shared/components/QuickTasksList';
 import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
 import { logAudit } from '../../../shared/lib/audit';
@@ -214,14 +215,10 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
       <div className="p-4 md:p-6 lg:p-8 space-y-5 max-w-6xl mx-auto">
 
-        {/* ─── Header ─────────────────────────────────────────── */}
-        <header className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
-              {greeting}, {user?.name || 'there'} <span>👋</span>
-            </h1>
-            <p className="text-sm text-omega-stone mt-1">{nowLabel}</p>
-          </div>
+        {/* ─── Header — brand row (logo + alerts) then the greeting,
+            so the home screen is clearly identified as Omega. ───── */}
+        <div className="flex items-center justify-between gap-3">
+          <Logo size="sm" />
           <button
             onClick={() => onNavigate?.('notifications')}
             className="relative p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm hover:border-omega-orange transition-colors"
@@ -235,6 +232,12 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
               </span>
             )}
           </button>
+        </div>
+        <header>
+          <h1 className="text-2xl sm:text-3xl font-black text-omega-charcoal inline-flex items-center gap-2">
+            {greeting}, {user?.name || 'there'} <span>👋</span>
+          </h1>
+          <p className="text-sm text-omega-stone mt-1">{nowLabel}</p>
         </header>
 
         {/* ─── 3 compact KPI cards — always 3 cols ───────────── */}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ShoppingCart, Store, Check, Loader2, Filter, Plus, X } from 'lucide-react';
+import PageHeader from './ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 
@@ -96,28 +97,26 @@ export default function MaterialsRun({ user }) {
 
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
-      <header className="px-6 md:px-8 py-5 bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5 text-omega-orange" />
-              <h1 className="text-xl font-bold text-omega-charcoal">Materials Run</h1>
-              <span className="text-[11px] font-bold text-omega-stone bg-gray-100 px-2 py-0.5 rounded-full ml-2">
-                {rows.length} items
-              </span>
-            </div>
-            <p className="text-xs text-omega-stone mt-0.5">Shopping list across all active jobs. Tick items as you buy them.</p>
-          </div>
-          {!showAdd && (
-            <button
-              onClick={() => setShowAdd(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold"
-            >
-              <Plus className="w-4 h-4" /> Add Material
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        icon={ShoppingCart}
+        title="Materials Run"
+        subtitle="Shopping list across all active jobs. Tick items as you buy them."
+      />
+
+      {/* Count + add — kept below the header (no buttons in the head). */}
+      <div className="px-4 sm:px-6 py-3 bg-white border-b border-gray-200 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold text-omega-stone bg-gray-100 px-2 py-0.5 rounded-full">
+          {rows.length} items
+        </span>
+        {!showAdd && (
+          <button
+            onClick={() => setShowAdd(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold"
+          >
+            <Plus className="w-4 h-4" /> Add Material
+          </button>
+        )}
+      </div>
 
       <div className="p-4 md:p-6 space-y-4">
         {showAdd && (
