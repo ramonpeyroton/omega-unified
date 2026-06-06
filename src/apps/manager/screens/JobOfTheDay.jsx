@@ -77,7 +77,8 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
           .order('added_at', { ascending: false }),
         supabase
           .from('jobs')
-          .select('id, client_name, city, service, pipeline_status'),
+          .select('id, client_name, city, service, pipeline_status')
+          .limit(500),
       ]);
 
       setTodayEvents(evRes.data || []);

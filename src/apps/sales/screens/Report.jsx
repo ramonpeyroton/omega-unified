@@ -271,7 +271,7 @@ function ReportSection({ section }) {
 function ConfirmRegenDialog({ onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
         <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
         <p className="text-center font-bold text-omega-charcoal mb-2">Regenerate Report?</p>
         <p className="text-center text-sm text-omega-stone mb-6">This will replace the current report. The existing report is kept as a backup.</p>

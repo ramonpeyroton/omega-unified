@@ -50,34 +50,7 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import { supabase } from './lib/supabase';
-
-// ─── Shared helpers ───────────────────────────────────────────────
-
-// Fetch a job by id from the URL. Stays in a loading state until
-// Supabase replies; bounces to Home if the row doesn't exist.
-function useJobById(id) {
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!id) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        setJob(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setJob(null);
-        setLoading(false);
-      });
-    return () => { active = false; };
-  }, [id]);
-  return { job, setJob, loading };
-}
+import { useJobById } from '../../shared/hooks/useJobById';
 
 function LoadingFallback() {
   return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;

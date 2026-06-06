@@ -255,7 +255,7 @@ function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDele
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onDelete?.(job); }}
-          className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-omega-stone hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+          className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-omega-stone hover:text-red-600 opacity-40 md:opacity-0 group-hover:opacity-100 transition-all shadow-sm"
           title="Delete job (requires Owner PIN)"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -1259,7 +1259,7 @@ export default function PipelineKanban({
                     style={{ background: col.hex }}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="font-bold text-[11px] uppercase tracking-wider truncate">
+                      <p className="font-bold text-[11px] uppercase tracking-wider truncate" title={col.label}>
                         {col.label}
                       </p>
                       <span className="text-[10px] font-bold bg-white/25 px-1.5 py-0.5 rounded-full flex-shrink-0">

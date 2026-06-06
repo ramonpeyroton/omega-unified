@@ -182,14 +182,16 @@ export default function QuickTasksList({ user }) {
           <li key={r.id} className="flex items-start gap-2 py-1">
             <button
               onClick={() => toggleDone(r)}
-              className={`mt-1.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                r.done
-                  ? 'bg-omega-success border-omega-success'
-                  : 'border-gray-300 hover:border-omega-orange'
-              }`}
+              className={`mt-0.5 p-1.5 rounded flex items-center justify-center flex-shrink-0 transition-colors`}
               title={r.done ? 'Mark as open' : 'Mark as done'}
             >
+              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                r.done
+                  ? 'bg-omega-success border-omega-success'
+                  : 'border-gray-300'
+              }`}>
               {r.done && <CheckSquare className="w-3 h-3 text-white" strokeWidth={3} />}
+              </span>
             </button>
             <input
               ref={(el) => { if (el) inputRefs.current[r.id] = el; }}
@@ -199,7 +201,7 @@ export default function QuickTasksList({ user }) {
               onFocus={() => setFocused(r.id)}
               onBlur={() => setFocused(null)}
               placeholder="Write a task…"
-              className={`flex-1 min-w-0 bg-transparent border-0 outline-none text-[15px] py-1 leading-snug ${
+              className={`flex-1 min-w-0 bg-transparent border-0 outline-none focus-visible:ring-1 focus-visible:ring-omega-orange rounded text-[15px] py-1 leading-snug ${
                 r.done
                   ? 'line-through text-omega-stone'
                   : 'text-omega-charcoal placeholder-omega-stone/50'
@@ -208,7 +210,7 @@ export default function QuickTasksList({ user }) {
             {/* Always-visible delete button (one tap on mobile, no hover needed) */}
             <button
               onClick={() => deleteRow(r)}
-              className="mt-0.5 p-1.5 rounded-lg text-omega-stone hover:text-white hover:bg-red-500 transition-colors flex-shrink-0"
+              className="mt-0.5 p-2 rounded-lg text-omega-stone hover:text-white hover:bg-red-500 transition-colors flex-shrink-0"
               title="Delete task"
               aria-label="Delete task"
             >

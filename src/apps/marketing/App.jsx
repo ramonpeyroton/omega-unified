@@ -1,9 +1,9 @@
 // Marketing sub-app — read-only Pipeline + My Leads, plus the Daily
 // Logs cascade. Migrated to URL-based routing.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, LayoutDashboard, MoreHorizontal } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -11,7 +11,7 @@ import JobFullView from '../../shared/components/JobFullView';
 import DailyLogsList from '../../shared/components/DailyLogsList';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import MobileMoreSheet from './components/MobileMoreSheet';
-import { supabase } from '../owner/lib/supabase';
+import { useJobById } from '../../shared/hooks/useJobById';
 
 // Maps the current URL pathname to the bottom-bar item id for the
 // active-state highlight.
@@ -29,7 +29,7 @@ function MobileBottomBar({ onMore }) {
   const screen = screenIdFromPath(location.pathname);
 
   const items = [
-    { id: 'pipeline',   icon: LayoutDashboard,    label: 'Pipeline', to: '/' },
+    { id: 'pipeline',   icon: GitBranch,           label: 'Pipeline', to: '/' },
     { id: 'leads',      icon: ClipboardList,      label: 'Leads',    to: '/leads' },
     { id: 'daily-logs', icon: MessageCircle,      label: 'Logs',     to: '/daily-logs' },
     { id: 'more',       icon: MoreHorizontal,     label: 'More' },
@@ -50,29 +50,6 @@ function MobileBottomBar({ onMore }) {
       ))}
     </nav>
   );
-}
-
-function useJobById(id) {
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!id) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        setJob(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setJob(null);
-        setLoading(false);
-      });
-    return () => { active = false; };
-  }, [id]);
-  return { job, setJob, loading };
 }
 
 function MarketingShell({ user, onLogout }) {

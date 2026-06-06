@@ -4,7 +4,6 @@
 // route so refresh and shared links preserve the open card. Back
 // inside a card always goes to /pipeline.
 
-import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
 
 import Sidebar from './components/Sidebar';
@@ -19,32 +18,7 @@ import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import InvoiceInbox from '../../shared/components/InvoiceInbox';
 import JobFullView from '../../shared/components/JobFullView';
-import { supabase } from '../owner/lib/supabase'; // operations shares the same supabase client setup
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function useJobById(id) {
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!id) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        setJob(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setJob(null);
-        setLoading(false);
-      });
-    return () => { active = false; };
-  }, [id]);
-  return { job, setJob, loading };
-}
+import { useJobById } from '../../shared/hooks/useJobById';
 
 function LoadingFallback() {
   return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;

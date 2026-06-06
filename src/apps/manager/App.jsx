@@ -24,32 +24,7 @@ import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import PageHeader from '../../shared/components/ui/PageHeader';
 import { Calendar as CalendarIcon } from 'lucide-react';
-import { supabase } from '../owner/lib/supabase';
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function useJobById(id) {
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!id) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        setJob(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setJob(null);
-        setLoading(false);
-      });
-    return () => { active = false; };
-  }, [id]);
-  return { job, setJob, loading };
-}
+import { useJobById } from '../../shared/hooks/useJobById';
 
 function LoadingFallback() {
   return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;

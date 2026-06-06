@@ -38,6 +38,7 @@ export default function PageHeader({
       {onBack && (
         <button
           onClick={onBack}
+          aria-label="Go back"
           className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> {backLabel}
@@ -45,7 +46,7 @@ export default function PageHeader({
       )}
 
       {Icon && (
-        <div className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0 ml-1">
+        <div aria-hidden="true" className="w-9 h-9 rounded-xl bg-omega-pale text-omega-orange flex items-center justify-center flex-shrink-0 ml-1">
           <Icon className="w-4 h-4" />
         </div>
       )}

@@ -5,7 +5,7 @@
 // The "pending visit" sticky banner (rehydrated from sessionStorage)
 // keeps working across navigations.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
 
 import NewLead from './screens/NewLead';
@@ -16,34 +16,9 @@ import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
-import { supabase } from '../owner/lib/supabase';
+import { useJobById } from '../../shared/hooks/useJobById';
 
 const PENDING_VISIT_KEY = 'omega_receptionist_pending_visit';
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function useJobById(id) {
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!id) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    supabase.from('jobs').select('*').eq('id', id).maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        setJob(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setJob(null);
-        setLoading(false);
-      });
-    return () => { active = false; };
-  }, [id]);
-  return { job, setJob, loading };
-}
 
 function LoadingFallback() {
   return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;

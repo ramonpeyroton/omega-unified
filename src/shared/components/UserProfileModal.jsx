@@ -52,6 +52,13 @@ export default function UserProfileModal({ open, onClose, user, onUserUpdated })
 
   const eligibleId = row?.id || null;
 
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [open, onClose]);
+
   // Load the row from `users` when the modal opens. We fetch on every
   // open so the form reflects the latest values even if another tab
   // edited them, and so a fresh session that didn't have a row before
@@ -188,7 +195,7 @@ export default function UserProfileModal({ open, onClose, user, onUserUpdated })
           <h3 className="text-base font-bold text-omega-charcoal">Your Profile</h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal transition"
+            className="p-2.5 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal transition"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -213,7 +220,7 @@ export default function UserProfileModal({ open, onClose, user, onUserUpdated })
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
                     title="Change photo"
-                    className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-omega-charcoal text-white flex items-center justify-center shadow-card hover:bg-black disabled:opacity-50 transition border-2 border-white"
+                    className="absolute bottom-0 right-0 w-10 h-10 rounded-full bg-omega-charcoal text-white flex items-center justify-center shadow-card hover:bg-black disabled:opacity-50 transition border-2 border-white"
                   >
                     {uploading ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -394,7 +401,7 @@ function PushSection({ user }) {
         <button
           onClick={enable}
           disabled={busy}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-omega-orange hover:bg-omega-dark disabled:opacity-50"
+          className="flex w-full sm:w-auto sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-omega-orange hover:bg-omega-dark disabled:opacity-50"
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />} Enable notifications
         </button>

@@ -208,7 +208,7 @@ function OptionButton({ label, selected, onClick, type = 'single' }) {
     <button
       type="button"
       onClick={onClick}
-      className={`w-full text-left px-5 py-4 rounded-2xl border-2 transition-all duration-150 ${
+      className={`w-full text-left px-5 py-4 rounded-2xl border-2 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-omega-orange ${
         selected
           ? 'border-omega-orange bg-omega-pale text-omega-charcoal shadow-sm'
           : 'border-gray-200 bg-white text-omega-slate hover:border-omega-orange/40 hover:bg-gray-50'
