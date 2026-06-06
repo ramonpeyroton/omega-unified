@@ -9,11 +9,24 @@
 // Financials totals stay honest without an extra step.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Receipt, MapPin, CheckCircle2, Loader2, X } from 'lucide-react';
+import { Search, Receipt, MapPin, CheckCircle2, Loader2, X, ArrowUpDown } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../../../shared/lib/supabase';
 import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
 import Toast from '../../../shared/components/Toast';
+
+const SORT_KEY = 'omega_receipts_sort';
+const SORT_OPTIONS = [
+  { id: 'status',  label: 'Status' },
+  { id: 'name',    label: 'Name' },
+  { id: 'city',    label: 'City' },
+];
+// Active statuses first, then done/completed
+const STATUS_RANK = {
+  in_progress: 0, 'in-progress': 0,
+  awaiting_kickoff: 1, contract_signed: 2,
+  completed: 3,
+};
 
 // Phases where it actually makes sense to log a material receipt.
 // We deliberately leave out leads/estimate-stage jobs — Gabriel
@@ -31,9 +44,17 @@ export default function QuickReceipts({ user }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [sortBy, setSortBy] = useState(() => {
+    try { return localStorage.getItem(SORT_KEY) || 'status'; } catch { return 'status'; }
+  });
   const [activeJob, setActiveJob] = useState(null);
   const [toast, setToast] = useState(null);
   const searchRef = useRef(null);
+
+  function changeSort(id) {
+    setSortBy(id);
+    try { localStorage.setItem(SORT_KEY, id); } catch { /* quota */ }
+  }
 
   useEffect(() => { loadJobs(); }, []);
 
@@ -60,13 +81,30 @@ export default function QuickReceipts({ user }) {
   }
 
   const filteredJobs = useMemo(() => {
+    let list = [...jobs];
     const q = query.trim().toLowerCase();
-    if (!q) return jobs;
-    return jobs.filter((j) => {
-      const hay = `${j.client_name || ''} ${j.address || ''} ${j.city || ''}`.toLowerCase();
-      return hay.includes(q);
+    if (q) {
+      list = list.filter((j) => {
+        const hay = `${j.client_name || ''} ${j.address || ''} ${j.city || ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    // Sort
+    list.sort((a, b) => {
+      if (sortBy === 'name') {
+        return (a.client_name || '').localeCompare(b.client_name || '');
+      }
+      if (sortBy === 'city') {
+        return (a.city || '').localeCompare(b.city || '');
+      }
+      // 'status' — active first, then done
+      const ra = STATUS_RANK[a.pipeline_status] ?? 9;
+      const rb = STATUS_RANK[b.pipeline_status] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return (a.client_name || '').localeCompare(b.client_name || '');
     });
-  }, [jobs, query]);
+    return list;
+  }, [jobs, query, sortBy]);
 
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
@@ -104,6 +142,24 @@ export default function QuickReceipts({ user }) {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Sort chips */}
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-omega-cloud">
+        <ArrowUpDown className="w-3.5 h-3.5 text-omega-stone flex-shrink-0" />
+        {SORT_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => changeSort(opt.id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+              sortBy === opt.id
+                ? 'bg-omega-orange text-white'
+                : 'bg-white text-omega-stone border border-gray-200'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       {/* Job list — chunky rows, ≥56px tall for safe thumb tapping. */}
