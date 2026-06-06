@@ -390,7 +390,7 @@ function SalesShell({ user, onLogout }) {
           onLogout={onLogout}
           onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: location.pathname } })}
         />
-        <main className="flex-1 min-w-0 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+        <main className="flex-1 min-w-0 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
           <Outlet />
         </main>
         {/* Persistent mobile bottom bar (md:hidden) — shown only on top-level
