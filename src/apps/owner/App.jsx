@@ -141,7 +141,7 @@ function DashboardRoute({ user }) {
   return (
     <Dashboard
       user={user}
-      onSelectJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+      onSelectJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: '/' } })}
       onNavigate={(id) => navigateForId(navigate, id)}
     />
   );

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { DollarSign, Save, TrendingUp, TrendingDown, Banknote, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
+import { sumAcceptedEstimates } from '../lib/jobFinancials';
 
 function parseNum(v) {
   if (v === '' || v == null) return 0;
@@ -39,6 +40,13 @@ export default function JobCostingSection({ job, user }) {
   // The form field is read-only in that case so Brenda doesn't type
   // a value that would be silently overwritten on the next change.
   const [milestoneCount, setMilestoneCount] = useState(0);
+  // Sum of ACCEPTED estimates (approved/signed) — prevails as revenue
+  // when present, matching the Owner dashboard. 0 → fall back to the
+  // manual estimated_revenue field below (imported jobs).
+  const [acceptedEstTotal, setAcceptedEstTotal] = useState(0);
+  // Sum of logged receipts/expenses (job_expenses) — added on top of
+  // the manual cost fields so Total Cost = receipts + manual costs.
+  const [expensesTotal, setExpensesTotal] = useState(0);
   const saveTimer = useRef(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
@@ -82,6 +90,15 @@ export default function JobCostingSection({ job, user }) {
       const subs = (agrs || []).reduce((acc, a) => acc + (Number(a.their_estimate) || 0), 0);
       setSubsTotal(subs);
       setLatestEstimateTotal(estTotal != null ? Number(estTotal) : null);
+      setAcceptedEstTotal(sumAcceptedEstimates(allEsts || []));
+
+      // Logged receipts/expenses for this job — the receipts half of
+      // the unified Total Cost (manual fields + receipts).
+      const { data: expRows } = await supabase
+        .from('job_expenses')
+        .select('amount')
+        .eq('job_id', job.id);
+      setExpensesTotal((expRows || []).reduce((s, e) => s + (Number(e.amount) || 0), 0));
 
       // Payment milestones — count AND live sum of received_amount.
       // When milestones exist the trigger (migration 058) owns
@@ -123,18 +140,22 @@ export default function JobCostingSection({ job, user }) {
   }
 
   const calc = useMemo(() => {
-    const revenue = parseNum(form.estimated_revenue);
+    // Revenue: accepted estimates prevail; else the manual field.
+    const manualRev = parseNum(form.estimated_revenue);
+    const revenue = acceptedEstTotal > 0 ? acceptedEstTotal : manualRev;
     const mat = parseNum(form.material_cost);
     const labor = parseNum(form.labor_cost);
     const sub = parseNum(form.sub_cost);
     const other = parseNum(form.other_costs);
-    const totalCost = mat + labor + sub + other;
+    const manualCost = mat + labor + sub + other;
+    // Total cost = manual cost fields + all logged receipts.
+    const totalCost = manualCost + (Number(expensesTotal) || 0);
     const profit = revenue - totalCost;
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
     const received = parseNum(form.amount_received);
     const balanceDue = revenue - received;
-    return { revenue, totalCost, profit, margin, received, balanceDue };
-  }, [form]);
+    return { revenue, totalCost, manualCost, profit, margin, received, balanceDue };
+  }, [form, acceptedEstTotal, expensesTotal]);
 
   function update(k, v) {
     setForm((p) => ({ ...p, [k]: v }));
@@ -231,7 +252,7 @@ export default function JobCostingSection({ job, user }) {
             <div className="flex-1 text-sm text-amber-900">
               The sum of approved estimates is <strong>{money(latest)}</strong> — your saved revenue says
               <strong> {money(saved)}</strong> ({diff > 0 ? '+' : '−'}{money(Math.abs(diff))} difference).
-              Job Costing won't auto-update.
+              Revenue &amp; margin already use the accepted-estimates total; sync the saved field to match.
             </div>
             <button
               onClick={() => update('estimated_revenue', latest)}
@@ -256,6 +277,17 @@ export default function JobCostingSection({ job, user }) {
           onSync={subsTotal > 0 ? () => update('sub_cost', subsTotal) : null}
         />
         <Field label="Other Costs" value={form.other_costs} onChange={(v) => update('other_costs', v)} />
+
+        {expensesTotal > 0 && (
+          <div className="flex items-center justify-between rounded-lg bg-omega-cloud/60 px-3 py-2 text-xs">
+            <span className="text-omega-stone">+ Logged receipts (Daily Logs / Receipts)</span>
+            <span className="font-bold text-omega-charcoal tabular-nums">{money(expensesTotal)}</span>
+          </div>
+        )}
+        <p className="text-[11px] text-omega-stone">
+          Total Cost = the four fields above + logged receipts ={' '}
+          <strong className="text-omega-charcoal">{money(calc.totalCost)}</strong>.
+        </p>
 
         <div className="border-t border-gray-100 pt-3">
           <Field

@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import LeadsHeatMap from '../components/LeadsHeatMap';
 import Logo from '../components/Logo';
+import { sumAcceptedEstimates, manualCostTotal, computeJobFinancials } from '../../../shared/lib/jobFinancials';
 
 // Owner Dashboard — Phase 1 of Ramon's redesign:
 //   • 6 KPI cards (MTD vs last month delta).
@@ -224,9 +225,16 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         const latestEstByJob = latestEstimateByJob(estimates);
 
-        // Latest manual Job Costing row per job (Financial tab). Used as
-        // the fallback contract-value + cost source for estimate-less
-        // (imported) jobs in the Active Jobs table below.
+        // All estimates grouped per job — the Active Jobs margin uses the
+        // SUM of accepted (approved/signed) estimates, not just the latest.
+        const estimatesByJob = {};
+        for (const e of estimates) {
+          (estimatesByJob[e.job_id] ||= []).push(e);
+        }
+
+        // Latest manual Job Costing row per job (Financial tab). The
+        // fallback revenue + cost source for estimate-less (imported)
+        // jobs, and the manual-cost half of every job's total cost.
         const costsByJob = {};
         for (const c of (costsResp.data || [])) {
           const prev = costsByJob[c.job_id];
@@ -234,10 +242,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             costsByJob[c.job_id] = c;
           }
         }
-        const manualCostTotal = (c) => c
-          ? (Number(c.material_cost) || 0) + (Number(c.labor_cost) || 0) +
-            (Number(c.sub_cost) || 0) + (Number(c.other_costs) || 0)
-          : 0;
 
         // ─── Active jobs ─────────────────────────────────────────
         const activeJobs = jobs.filter((j) => ACTIVE_PHASES.has(j.pipeline_status || 'new_lead'));
@@ -343,29 +347,21 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const inProgressJobs = jobs
           .filter((j) => j.pipeline_status === 'in_progress')
           .map((j) => {
-            const est = latestEstByJob[j.id];
-            const estTotal = Number(est?.total_amount) || 0;
             const jobExpenses = expenses.filter((e) => e.job_id === j.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-
-            // Margin source priority:
-            //   1. Estimate exists → estimate revenue vs logged expenses.
-            //   2. No estimate (imported job) → manual Financial tab
-            //      (job_costs): estimated_revenue vs its cost fields.
-            //   3. Neither → null ("No Costing").
             const cost = costsByJob[j.id];
-            const manualRevenue = Number(cost?.estimated_revenue) || 0;
-            let margin;
-            let contractValue;
-            if (estTotal > 0) {
-              contractValue = estTotal;
-              margin = ((estTotal - jobExpenses) / estTotal) * 100;
-            } else if (manualRevenue > 0) {
-              contractValue = manualRevenue;
-              margin = ((manualRevenue - manualCostTotal(cost)) / manualRevenue) * 100;
-            } else {
-              contractValue = 0;
-              margin = null;
-            }
+
+            // Unified formula (same as the Financials tab):
+            //   revenue = sum of accepted estimates, else manual revenue
+            //   cost    = all receipts (job_expenses) + manual cost fields
+            const fin = computeJobFinancials({
+              acceptedEstimateTotal: sumAcceptedEstimates(estimatesByJob[j.id]),
+              manualRevenue: Number(cost?.estimated_revenue) || 0,
+              manualCost: manualCostTotal(cost),
+              expensesTotal: jobExpenses,
+            });
+            const margin = fin.margin;
+            const profit = fin.profit;
+            const contractValue = fin.revenue;
 
             // Progress % from phase_data.phases[].items[].done.
             const phases = j.phase_data?.phases || [];
@@ -385,7 +381,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               service: j.service,
               progress,
               margin,
-              estTotal,
+              profit,
               contractValue,
               raw: j,
             };
@@ -997,12 +993,20 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                               <span className="text-xs font-bold text-omega-charcoal tabular-nums w-9 text-right">{j.progress}%</span>
                             </div>
                           </td>
-                          <td className="py-2.5 px-2">
-                            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${bucket.cls}`}>
+                          <td
+                            className="py-2.5 px-2"
+                            onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
+                            title="Open Financials"
+                          >
+                            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${bucket.cls} hover:ring-2 hover:ring-omega-orange/30`}>
                               {bucket.label}
                             </span>
                           </td>
-                          <td className="py-2.5 px-2 text-right text-sm font-bold text-omega-charcoal tabular-nums">
+                          <td
+                            className="py-2.5 px-2 text-right text-sm font-bold text-omega-charcoal tabular-nums hover:text-omega-orange hover:underline"
+                            onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
+                            title="Open Financials"
+                          >
                             {j.margin == null ? '—' : `${j.margin >= 0 ? '+' : ''}${j.margin.toFixed(0)}%`}
                           </td>
                           <td className="py-2.5 px-2 text-omega-stone">
@@ -1236,7 +1240,10 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                         <span className="text-[10px] font-bold text-omega-stone tabular-nums">{j.progress}%</span>
                       </div>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex-shrink-0 ${bucket.cls}`}>
+                    <span
+                      onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex-shrink-0 ${bucket.cls}`}
+                    >
                       {bucket.label}
                     </span>
                     <ArrowRight className="w-4 h-4 text-omega-stone flex-shrink-0" />
