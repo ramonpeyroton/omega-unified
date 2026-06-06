@@ -3,7 +3,7 @@ import {
   PlusCircle, Bell, LogOut, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, ArrowRight, TrendingUp, TrendingDown, MapPin, Phone,
   CalendarCheck, Lightbulb, Home as HomeIcon, Sparkles, DollarSign, MessageCircle,
-  ChevronDown, ChevronRight, Menu, MoreHorizontal,
+  ChevronDown, ChevronRight, Menu, MoreHorizontal, Loader2,
 } from 'lucide-react';
 import { SalesMobileMenuContext } from '../mobileMenuContext';
 import { supabase } from '../lib/supabase';
@@ -177,7 +177,7 @@ export function MobileBottomBar({ activeId, onNavigate }) {
     { id: 'more',       icon: MoreHorizontal, label: 'More' },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
       {items.map(({ id, icon: Icon, label }) => {
         const active = activeId === id;
         return (
@@ -682,6 +682,11 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
         </header>
 
         <div className="px-4 sm:px-10 pb-10 space-y-4 sm:space-y-6 pt-4 sm:pt-0">
+          {loading && (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-omega-orange" />
+            </div>
+          )}
           {/* KPIs — 4 cols always (compact on mobile, full on desktop) */}
           <section className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
             <KpiCard

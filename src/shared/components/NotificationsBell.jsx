@@ -120,7 +120,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
       {open && (
         <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setOpen(false)}>
           <aside
-            className="absolute top-0 right-0 bottom-0 w-full sm:w-[400px] bg-white shadow-2xl flex flex-col"
+            className="absolute top-0 right-0 bottom-0 w-full sm:w-[400px] bg-white shadow-2xl flex flex-col animate-[slideInRight_0.2s_ease-out]"
             onClick={(e) => e.stopPropagation()}
           >
             <header className="flex items-center justify-between p-4 border-b border-gray-200">
@@ -139,8 +139,9 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
             </header>
             <div className="flex-1 overflow-y-auto">
               {items.length === 0 && (
-                <div className="p-10 text-center text-omega-stone text-sm">
-                  No notifications yet.
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <Bell className="w-8 h-8 text-omega-fog" />
+                  <p className="text-sm text-omega-stone">No notifications yet.</p>
                 </div>
               )}
               {items.map((n) => {
@@ -149,6 +150,8 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
                 return (
                   <div
                     key={n.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleClick(n)}
                     className={`group w-full text-left p-4 border-b border-gray-100 hover:bg-omega-cloud transition-colors cursor-pointer ${unread ? 'bg-omega-pale/30' : ''}`}
                   >

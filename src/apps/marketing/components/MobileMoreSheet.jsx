@@ -5,7 +5,7 @@
 //
 // Pure mobile (md:hidden). Slides up over a dimmed backdrop.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, LogOut } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
@@ -15,6 +15,13 @@ export default function MobileMoreSheet({ open, onClose, user, onLogout }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
   const userName = user?.name || '';
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -57,13 +64,6 @@ export default function MobileMoreSheet({ open, onClose, user, onLogout }) {
       </div>
 
       <UserProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} user={user} onUserUpdated={refresh} />
-
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
-      `}</style>
     </>
   );
 }

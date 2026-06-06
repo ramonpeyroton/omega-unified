@@ -37,6 +37,8 @@
   .scrollbar-hide::-webkit-scrollbar { display: none; }
   .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
 }
 
 @media print {

@@ -88,7 +88,7 @@ function LoadingFallback() {
 function BackBar() {
   const navigate = useNavigate();
   return (
-    <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+    <div className="bg-white border-b border-gray-200 px-4 py-3.5 flex items-center gap-3">
       <button
         onClick={() => navigate('/')}
         className="inline-flex items-center gap-1 text-sm font-semibold text-omega-stone hover:text-omega-charcoal"

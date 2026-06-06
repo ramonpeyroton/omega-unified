@@ -35,7 +35,7 @@ function MobileBottomBar({ onMore }) {
     { id: 'more',       icon: MoreHorizontal,     label: 'More' },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
       {items.map(({ id, icon: Icon, label, to }) => (
         <button
           key={id}

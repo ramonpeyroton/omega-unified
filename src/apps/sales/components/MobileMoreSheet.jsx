@@ -7,7 +7,7 @@
 // Pure mobile: rendered inside SalesShell which is itself behind md:hidden
 // chrome. Slides up from the bottom over a dimmed backdrop.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X, ClipboardList, FileText, DollarSign, ClipboardCheck, User, LogOut,
 } from 'lucide-react';
@@ -27,6 +27,13 @@ export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLog
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
   const userName = user?.name || '';
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -113,13 +120,6 @@ export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLog
         user={user}
         onUserUpdated={refresh}
       />
-
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
-      `}</style>
     </>
   );
 }

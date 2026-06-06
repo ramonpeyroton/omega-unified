@@ -508,7 +508,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   // still look correct.
   const wrapperCls = embedded
     ? 'flex flex-col h-full min-h-0 bg-omega-cloud overflow-hidden'
-    : 'flex flex-col h-[600px] max-h-[70vh] bg-omega-cloud rounded-xl overflow-hidden';
+    : 'flex flex-col h-[500px] max-h-[80vh] bg-omega-cloud rounded-xl overflow-hidden';
 
   return (
     <div className={wrapperCls}>
@@ -599,7 +599,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
       </div>
 
       {error && (
-        <div className="flex-shrink-0 px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200 inline-flex items-start gap-1.5">
+        <div className="flex-shrink-0 px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200 flex items-start gap-1.5">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {error}
         </div>
       )}
@@ -655,7 +655,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || sending}
-            className="p-2 rounded-lg text-omega-stone hover:text-omega-orange hover:bg-omega-pale disabled:opacity-50"
+            className="p-2.5 rounded-lg text-omega-stone hover:text-omega-orange hover:bg-omega-pale disabled:opacity-50"
             title="Attach files (images and PDFs, up to 10)"
           >
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
@@ -663,7 +663,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
 
           <div className="relative flex-1">
             {mentionOpen && (
-              <div className="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-20">
+              <div className="absolute bottom-full left-0 mb-1 w-56 max-w-[calc(100vw-2rem)] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-20">
                 {mentionMatches.map((name) => (
                   <button
                     key={name}
@@ -685,7 +685,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
               onChange={handleBodyChange}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Type a message — use @Name to mention. Enter to send, Shift+Enter for a new line."
+              placeholder="Type a message… @Name to mention"
               className="w-full resize-none px-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-omega-orange focus:outline-none max-h-32"
             />
           </div>
@@ -694,6 +694,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
             type="button"
             onClick={send}
             disabled={sending || (!body.trim() && pendingFiles.length === 0)}
+            aria-label="Send message"
             className="px-3 py-2 rounded-lg bg-omega-orange hover:bg-omega-dark disabled:opacity-50 text-white text-sm font-bold inline-flex items-center gap-1"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

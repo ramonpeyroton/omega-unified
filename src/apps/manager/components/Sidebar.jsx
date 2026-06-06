@@ -126,7 +126,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
       </aside>
 
       {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-40 safe-bottom">
+      <nav aria-label="Main navigation" className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-40 safe-bottom">
         {BOTTOM_BAR.map(({ id, label, icon: Icon }) => {
           const active = id === 'more'
             ? moreOpen

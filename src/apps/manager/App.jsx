@@ -110,7 +110,7 @@ function MobileRedirect() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (window.location.pathname !== '/') return;
-    if (window.matchMedia('(max-width: 768px)').matches) {
+    if (window.matchMedia('(max-width: 767px)').matches) {
       navigate('/receipts', { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

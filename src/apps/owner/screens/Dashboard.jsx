@@ -1107,14 +1107,14 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
         </div>
 
         {/* 6 KPIs — one row; defined cards so they read on the light header */}
-        <div className="flex gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           {kpis.map((k) => (
             <div
               key={k.label}
-              className={`flex-1 min-w-0 bg-white rounded-xl border border-gray-100 shadow-sm border-t-[3px] ${k.accent} flex flex-col items-center justify-center text-center py-2.5 px-0.5`}
+              className={`min-w-0 bg-white rounded-xl border border-gray-100 shadow-sm border-t-[3px] ${k.accent} flex flex-col items-center justify-center text-center py-2.5 px-0.5`}
             >
-              <p className="text-[8px] font-bold uppercase tracking-wider text-omega-stone leading-none">{k.label}</p>
-              <p className={`text-[13px] font-black tabular-nums leading-none mt-1 ${k.valueColor}`}>{k.value}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-omega-stone leading-none">{k.label}</p>
+              <p className={`text-sm font-black tabular-nums leading-none mt-1 ${k.valueColor}`}>{k.value}</p>
               {k.delta && Number.isFinite(k.delta?.raw) && (
                 <p className={`text-[9px] font-bold leading-none mt-0.5 ${k.delta.positive ? 'text-emerald-500' : 'text-red-400'}`}>
                   {k.delta.positive ? '↑' : '↓'}

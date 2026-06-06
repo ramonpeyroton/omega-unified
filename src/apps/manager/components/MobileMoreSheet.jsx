@@ -3,7 +3,7 @@
 // Gabriel reaches (Pipeline, Materials, Calendar, Warehouse, Alerts) lives
 // here, plus Profile + Sign Out. Same pattern as the Owner sheet.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X, GitBranch, ShoppingCart, Calendar, Package, LogOut,
 } from 'lucide-react';
@@ -22,6 +22,13 @@ export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLog
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
   const userName = user?.name || '';
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -83,13 +90,6 @@ export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLog
       </div>
 
       <UserProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} user={user} onUserUpdated={refresh} />
-
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
-      `}</style>
     </>
   );
 }

@@ -69,6 +69,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
   const [jobs, setJobs]       = useState([]);
   const [reads, setReads]     = useState({}); // { jobId: { last_read_at, is_starred } }
   const [latest, setLatest]   = useState({}); // { jobId: latestMessageRow }
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState('all');
   const [search, setSearch]   = useState('');
 
@@ -158,6 +159,8 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
         if (active) setLatest(latestMap);
       } catch (err) {
         console.warn('[DailyLogsRichTab] load failed:', err);
+      } finally {
+        if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
@@ -302,7 +305,9 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
 
         {/* List of chats */}
         <div className="flex-1 overflow-y-auto px-2 py-1">
-          {visible.length === 0 ? (
+          {loading ? (
+            <p className="text-[12px] text-omega-stone italic px-2 py-2">Loading chats…</p>
+          ) : visible.length === 0 ? (
             <p className="text-[12px] text-omega-stone italic px-2 py-2">
               {filter === 'all' ? 'No chats yet.' : 'No chats match this filter.'}
             </p>
@@ -312,6 +317,8 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
               return (
                 <div
                   key={j.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     // Open this chat. On mobile we flip to the chat pane.
                     // In card mode we also hand the new job up to the parent

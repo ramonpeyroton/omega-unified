@@ -417,7 +417,7 @@ function MaterialsInline({ byStore, totalCount, loading, onMark, onOpenFull }) {
                   title="Mark bought"
                   aria-label="Mark bought"
                 >
-                  <Check className="w-3 h-3 text-omega-orange opacity-0 hover:opacity-100" />
+                  <Check className="w-3 h-3 text-omega-orange opacity-40 hover:opacity-100" />
                 </button>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-omega-charcoal">{m.name}</p>

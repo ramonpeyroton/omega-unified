@@ -9,7 +9,7 @@
 // route isn't normally reached; if a desktop user types /daily-logs directly
 // it renders the familiar two-column layout — harmless.
 //
-// Height: `h-[calc(100dvh-4rem)]` reserves the 64px the fixed bottom bar
+// Height: `h-[calc(100dvh-4rem-env(safe-area-inset-bottom))]` reserves the 64px the fixed bottom bar
 // occupies so the chat list scrolls clear of it. The chat pane escapes this
 // via its own `fixed inset-0` overlay (see DailyLogsRichTab).
 
@@ -26,7 +26,7 @@ export default function MobileDailyLogs({ user }) {
   const [, setPane] = useState('list');
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] md:h-full min-h-0">
+    <div className="flex flex-col h-[calc(100dvh-4rem-env(safe-area-inset-bottom))] md:h-full min-h-0">
       {/* Same thin bar as every other secondary screen. The chat pane paints
           a fixed overlay above this (with its own back-to-list header), so
           this header belongs to the chat-list view. Non-sticky — the rich

@@ -735,7 +735,7 @@ function LegacyQuestionnaire({ job, schema, onNavigate, onJobUpdated, onComplete
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* Header with progress */}
-      <header className="bg-omega-charcoal px-5 pt-10 pb-4 sticky top-0 z-10">
+      <header className="bg-omega-charcoal px-5 pt-5 pb-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() => (idx === 0 ? onNavigate('home') : goBack())}
@@ -930,7 +930,7 @@ function SectionModeQuestionnaire({ job, schema, onNavigate, onJobUpdated, onCom
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* Header with progress */}
-      <header className="bg-omega-charcoal px-5 pt-10 pb-4 sticky top-0 z-10">
+      <header className="bg-omega-charcoal px-5 pt-5 pb-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={goBack}
