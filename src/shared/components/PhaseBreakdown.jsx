@@ -28,7 +28,24 @@ const CAN_EDIT_PHASES = new Set(['sales', 'operations', 'owner', 'admin']);
 export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   const template = useMemo(() => templateFor(job.service), [job.service]);
   const [phaseData, setPhaseData] = useState(() => deriveInitial(job, template));
-  const [openIds, setOpenIds] = useState(() => new Set([phaseData?.phases?.[0]?.id].filter(Boolean)));
+  const [openIds, setOpenIds] = useState(() => {
+    // Auto-expand the phase that's currently being worked on: the LAST
+    // phase that has at least one done item but isn't fully complete.
+    // Falls back to the first incomplete phase, then to the very first.
+    const phases = phaseData?.phases || [];
+    let target = null;
+    for (let i = phases.length - 1; i >= 0; i--) {
+      const p = phases[i];
+      const doneCount = (p.items || []).filter((it) => it.done).length;
+      const total = (p.items || []).length;
+      if (doneCount > 0 && doneCount < total) { target = p.id; break; }
+    }
+    if (!target) {
+      const firstIncomplete = phases.find((p) => !(p.items || []).every((it) => it.done));
+      target = firstIncomplete?.id || phases[0]?.id;
+    }
+    return new Set([target].filter(Boolean));
+  });
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef(null);
 
@@ -173,7 +190,16 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     setPhaseData((prev) => {
       const phases = prev.phases.map((p, pi) => {
         if (pi !== phaseIdx) return p;
-        const items = p.items.map((it, ii) => ii === itemIdx ? { ...it, done: !it.done } : it);
+        const items = p.items.map((it, ii) => {
+          if (ii !== itemIdx) return it;
+          const nowDone = !it.done;
+          return {
+            ...it,
+            done: nowDone,
+            done_by: nowDone ? (user?.name || null) : null,
+            done_at: nowDone ? new Date().toISOString() : null,
+          };
+        });
         const completed = items.every((it) => it.done);
         return { ...p, items, completed };
       });
@@ -422,6 +448,11 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
                             {it.label}
                           </span>
                           {it.verify_status && <VerifyBadge status={it.verify_status} />}
+                          {it.done && it.done_by && (
+                            <span className="block text-[9px] text-omega-stone/70 leading-tight mt-0.5">
+                              {it.done_by}{it.done_at ? ` · ${new Date(it.done_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${new Date(it.done_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}
+                            </span>
+                          )}
                         </button>
                       )}
                       {!editing && canContact && (
