@@ -163,6 +163,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           milestonesResp,
           materialsResp,
           spendResp,
+          costsResp,
         ] = await Promise.all([
           supabase
             .from('jobs')
@@ -204,6 +205,14 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           supabase
             .from('marketing_spend')
             .select('channel, monthly_amount'),
+          // Manual Job Costing (Financial tab). For jobs imported from
+          // the old app with no estimate, this is the only source of a
+          // contract value + costs, so the Active Jobs margin falls back
+          // to it instead of showing "No Costing".
+          supabase
+            .from('job_costs')
+            .select('job_id, estimated_revenue, material_cost, labor_cost, sub_cost, other_costs, updated_at')
+            .limit(5000),
         ]);
 
         if (!active) return;
@@ -214,6 +223,21 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const events     = eventsResp.data || [];
 
         const latestEstByJob = latestEstimateByJob(estimates);
+
+        // Latest manual Job Costing row per job (Financial tab). Used as
+        // the fallback contract-value + cost source for estimate-less
+        // (imported) jobs in the Active Jobs table below.
+        const costsByJob = {};
+        for (const c of (costsResp.data || [])) {
+          const prev = costsByJob[c.job_id];
+          if (!prev || new Date(c.updated_at || 0) > new Date(prev.updated_at || 0)) {
+            costsByJob[c.job_id] = c;
+          }
+        }
+        const manualCostTotal = (c) => c
+          ? (Number(c.material_cost) || 0) + (Number(c.labor_cost) || 0) +
+            (Number(c.sub_cost) || 0) + (Number(c.other_costs) || 0)
+          : 0;
 
         // ─── Active jobs ─────────────────────────────────────────
         const activeJobs = jobs.filter((j) => ACTIVE_PHASES.has(j.pipeline_status || 'new_lead'));
@@ -322,7 +346,26 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             const est = latestEstByJob[j.id];
             const estTotal = Number(est?.total_amount) || 0;
             const jobExpenses = expenses.filter((e) => e.job_id === j.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const margin = estTotal > 0 ? ((estTotal - jobExpenses) / estTotal) * 100 : null;
+
+            // Margin source priority:
+            //   1. Estimate exists → estimate revenue vs logged expenses.
+            //   2. No estimate (imported job) → manual Financial tab
+            //      (job_costs): estimated_revenue vs its cost fields.
+            //   3. Neither → null ("No Costing").
+            const cost = costsByJob[j.id];
+            const manualRevenue = Number(cost?.estimated_revenue) || 0;
+            let margin;
+            let contractValue;
+            if (estTotal > 0) {
+              contractValue = estTotal;
+              margin = ((estTotal - jobExpenses) / estTotal) * 100;
+            } else if (manualRevenue > 0) {
+              contractValue = manualRevenue;
+              margin = ((manualRevenue - manualCostTotal(cost)) / manualRevenue) * 100;
+            } else {
+              contractValue = 0;
+              margin = null;
+            }
 
             // Progress % from phase_data.phases[].items[].done.
             const phases = j.phase_data?.phases || [];
@@ -343,10 +386,11 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               progress,
               margin,
               estTotal,
+              contractValue,
               raw: j,
             };
           })
-          .sort((a, b) => (b.estTotal || 0) - (a.estTotal || 0))
+          .sort((a, b) => (b.contractValue || 0) - (a.contractValue || 0))
           .slice(0, 6);
 
         // ─── Sales Pipeline funnel ─────────────────────────────
