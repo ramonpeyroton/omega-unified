@@ -576,6 +576,96 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-06-06 (Mobile QA audit completo + redesign Marketing + features Manager)** — Ramon + Claude (Opus 4.6/4.7).
+
+Sessão focada em polir o mobile. 10 commits, 40+ arquivos tocados. Resumo por tema:
+
+### 📱 Marketing mobile redesign
+- **Bottom bar mobile** criada (Pipeline/Leads/Logs/More) com ativo em laranja
+  e `safe-bottom`.
+- **MobileMoreSheet** com Perfil + Sign Out.
+- Sidebar `hidden md:flex`, rota `/daily-logs` → `MobileDailyLogs`.
+- `<main>` com `pb-[calc(4rem+env(safe-area-inset-bottom))]`.
+- Arquivo novo: `src/apps/marketing/components/MobileMoreSheet.jsx`.
+
+### 🔔 Push notification format
+- Body da notificação agora inclui `#NomeDoCliente Chat:` + mensagem.
+- Antes era só a preview crua. Agora dá contexto de qual projeto.
+
+### 🏗️ Manager dashboard cleanup
+- **Removidos**: 3 KPIs, 4 quick actions, seção "Issues That Need Attention".
+- **Avatar** do Gabriel adicionado no header (canto direito).
+- **Reordenado**: Today's Jobs primeiro → To Do List → Materials Run.
+
+### ✅ Phase Breakdown (shared, mobile+desktop)
+- **Auto-expand** na última fase com progresso parcial (não mais a 1ª).
+- **done_by / done_at**: cada item marcado como feito grava quem e quando.
+  Exibido em 9px abaixo do item (`Nome · Jun 6 8:40 AM`). Items antigos
+  ficam sem (sem dado retroativo).
+
+### 📋 Quick Receipts (Manager)
+- **3 chips de ordenação**: Status (default), Name (A→Z), City (A→Z).
+- **Persistência via localStorage** — Gabriel reabre e já tá na última
+  ordenação que escolheu.
+
+### 🔍 QA Audit mobile completo — 96 issues encontrados, 88 resolvidos
+
+Auditoria completa da versão mobile de todos os roles. Resultados:
+
+| Severidade | Total | Resolvidos |
+|-----------|:-----:|:----------:|
+| Críticos | 9 | 9 ✅ |
+| Altos | 14 | 14 ✅ |
+| Médios | 38 | 36 ✅ |
+| Baixos | 35 | 29 ✅ |
+
+**Fixes mais impactantes (Críticos resolvidos):**
+1. Safe-area padding do Sales: `pb-16` → `pb-[calc(...+env(safe-area))]`
+2. Sales `<main>` duplo com padding 128px: inner `<main>` → `<div>`
+3. Manager bottom bar z-30 → z-40 (consistente com outros apps)
+4. JobFullView z-40 → z-[45] (acima do bottom bar, abaixo de modais)
+5. Delete de notificação `opacity-0` → `opacity-60` (visível em touch)
+6. Star button `hidden md:inline-flex` → `inline-flex` (visível no mobile)
+7. `useJobById` `.catch()` em 6 cópias (sem mais loading infinito)
+8. Chat overlay: `pt-[max(0.5rem,env(safe-area-inset-top))]` (notch)
+9. Owner Dashboard drawer: `w-[400px]` → `w-full max-w-[400px]`
+
+**Deduplicação:**
+- `useJobById` extraído de 6 App.jsx → `src/shared/hooks/useJobById.js`
+  (-175 linhas de código duplicado)
+- `@keyframes slideUp/slideInRight` movidos de inline `<style>` → `index.css`
+- Imports cross-app removidos (manager/marketing não importam mais de
+  `../owner/lib/supabase`)
+
+**Accessibility (a11y) melhorada:**
+- Bottom bars: `min-h-[44px]` + `aria-label="Main navigation"`
+- PageHeader: `aria-label` no back, `aria-hidden` no ícone
+- MobileMoreSheet: Escape key dismiss (4 arquivos)
+- UserProfileModal: Escape key, close button maior, photo button maior
+- NotificationsBell: animation, `role="button"`, empty state com ícone
+- DailyLogsRichTab: `role="button" tabIndex={0}` nos chat items
+- QuickTasksList: `focus-visible:ring` nos inputs, padding nos checkboxes
+- PipelineKanban: delete button visível no mobile, tooltip nos headers
+- Report dialog: `role="dialog" aria-modal="true"`
+
+**Skipped (by design / complexo demais pra LOW):**
+- Marketing sem notificações (read-only)
+- MobileMoreSheet swipe-to-dismiss (requer gesture library)
+- Owner bottom bar 7 itens (não dá pra remover features)
+
+### 🛠️ PENDÊNCIAS — código (próximo Claude)
+
+| Tarefa | Arquivo(s) | Esforço |
+|--------|-----------|---------|
+| Migrar **Admin app** pra URL routing | `src/apps/admin/App.jsx` | 1-2h (precisa `basename="/admin-x9k2"`) |
+| Migrar **ProjectAnalyzer.jsx** pro AI proxy | `src/apps/owner/screens/ProjectAnalyzer.jsx` | 30 min |
+| Migrar **Warehouse.jsx** pro AI proxy | `src/apps/owner/screens/Warehouse.jsx` | 30 min |
+| Deletar `useBackNavHome` / `useBackButtonGuard` quando Admin migrar | `src/shared/lib/backNav.js`, `backButtonGuard.js` | 5 min |
+| **Replicar redesign mobile** no **Operations** e **Receptionist** | `src/apps/operations/`, `src/apps/receptionist/` | 2-3h |
+| Bug: Flooring/Survey/Building Plans sem questionário | `src/apps/sales/screens/QuestionnaireScreen.jsx` | 1-2h |
+
+---
+
 **2026-06-04/05 (Push notifications + redesign mobile dos 3 apps de campo + Jarvis out)** — Ramon + Claude (Opus 4.8).
 
 Sessão LONGA (2 dias), muitos commits. Resumo por tema:
