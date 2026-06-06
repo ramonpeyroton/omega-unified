@@ -13,6 +13,7 @@ import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import ImportLeads from './screens/ImportLeads';
 import MarketingSpend from './screens/MarketingSpend';
 import LegacyFilesImporter from './screens/LegacyFilesImporter';
+import BulkReceiptImport from './screens/BulkReceiptImport';
 import JobFullView from '../../shared/components/JobFullView';
 import { useBackNavHome } from '../../shared/lib/backNav';
 
@@ -46,6 +47,7 @@ export default function App({ user, onLogout }) {
       case 'import-leads': return <ImportLeads user={user} />;
       case 'marketing-spend': return <MarketingSpend user={user} />;
       case 'legacy-files': return <LegacyFilesImporter user={user} />;
+      case 'bulk-receipts': return <BulkReceiptImport user={user} />;
       case 'screen':    return <ScreenOverride user={user} />;
       default:          return <UsersAccess user={user} />;
     }
