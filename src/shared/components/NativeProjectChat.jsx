@@ -88,14 +88,26 @@ function parseMentions(body, members) {
 function renderBody(body, members) {
   if (!body) return null;
   const tokens = [];
+  // The @token greedily includes spaces (so "@Ana Ortiz" captures the
+  // full name), which means a mention followed by more text lands in
+  // the same token ("@Ana Ortiz please check"). We therefore find the
+  // LONGEST member name the token starts with, pill just that, and push
+  // the leftover ("please check") back as plain text.
+  const sortedMembers = [...(members || [])].sort((a, b) => b.length - a.length);
   const re = /@([A-Za-zÀ-ÿ][\w\s.-]*)/g;
   let lastIdx = 0;
   let m;
   while ((m = re.exec(body)) !== null) {
     if (m.index > lastIdx) tokens.push({ type: 'text', value: body.slice(lastIdx, m.index) });
-    const token = m[1].trim();
-    const hit = members?.find((name) => name.toLowerCase().startsWith(token.toLowerCase()));
-    tokens.push({ type: hit ? 'mention' : 'text', value: hit ? `@${hit}` : `@${m[1]}` });
+    const token = m[1];
+    const hit = sortedMembers.find((name) => token.toLowerCase().startsWith(name.toLowerCase()));
+    if (hit) {
+      tokens.push({ type: 'mention', value: `@${hit}` });
+      const rest = token.slice(hit.length);
+      if (rest) tokens.push({ type: 'text', value: rest });
+    } else {
+      tokens.push({ type: 'text', value: `@${m[1]}` });
+    }
     lastIdx = m.index + m[0].length;
   }
   if (lastIdx < body.length) tokens.push({ type: 'text', value: body.slice(lastIdx) });
