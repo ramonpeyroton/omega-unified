@@ -408,7 +408,7 @@ export default function JobFullView({
   const visibleTabs = isMobile ? TABS.filter((t) => t.id !== 'daily') : TABS;
 
   return (
-    <div className="fixed inset-0 z-40 bg-omega-cloud flex flex-col animate-[fadeIn_0.2s_ease-out]">
+    <div className="fixed inset-0 z-[45] bg-omega-cloud flex flex-col animate-[fadeIn_0.2s_ease-out]">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* ─── Top bar ───────────────────────────────────────── */}
@@ -626,8 +626,8 @@ export default function JobFullView({
                 {tabMenuOpen && (
                   <>
                     {/* tap-away backdrop */}
-                    <div className="fixed inset-0 z-30" onClick={() => setTabMenuOpen(false)} aria-hidden="true" />
-                    <div className="absolute left-4 right-4 top-full mt-1 z-40 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden max-h-[60vh] overflow-y-auto">
+                    <div className="fixed inset-0 z-[43]" onClick={() => setTabMenuOpen(false)} aria-hidden="true" />
+                    <div className="absolute left-4 right-4 top-full mt-1 z-[44] bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden max-h-[60vh] overflow-y-auto">
                       {visibleTabs.map((t) => {
                         const Icon = t.icon;
                         const active = t.id === tab;
@@ -1337,8 +1337,8 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
       {open && (
         <>
           {/* Click-outside catcher — covers the screen below the menu. */}
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-40 w-56 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden`}>
+          <div className="fixed inset-0 z-[43]" onClick={() => setOpen(false)} />
+          <div className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-[44] w-56 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden`}>
             <div className="px-3 py-2 border-b border-gray-100">
               <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">Move to phase</p>
             </div>

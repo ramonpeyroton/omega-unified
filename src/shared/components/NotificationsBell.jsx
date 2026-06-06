@@ -170,7 +170,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
                         {!unread && <Check className="w-3.5 h-3.5 text-omega-success" />}
                         <button
                           onClick={(e) => deleteOne(n.id, e)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-omega-stone hover:text-red-600"
+                          className="opacity-60 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-omega-stone hover:text-red-600"
                           title="Delete notification"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

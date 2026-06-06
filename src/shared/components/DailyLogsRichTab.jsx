@@ -337,7 +337,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); toggleStar(j.id); }}
-                    className={`no-touch-min hidden md:inline-flex flex-shrink-0 transition-opacity ${
+                    className={`no-touch-min inline-flex flex-shrink-0 transition-opacity ${
                       j.isStarred
                         ? 'text-yellow-500 opacity-100'
                         : `${isSelected ? 'text-white/60' : 'text-omega-stone'} opacity-0 group-hover:opacity-100`
@@ -381,7 +381,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
       >
         {/* Mobile-only chat header — back to the list + channel label.
             Hidden at md+ where the left rail is always visible. */}
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-omega-orange/15 bg-white flex-shrink-0">
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] border-b border-omega-orange/15 bg-white flex-shrink-0">
           <button
             type="button"
             onClick={() => { setMobilePane('list'); onPaneChange?.('list'); }}

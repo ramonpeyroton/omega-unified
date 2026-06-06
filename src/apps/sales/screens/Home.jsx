@@ -625,7 +625,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
   // shell.
   return (
     <>
-      <main className="flex-1 min-w-0 pb-16 md:pb-0">
+      <div className="flex-1 min-w-0">
         {/* ── Mobile-only top bar ──────────────────────────────── */}
         <header className="sm:hidden sticky top-0 z-30 bg-omega-cloud px-4 pt-3 pb-2">
           {/* Icon row: hamburger · bell · avatar */}
@@ -957,7 +957,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             </button>
           </div>
         </div>
-      </main>
+      </div>
       {/* The mobile bottom bar is now rendered by SalesShell (App.jsx) so
           it persists across every route, not just Home. */}
       <UserProfileModal

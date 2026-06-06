@@ -1663,7 +1663,7 @@ function MarketingOverview({ marketing, total, best, overallCpl, totalSpend, lea
           onClick={() => setSelectedSource(null)}
         />
         {/* Panel */}
-        <div className="fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col">
+        <div className="fixed top-0 right-0 h-full w-full max-w-[400px] bg-white shadow-2xl z-50 flex flex-col">
           {/* Header */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-200 bg-gray-50">
             <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: selectedColor }} />

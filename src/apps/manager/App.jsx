@@ -40,6 +40,11 @@ function useJobById(id) {
         if (!active) return;
         setJob(data);
         setLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setJob(null);
+        setLoading(false);
       });
     return () => { active = false; };
   }, [id]);
