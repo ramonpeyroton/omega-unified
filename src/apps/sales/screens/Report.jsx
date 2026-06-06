@@ -423,7 +423,7 @@ export default function Report({ job, pdfContext = '', onNavigate }) {
   const clientWhatsApp = buildClientWhatsApp(job);
 
   return (
-    <div className="min-h-screen bg-omega-cloud pb-10">
+    <div className="min-h-screen bg-omega-cloud pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {showConfirmRegen && <ConfirmRegenDialog onConfirm={confirmRegenerate} onCancel={() => setShowConfirmRegen(false)} />}
 
@@ -443,7 +443,7 @@ export default function Report({ job, pdfContext = '', onNavigate }) {
           </div>
 
           {/* All action buttons inline in header */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
             {sections.length > 0 && (
               <button onClick={() => window.print()}
                 className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors text-xs font-medium">

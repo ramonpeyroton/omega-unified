@@ -135,7 +135,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
             <button
               key={id}
               onClick={() => (id === 'more' ? setMoreOpen(true) : onNavigate(id))}
-              className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 transition-colors ${
+              className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 min-h-[44px] transition-colors ${
                 active ? 'text-omega-orange' : 'text-omega-stone hover:text-omega-charcoal'
               }`}
             >

@@ -409,7 +409,7 @@ function SalesShell({ user, onLogout }) {
 
   return (
     <SalesMobileMenuContext.Provider value={{ openMore: () => setMoreOpen(true) }}>
-      <div className="flex min-h-screen bg-omega-cloud">
+      <div className="flex h-screen overflow-hidden bg-omega-cloud">
         <SalesSidebar
           activeId={activeId}
           onNavigate={(id) => navigate(id === 'home' ? '/' : `/${id}`)}

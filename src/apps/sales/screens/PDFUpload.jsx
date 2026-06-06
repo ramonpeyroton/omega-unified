@@ -92,7 +92,7 @@ export default function PDFUpload({ job, onSkip, onAnalyzed }) {
 
   return (
     <div className="min-h-screen bg-omega-cloud">
-      <div className="bg-omega-charcoal px-5 pt-12 pb-6 sticky top-0 z-10">
+      <div className="bg-omega-charcoal px-5 pt-6 pb-6 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button onClick={onSkip} className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
             <ArrowLeft className="w-5 h-5" />

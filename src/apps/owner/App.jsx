@@ -106,7 +106,7 @@ function MobileBottomBar({ notifCount, onMore }) {
         <button
           key={id}
           onClick={() => (id === 'more' ? onMore?.() : navigateForId(navigate, id))}
-          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 relative ${
+          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-h-[44px] relative ${
             screen === id ? 'text-omega-orange' : 'text-omega-stone'
           }`}
         >

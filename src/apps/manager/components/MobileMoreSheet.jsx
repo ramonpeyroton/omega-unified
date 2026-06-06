@@ -34,7 +34,7 @@ export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLog
       <div className="md:hidden fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-3xl shadow-2xl pb-[env(safe-area-inset-bottom)] animate-[slideUp_0.2s_ease-out]">
         <div className="relative pt-3 pb-1">
           <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
-          <button onClick={onClose} aria-label="Close menu" className="absolute right-4 top-2 p-1 text-omega-stone hover:text-omega-charcoal">
+          <button onClick={onClose} aria-label="Close menu" className="absolute right-4 top-2 p-2 text-omega-stone hover:text-omega-charcoal">
             <X className="w-5 h-5" />
           </button>
         </div>

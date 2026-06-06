@@ -40,7 +40,7 @@ function MobileBottomBar({ onMore }) {
         <button
           key={id}
           onClick={() => (id === 'more' ? onMore?.() : navigate(to))}
-          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 ${
+          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-h-[44px] ${
             screen === id ? 'text-omega-orange' : 'text-omega-stone'
           }`}
         >
@@ -182,7 +182,7 @@ function JobFullViewRoute({ user }) {
     navigate(from || '/');
   };
 
-  if (loading) return <div className="p-8 text-omega-stone">Loading…</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-omega-stone">Loading…</div>;
   if (!job) return <Navigate to="/" replace />;
 
   return (

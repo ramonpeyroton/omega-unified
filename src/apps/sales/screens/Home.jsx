@@ -184,7 +184,7 @@ export function MobileBottomBar({ activeId, onNavigate }) {
           <button
             key={id}
             onClick={() => onNavigate(id)}
-            className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors ${
+            className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-h-[44px] transition-colors ${
               active ? 'text-omega-orange' : 'text-omega-stone'
             }`}
           >
@@ -633,7 +633,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <button
               onClick={openMore}
               aria-label="Open menu"
-              className="no-touch-min p-1 -ml-1 text-omega-charcoal"
+              className="no-touch-min p-2 -ml-2 text-omega-charcoal"
             >
               <Menu className="w-6 h-6" />
             </button>
@@ -645,7 +645,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
             <button
               onClick={() => setProfileOpen(true)}
               aria-label="Open my profile"
-              className="no-touch-min rounded-full"
+              className="no-touch-min p-1 rounded-full"
             >
               <Avatar name={user?.name || ''} photoUrl={photoUrl || undefined} size="md" color={colorFromName(user?.name || '')} />
             </button>
@@ -683,7 +683,7 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
 
         <div className="px-4 sm:px-10 pb-10 space-y-4 sm:space-y-6 pt-4 sm:pt-0">
           {/* KPIs — 4 cols always (compact on mobile, full on desktop) */}
-          <section className="grid grid-cols-4 gap-2 sm:gap-4">
+          <section className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
             <KpiCard
               icon={TrendingUp}
               iconBg="bg-orange-100" iconColor="text-omega-orange" sparkColor="#E8732A"

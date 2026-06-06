@@ -34,6 +34,7 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
   const [notifCount, setNotifCount]   = useState(0);
   // Job currently feeding the Receipt capture modal. Null when closed.
   const [receiptJob, setReceiptJob]   = useState(null);
+  const [error, setError]             = useState(null);
   const { photoUrl } = useUserProfile(user);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
         .map((m) => ({ ...m, jobs: jobById.get(m.job_id) || null }))
         .filter((m) => m.jobs && !EXCLUDED_PIPELINE.includes(m.jobs.pipeline_status));
       setMaterials(live);
-    } catch { /* ignore */ }
+    } catch (err) { setError(err?.message || 'Failed to load data'); }
     setLoading(false);
   }
 
@@ -245,6 +246,13 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
           <p className="text-sm text-omega-stone mt-1">{nowLabel}</p>
         </header>
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between">
+            <p className="text-sm text-red-700">{error}</p>
+            <button onClick={() => { setError(null); load(); }} className="text-xs font-bold text-red-700 hover:text-red-900 px-2 py-1 rounded-lg hover:bg-red-100">Retry</button>
+          </div>
+        )}
+
         {/* ─── Today's Jobs ──────────────────────────────────── */}
         <section id="manager-jobs-today" className="bg-white rounded-2xl border border-gray-100 shadow-card p-4 sm:p-5">
           <div className="flex items-center justify-between mb-4">
@@ -295,28 +303,28 @@ export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJ
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <button
                         onClick={() => onOpenFullJob?.(j)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
+                        className="inline-flex items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
                         title="Open job"
                       >
                         <FolderOpen className="w-3.5 h-3.5" /> Open
                       </button>
                       <button
                         onClick={() => onSelectJob?.(j)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
+                        className="inline-flex items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 hover:border-omega-orange text-[11px] font-bold text-omega-charcoal"
                         title="Update progress (Phase Breakdown)"
                       >
                         <Edit3 className="w-3.5 h-3.5" /> Update
                       </button>
                       <button
                         onClick={() => onSelectJob?.(j)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-[11px] font-bold text-red-700"
+                        className="inline-flex items-center gap-1 px-2 py-2.5 rounded-lg border border-red-200 hover:bg-red-50 text-[11px] font-bold text-red-700"
                         title="Flag an issue (Phase Breakdown)"
                       >
                         <AlertTriangle className="w-3.5 h-3.5" /> Issue
                       </button>
                       <button
                         onClick={() => setReceiptJob(j)}
-                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-[12px] font-bold shadow-sm"
+                        className="inline-flex items-center gap-1 px-2.5 py-2.5 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-[12px] font-bold shadow-sm"
                         title="Snap a material receipt"
                       >
                         <Receipt className="w-4 h-4" /> Receipt
