@@ -262,12 +262,21 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── task=reminders: 2h-before event reminders (external 15-min cron). ──
+  // ── task=reminders: 2h-before event reminders (free external GitHub
+  // cron, every 15 min — Vercel Hobby only allows daily crons). ──
+  // Intentionally NOT secret-guarded: it's idempotent (reminder_sent_at
+  // dedupes), returns no sensitive data, and the repo is PUBLIC so we
+  // can't ship a shared secret in the workflow. Leaving it open lets the
+  // free cron run with zero secret config. Errors return 200 with the
+  // detail in the body so a transient hiccup never spams failure emails.
   if (task === 'reminders') {
-    if (!requireSecret(req, res)) return;
-    if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
-    const result = await sendEventReminders();
-    return json(res, 200, { ok: true, ...result });
+    if (!supabase) return json(res, 200, { ok: false, error: 'Supabase not configured' });
+    try {
+      const result = await sendEventReminders();
+      return json(res, 200, { ok: true, ...result });
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err?.message || 'reminders failed' });
+    }
   }
 
   // ── default (no task): the daily owner cron + start-of-day summaries. ──

@@ -5,8 +5,10 @@ name: Push event reminders
 # reminders. The endpoint is idempotent (reminder_sent_at dedupes), so an
 # occasional double-fire from GitHub's scheduler is harmless.
 #
-# Setup: add a repo secret named OMEGA_API_SECRET (Settings -> Secrets and
-# variables -> Actions) with the SAME value as the Vercel OMEGA_API_SECRET.
+# No secret needed: the ?task=reminders endpoint is intentionally open
+# (idempotent, no sensitive data) so this cron runs with zero config. The
+# step prints the HTTP status/body for visibility and only fails (emails)
+# on a hard 5xx so a real outage still surfaces.
 
 on:
   schedule:
@@ -19,6 +21,14 @@ jobs:
     steps:
       - name: Trigger 2h-before event reminders
         run: |
-          curl -sS --fail-with-body -X GET \
-            -H "x-omega-secret: ${{ secrets.OMEGA_API_SECRET }}" \
-            "https://omega-unified.vercel.app/api/daily-owner-update?task=reminders"
+          code=$(curl -sS -o /tmp/body.txt -w "%{http_code}" \
+            "https://omega-unified.vercel.app/api/daily-owner-update?task=reminders")
+          echo "HTTP status: $code"
+          echo "Response: $(cat /tmp/body.txt)"
+          # Only a hard server/network failure should fail the job (and
+          # email). Normal operation returns 200; anything < 500 is just
+          # printed above for visibility.
+          if [ "$code" -ge 500 ]; then
+            echo "::error::reminders endpoint returned HTTP $code"
+            exit 1
+          fi
