@@ -1025,10 +1025,12 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           <BottlenecksPanel bottlenecks={data.bottlenecks} />
         </section>
 
-        {/* ─── Sales Pipeline + Salesman + Marketing ────────────── */}
-        {/* 12-col grid: Pipeline=3 (25%), Salesman=4 (33%), Marketing=5 (42%) */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-3">
+        {/* ─── Sales Pipeline + Marketing + Salesman ────────────── */}
+        {/* 12-col grid. Left: Sales Pipeline (tall). Right column stacks
+            Marketing (wide) over Salesman Performance (thin strip), so
+            the heights balance instead of leaving a lonely empty card. */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden lg:col-span-4">
             <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Sales Pipeline</h2>
@@ -1052,10 +1054,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             </div>
           </div>
 
-          <div className="lg:col-span-4">
-            <SalesmanPerformance salesmen={data.salesmen} />
-          </div>
-          <div className="lg:col-span-5">
+          <div className="lg:col-span-8 flex flex-col gap-4">
             <MarketingOverview
               marketing={data.marketing}
               total={data.marketingTotal}
@@ -1065,6 +1064,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               leads={data.monthLeads || []}
               onSelectJob={onSelectJob}
             />
+            <SalesmanPerformance salesmen={data.salesmen} />
           </div>
         </section>
 
@@ -1513,66 +1513,62 @@ function FinancialChart({ series }) {
 const SALESMAN_MEDALS = ['🥇', '🥈', '🥉'];
 
 function SalesmanPerformance({ salesmen }) {
-  const maxRev = Math.max(1, ...salesmen.map((s) => s.revenue));
+  const real = (salesmen || []).filter((s) => s.name !== 'Unassigned');
+  const unassigned = (salesmen || []).find((s) => s.name === 'Unassigned');
+  const maxRev = Math.max(1, ...real.map((s) => s.revenue));
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200">
+      <div className="px-5 py-3 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-base font-bold text-omega-charcoal">Salesman Performance</h2>
+        {unassigned?.count > 0 && (
+          <span className="text-[11px] text-omega-stone">{unassigned.count} unassigned</span>
+        )}
       </div>
-      <div className="p-5">
-      {salesmen.length === 0 ? (
-        <p className="text-sm text-omega-stone italic py-6 text-center">No closed deals this month.</p>
+
+      {real.length === 0 ? (
+        // Sparse / empty state — kept short so the card reads as a strip,
+        // not an abandoned panel.
+        <div className="px-5 py-4 flex items-center gap-2 text-sm text-omega-stone">
+          <Briefcase className="w-4 h-4 flex-shrink-0 text-gray-400" />
+          <span>
+            No salesperson tagged on closed deals this period
+            {unassigned?.count > 0 ? ` — ${unassigned.count} closed without an owner.` : '.'}
+          </span>
+        </div>
       ) : (
-        <div className="space-y-2">
-          {salesmen.map((s, i) => {
-            const isUnassigned = s.name === 'Unassigned';
+        // Horizontal strip: one compact card per salesperson, wrapping.
+        <div className="p-4 flex flex-wrap gap-3">
+          {real.map((s, i) => {
             const barPct = s.revenue > 0 ? Math.round((s.revenue / maxRev) * 100) : 0;
             return (
-              <div
-                key={s.name}
-                className={`rounded-xl p-3 ${isUnassigned ? 'bg-gray-50 opacity-60' : 'bg-omega-cloud'}`}
-              >
-                {/* Top row: name + stats */}
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base leading-none flex-shrink-0">
-                      {isUnassigned ? '—' : (SALESMAN_MEDALS[i] || '·')}
-                    </span>
-                    <p className={`text-sm font-bold truncate ${isUnassigned ? 'text-omega-stone italic' : 'text-omega-charcoal'}`}>
-                      {s.name}
-                    </p>
+              <div key={s.name} className="flex-1 min-w-[200px] rounded-xl bg-omega-cloud p-3">
+                <div className="flex items-center gap-2 mb-2 min-w-0">
+                  <span className="text-base leading-none flex-shrink-0">{SALESMAN_MEDALS[i] || '·'}</span>
+                  <p className="text-sm font-bold text-omega-charcoal truncate">{s.name}</p>
+                </div>
+                <div className="flex items-center gap-4 mb-2">
+                  <div>
+                    <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Closed</p>
+                    <p className="text-sm font-black text-omega-charcoal tabular-nums">{s.count}</p>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="text-center min-w-[32px]">
-                      <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Closed</p>
-                      <p className="text-sm font-black text-omega-charcoal tabular-nums">{s.count}</p>
-                    </div>
-                    <div className="text-center min-w-[60px]">
-                      <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Revenue</p>
-                      <p className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoney(s.revenue)}</p>
-                    </div>
-                    <div className="text-center min-w-[50px]">
-                      <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Avg Deal</p>
-                      <p className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoney(s.avg)}</p>
-                    </div>
+                  <div>
+                    <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Revenue</p>
+                    <p className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoney(s.revenue)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold text-omega-stone uppercase tracking-wider leading-none mb-0.5">Avg Deal</p>
+                    <p className="text-sm font-black text-omega-charcoal tabular-nums">{fmtMoney(s.avg)}</p>
                   </div>
                 </div>
-                {/* Revenue bar */}
-                {!isUnassigned && (
-                  <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-omega-orange transition-all"
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-                )}
+                <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                  <div className="h-full rounded-full bg-omega-orange transition-all" style={{ width: `${barPct}%` }} />
+                </div>
               </div>
             );
           })}
         </div>
       )}
-      </div>
     </div>
   );
 }
