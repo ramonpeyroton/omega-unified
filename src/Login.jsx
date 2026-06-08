@@ -4,6 +4,7 @@ import logoImg from './assets/logo.png';
 import LoadingSpinner from './components/LoadingSpinner';
 import { supabase } from './shared/lib/supabase';
 import { logAudit } from './shared/lib/audit';
+import { apiFetch } from './shared/lib/apiFetch';
 
 // Hardcoded default PINs. Admin-managed PINs in the `users` table take
 // precedence when available. Admin role is INTENTIONALLY NOT here — admin
@@ -102,6 +103,20 @@ export default function Login({ onLogin }) {
     const user = { id: resolvedId, name: resolvedName, role };
     // Fire-and-forget audit log
     logAudit({ user, action: 'user.login', entityType: 'user', details: { role, remember } });
+
+    // Record a login session server-side (captures IP + IP-geo + device
+    // from the request headers — the browser can't see its own public IP).
+    // Fire-and-forget; never block login on it. The returned session_id is
+    // kept so later actions can be tied back to this device/location.
+    apiFetch('/api/daily-owner-update?task=login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_name: resolvedName, user_role: role }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d?.session_id) { try { localStorage.setItem('omega_session_id', d.session_id); } catch { /* ignore */ } } })
+      .catch(() => {});
+
     onLogin(user, { remember });
   };
 

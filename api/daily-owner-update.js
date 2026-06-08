@@ -169,6 +169,38 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// First public IP from x-forwarded-for (Vercel appends the client IP).
+function clientIp(req) {
+  const xff = (req.headers['x-forwarded-for'] || '').toString();
+  if (xff) return xff.split(',')[0].trim();
+  return (req.headers['x-real-ip'] || req.socket?.remoteAddress || '').toString() || null;
+}
+
+// Vercel geo headers are URL-encoded ("New%20York"). Decode safely.
+function geoHeader(req, name) {
+  const v = req.headers[name];
+  if (!v) return null;
+  try { return decodeURIComponent(v.toString()); } catch { return v.toString(); }
+}
+
+// Tiny UA → friendly device label. Good enough for "iPhone · Safari".
+function deviceLabel(ua = '') {
+  const s = ua.toLowerCase();
+  let os = 'Unknown device';
+  if (/iphone/.test(s)) os = 'iPhone';
+  else if (/ipad/.test(s)) os = 'iPad';
+  else if (/android/.test(s)) os = 'Android';
+  else if (/macintosh|mac os/.test(s)) os = 'Mac';
+  else if (/windows/.test(s)) os = 'Windows';
+  else if (/linux/.test(s)) os = 'Linux';
+  let br = '';
+  if (/edg\//.test(s)) br = 'Edge';
+  else if (/chrome|crios/.test(s)) br = 'Chrome';
+  else if (/firefox|fxios/.test(s)) br = 'Firefox';
+  else if (/safari/.test(s)) br = 'Safari';
+  return br ? `${os} · ${br}` : os;
+}
+
 export default async function handler(req, res) {
   const task = (req.query?.task || '').toString();
 
@@ -191,6 +223,42 @@ export default async function handler(req, res) {
       return json(res, 200, { ok: true, ...result });
     } catch (err) {
       return json(res, 200, { ok: false, error: err?.message || 'send failed' });
+    }
+  }
+
+  // ── task=login: record a login session (who/when/where/device). ──
+  // Client-triggered right after a successful PIN login → guarded by the
+  // shared x-omega-secret. Writes server-side (service role) so the row
+  // is append-only from the app's perspective. Returns the row id, which
+  // the client keeps as a session_id to stamp later actions.
+  if (task === 'login') {
+    if (!requireSecret(req, res)) return;
+    if (!supabase) return json(res, 500, { ok: false, error: 'Supabase not configured' });
+    try {
+      let p = req.body;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
+      p = p || {};
+      const ua = (req.headers['user-agent'] || '').toString();
+      const row = {
+        user_name:  p.user_name || 'unknown',
+        user_role:  p.user_role || 'unknown',
+        ip:         clientIp(req),
+        city:       geoHeader(req, 'x-vercel-ip-city'),
+        region:     geoHeader(req, 'x-vercel-ip-country-region'),
+        country:    geoHeader(req, 'x-vercel-ip-country'),
+        user_agent: ua.slice(0, 500),
+        device:     deviceLabel(ua),
+      };
+      const { data, error } = await supabase
+        .from('user_sessions')
+        .insert([row])
+        .select('id')
+        .single();
+      if (error) throw error;
+      return json(res, 200, { ok: true, session_id: data?.id || null });
+    } catch (err) {
+      // Never block login on a logging failure.
+      return json(res, 200, { ok: false, error: err?.message || 'login log failed' });
     }
   }
 

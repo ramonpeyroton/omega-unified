@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, DollarSign, Settings, FileText, MessageSquare, LogOut, Calendar, Monitor, Wallet, ClipboardList, FileSpreadsheet, MessageCircle, ChevronDown, ChevronRight, Megaphone, FolderInput, Receipt } from 'lucide-react';
+import { Users, DollarSign, Settings, FileText, MessageSquare, LogOut, Calendar, Monitor, Wallet, ClipboardList, FileSpreadsheet, MessageCircle, ChevronDown, ChevronRight, Megaphone, FolderInput, Receipt, MapPin } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -19,6 +19,7 @@ const NAV = [
   { id: 'pricing',   label: 'Pricing Book',      icon: DollarSign },
   { id: 'company',   label: 'Company Settings',  icon: Settings },
   { id: 'audit',     label: 'Audit Log',         icon: FileText },
+  { id: 'login-history', label: 'Login History', icon: MapPin },
   { id: 'templates', label: 'Message Templates', icon: MessageSquare },
   { id: 'calendar',  label: 'Calendar',          icon: Calendar },
   { id: 'screen',    label: 'TV Dashboard',      icon: Monitor },

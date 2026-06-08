@@ -4,6 +4,7 @@ import UsersAccess from './screens/UsersAccess';
 import PricingBook from './screens/PricingBook';
 import CompanySettings from './screens/CompanySettings';
 import AuditLog from './screens/AuditLog';
+import LoginHistory from './screens/LoginHistory';
 import MessageTemplates from './screens/MessageTemplates';
 import ScreenOverride from './screens/ScreenOverride';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
@@ -39,6 +40,7 @@ export default function App({ user, onLogout }) {
       case 'pricing':   return <PricingBook user={user} />;
       case 'company':   return <CompanySettings user={user} />;
       case 'audit':     return <AuditLog />;
+      case 'login-history': return <LoginHistory />;
       case 'templates': return <MessageTemplates user={user} />;
       case 'calendar':  return <CalendarScreen user={user} />;
       case 'finance':   return <FinanceScreen user={user} />;
