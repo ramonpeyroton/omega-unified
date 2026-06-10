@@ -9,7 +9,7 @@
 // Financials totals stay honest without an extra step.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Receipt, MapPin, CheckCircle2, Loader2, X, ArrowUpDown } from 'lucide-react';
+import { Search, Receipt, MapPin, CheckCircle2, Loader2, X, ArrowUpDown, Building2 } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../../../shared/lib/supabase';
 import ReceiptCaptureModal from '../../../shared/components/ReceiptCaptureModal';
@@ -48,6 +48,9 @@ export default function QuickReceipts({ user }) {
     try { return localStorage.getItem(SORT_KEY) || 'status'; } catch { return 'status'; }
   });
   const [activeJob, setActiveJob] = useState(null);
+  // Company-overhead capture (no client): Office / Personal expenses
+  // that must NOT land on any project's cost.
+  const [companyOpen, setCompanyOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const searchRef = useRef(null);
 
@@ -144,6 +147,23 @@ export default function QuickReceipts({ user }) {
         </div>
       </div>
 
+      {/* Company expense (no client) — Office / Personal overhead that
+          must not touch any project's cost. */}
+      <div className="px-3 pt-3">
+        <button
+          onClick={() => setCompanyOpen(true)}
+          className="w-full flex items-center gap-3 bg-white border border-dashed border-gray-300 rounded-2xl px-4 py-3 active:scale-[.99] active:border-omega-orange transition-all min-h-[56px]"
+        >
+          <div className="w-10 h-10 rounded-xl bg-omega-cloud flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-5 h-5 text-omega-stone" />
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-[15px] font-bold text-omega-charcoal">Company expense</p>
+            <p className="text-[12px] text-omega-stone">No client — Office or Personal</p>
+          </div>
+        </button>
+      </div>
+
       {/* Sort chips */}
       <div className="flex items-center gap-2 px-4 py-2.5 bg-omega-cloud">
         <ArrowUpDown className="w-3.5 h-3.5 text-omega-stone flex-shrink-0" />
@@ -205,11 +225,29 @@ export default function QuickReceipts({ user }) {
           job={activeJob}
           user={user}
           onClose={() => setActiveJob(null)}
-          onSaved={({ amount }) => {
+          onSaved={({ amount, isReturn }) => {
+            const name = activeJob.client_name || 'job';
             setActiveJob(null);
             setToast({
               type: 'success',
-              message: `Saved $${Number(amount).toFixed(2)} to ${activeJob.client_name || 'job'}`,
+              message: isReturn
+                ? `Logged $${Number(amount).toFixed(2)} return for ${name}`
+                : `Saved $${Number(amount).toFixed(2)} to ${name}`,
+            });
+          }}
+        />
+      )}
+
+      {companyOpen && (
+        <ReceiptCaptureModal
+          companyMode
+          user={user}
+          onClose={() => setCompanyOpen(false)}
+          onSaved={({ amount, kind }) => {
+            setCompanyOpen(false);
+            setToast({
+              type: 'success',
+              message: `Saved $${Number(amount).toFixed(2)} company expense (${kind})`,
             });
           }}
         />

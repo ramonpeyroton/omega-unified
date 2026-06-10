@@ -282,6 +282,10 @@ function CompanyTab({ user }) {
         </p>
       </div>
 
+      {/* Company overhead expenses (Office / Personal) — not tied to any
+          client project. Logged by the manager from Quick Receipts. */}
+      <CompanyExpensesSection user={user} />
+
       {/* Print report */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -299,6 +303,177 @@ function CompanyTab({ user }) {
           Print Report
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// COMPANY EXPENSES — Office / Personal overhead (no client)
+// ─────────────────────────────────────────────────────────────────────
+
+const REIMBURSE_ROLES = new Set(['owner', 'operations', 'admin']);
+
+function CompanyExpensesSection({ user }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [missingTable, setMissingTable] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  const canReimburse = REIMBURSE_ROLES.has(user?.role);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('company_expenses')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) {
+        // Table not created yet (migration 071 pending) — show a notice
+        // instead of crashing the whole Company tab.
+        if (/company_expenses/.test(error.message || '') || error.code === '42P01') {
+          setMissingTable(true);
+        }
+        setRows([]);
+      } else {
+        setRows(data || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const stats = useMemo(() => {
+    let total = 0, owedToTeam = 0;
+    const byCat = {};
+    for (const r of rows) {
+      const amt = Number(r.amount) || 0;
+      total += amt;
+      byCat[r.category] = (byCat[r.category] || 0) + amt;
+      if (r.reimbursable && r.reimbursement_status === 'to_reimburse') owedToTeam += amt;
+    }
+    return { total, owedToTeam, byCat };
+  }, [rows]);
+
+  async function markReimbursed(row) {
+    setBusyId(row.id);
+    try {
+      const { data, error } = await supabase
+        .from('company_expenses')
+        .update({
+          reimbursement_status: 'reimbursed',
+          reimbursed_at: new Date().toISOString(),
+          reimbursed_by: user?.name || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id)
+        .select()
+        .single();
+      if (error) throw error;
+      setRows((prev) => prev.map((r) => (r.id === row.id ? data : r)));
+      logAudit({ user, action: 'company_expense.reimburse', entityType: 'company_expense', entityId: row.id, details: { amount: row.amount } });
+    } catch { /* surfaced by row staying as-is */ }
+    finally { setBusyId(null); }
+  }
+
+  async function remove(row) {
+    if (!confirm('Delete this company expense?')) return;
+    setBusyId(row.id);
+    try {
+      const { error } = await supabase.from('company_expenses').delete().eq('id', row.id);
+      if (error) throw error;
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+      logAudit({ user, action: 'company_expense.delete', entityType: 'company_expense', entityId: row.id, details: { amount: row.amount } });
+    } catch { /* no-op */ }
+    finally { setBusyId(null); }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="font-bold text-omega-charcoal flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-omega-orange" /> Company Expenses
+          <span className="text-[11px] font-normal text-omega-stone">(Office / Personal — no client)</span>
+        </h3>
+        <button
+          onClick={load}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 hover:border-omega-orange text-xs font-semibold"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
+      </div>
+
+      {missingTable ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Run migration <strong>071_company_expenses.sql</strong> in Supabase to enable company expense tracking.
+        </div>
+      ) : loading ? (
+        <div className="flex items-center gap-2 text-omega-stone text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <MiniStat label="Total Overhead" value={money(stats.total)} color="text-red-600" />
+            <MiniStat label="Owed to Team" value={money(stats.owedToTeam)} color={stats.owedToTeam > 0 ? 'text-amber-600' : 'text-green-700'} />
+            {Object.entries(stats.byCat).slice(0, 2).map(([cat, val]) => (
+              <MiniStat key={cat} label={cat} value={money(val)} />
+            ))}
+          </div>
+
+          {rows.length === 0 ? (
+            <p className="text-sm text-omega-stone text-center py-6">No company expenses logged yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {rows.map((r) => {
+                const owed = r.reimbursable && r.reimbursement_status === 'to_reimburse';
+                const reimbursed = r.reimbursement_status === 'reimbursed';
+                return (
+                  <li key={r.id} className="py-3 flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-xs mb-0.5 flex-wrap">
+                        <span className="text-omega-stone">{r.date ? new Date(r.date).toLocaleDateString() : '—'}</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-omega-pale text-omega-orange font-semibold text-[10px] uppercase">{r.category}</span>
+                        {owed && <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-[10px] uppercase">To reimburse</span>}
+                        {reimbursed && <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-100 text-green-800 font-semibold text-[10px] uppercase">Reimbursed</span>}
+                      </div>
+                      <p className="text-sm text-omega-charcoal">{r.description || '—'}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-omega-stone flex-wrap">
+                        {r.logged_by && <span>by {r.logged_by}</span>}
+                        {r.receipt_url && <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="text-omega-info font-semibold">Receipt ↗</a>}
+                        {reimbursed && r.reimbursed_by && <span>· reimbursed by {r.reimbursed_by}</span>}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-bold text-omega-charcoal tabular-nums">{money(r.amount)}</p>
+                      <div className="flex items-center gap-2 justify-end mt-1">
+                        {canReimburse && owed && (
+                          <button
+                            onClick={() => markReimbursed(r)}
+                            disabled={busyId === r.id}
+                            className="text-[11px] font-semibold text-green-700 hover:text-green-800 inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <Check className="w-3 h-3" /> Mark reimbursed
+                          </button>
+                        )}
+                        {canReimburse && (
+                          <button
+                            onClick={() => remove(r)}
+                            disabled={busyId === r.id}
+                            className="text-red-600 hover:text-red-700 text-xs inline-flex items-center disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

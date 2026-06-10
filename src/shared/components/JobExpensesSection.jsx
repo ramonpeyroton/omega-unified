@@ -3,11 +3,14 @@ import { Plus, X, Save, Trash2, Upload, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 
-const CATEGORIES = ['Material', 'Labor', 'Subcontractor', 'Equipment', 'Permit', 'Other'];
+const CATEGORIES = ['Material', 'Fuel', 'Van', 'Labor', 'Subcontractor', 'Equipment', 'Permit', 'Return', 'Other'];
 
 function money(n) {
   if (n == null) return '—';
-  return `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Negative amounts (Returns / credits) read as −$X rather than $-X.
+  const v = Number(n) || 0;
+  const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${v < 0 ? '−' : ''}$${abs}`;
 }
 
 function emptyForm() {
@@ -187,7 +190,7 @@ export default function JobExpensesSection({ job, user }) {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="font-bold text-omega-charcoal">{money(e.amount)}</p>
+                  <p className={`font-bold ${Number(e.amount) < 0 ? 'text-emerald-600' : 'text-omega-charcoal'}`}>{money(e.amount)}</p>
                   <button onClick={() => remove(e)} className="text-red-600 hover:text-red-700 mt-1 text-xs inline-flex items-center gap-1"><Trash2 className="w-3 h-3" /></button>
                 </div>
               </li>

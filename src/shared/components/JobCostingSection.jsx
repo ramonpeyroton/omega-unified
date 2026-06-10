@@ -12,7 +12,9 @@ function parseNum(v) {
 
 function money(n) {
   if (n == null) return '—';
-  return `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const v = Number(n) || 0;
+  const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${v < 0 ? '−' : ''}$${abs}`;
 }
 
 export default function JobCostingSection({ job, user }) {
@@ -46,7 +48,11 @@ export default function JobCostingSection({ job, user }) {
   const [acceptedEstTotal, setAcceptedEstTotal] = useState(0);
   // Sum of logged receipts/expenses (job_expenses) — added on top of
   // the manual cost fields so Total Cost = receipts + manual costs.
+  // `expensesTotal` is the NET (positive receipts + negative returns);
+  // `returnsTotal` is the credit portion alone (≤ 0), shown as its own
+  // line so the cost reduction from returns stays visible.
   const [expensesTotal, setExpensesTotal] = useState(0);
+  const [returnsTotal, setReturnsTotal] = useState(0);
   const saveTimer = useRef(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
@@ -99,6 +105,12 @@ export default function JobCostingSection({ job, user }) {
         .select('amount')
         .eq('job_id', job.id);
       setExpensesTotal((expRows || []).reduce((s, e) => s + (Number(e.amount) || 0), 0));
+      // Returns are stored as negative amounts — sum them alone so we can
+      // surface the credit on its own line.
+      setReturnsTotal((expRows || []).reduce((s, e) => {
+        const a = Number(e.amount) || 0;
+        return a < 0 ? s + a : s;
+      }, 0));
 
       // Payment milestones — count AND live sum of received_amount.
       // When milestones exist the trigger (migration 058) owns
@@ -278,10 +290,16 @@ export default function JobCostingSection({ job, user }) {
         />
         <Field label="Other Costs" value={form.other_costs} onChange={(v) => update('other_costs', v)} />
 
-        {expensesTotal > 0 && (
+        {(expensesTotal - returnsTotal) > 0 && (
           <div className="flex items-center justify-between rounded-lg bg-omega-cloud/60 px-3 py-2 text-xs">
             <span className="text-omega-stone">+ Logged receipts (Daily Logs / Receipts)</span>
-            <span className="font-bold text-omega-charcoal tabular-nums">{money(expensesTotal)}</span>
+            <span className="font-bold text-omega-charcoal tabular-nums">{money(expensesTotal - returnsTotal)}</span>
+          </div>
+        )}
+        {returnsTotal < 0 && (
+          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs">
+            <span className="text-emerald-700">− Returns (credit)</span>
+            <span className="font-bold text-emerald-700 tabular-nums">{money(returnsTotal)}</span>
           </div>
         )}
         <p className="text-[11px] text-omega-stone">
