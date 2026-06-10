@@ -90,3 +90,15 @@ export async function downloadSignedDocument(envelopeId) {
 export async function sendReminder(envelopeId) {
   return post('/send-reminder', { envelopeId });
 }
+
+/**
+ * Void a sent (unsigned) envelope so it can no longer be signed.
+ * DocuSign emails the signer that the envelope was voided, including
+ * the reason. Used by "Void & Revise" before issuing a new envelope.
+ *
+ * @param {string} envelopeId
+ * @param {string} [reason]
+ */
+export async function voidEnvelope(envelopeId, reason) {
+  return post('/void-envelope', { envelopeId, reason });
+}

@@ -9,6 +9,7 @@
 //   GET  /api/docusign/envelope-status   → { status, completedAt, history[] }
 //   GET  /api/docusign/download          → proxied signed PDF
 //   POST /api/docusign/send-reminder     → resend notification to pending signers
+//   POST /api/docusign/void-envelope     → void a sent (unsigned) envelope
 
 import { json, readJson } from '../_lib/http.js';
 import { requireSecret } from '../_lib/requireSecret.js';
@@ -396,6 +397,49 @@ async function handleSendReminder(req, res) {
   }
 }
 
+async function handleVoidEnvelope(req, res) {
+  if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
+
+  let body;
+  try { body = await readJson(req); } catch { return json(res, 400, { error: 'Invalid JSON' }); }
+
+  const { envelopeId, reason } = body;
+  if (!envelopeId) return json(res, 400, { error: 'Missing envelopeId' });
+
+  try {
+    const token = await getAccessToken();
+
+    const dsRes = await fetch(
+      `${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes/${envelopeId}`,
+      {
+        method:  'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status:       'voided',
+          // DocuSign requires a non-empty voidedReason; the client shows it
+          // in the "envelope voided" email the signer receives.
+          voidedReason: (reason || 'This contract was revised — a new version will be sent.').slice(0, 200),
+        }),
+      }
+    );
+
+    if (!dsRes.ok) {
+      const text = await dsRes.text();
+      // Voiding an envelope that is already voided is fine for our flow —
+      // the caller only cares that the old envelope can't be signed anymore.
+      if (/already.*void|voided/i.test(text)) return json(res, 200, { ok: true, alreadyVoided: true });
+      console.error('[docusign/void-envelope] error:', text);
+      return json(res, dsRes.status, { error: `DocuSign error: ${text}` });
+    }
+
+    return json(res, 200, { ok: true });
+
+  } catch (err) {
+    console.error('[docusign/void-envelope]', err);
+    return json(res, 500, { error: err.message || 'Internal error' });
+  }
+}
+
 async function handleSaveSignedPdf(req, res) {
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
 
@@ -464,6 +508,7 @@ export default async function handler(req, res) {
   if (action === 'envelope-status')  return handleEnvelopeStatus(req, res);
   if (action === 'download')         return handleDownload(req, res);
   if (action === 'send-reminder')    return handleSendReminder(req, res);
+  if (action === 'void-envelope')    return handleVoidEnvelope(req, res);
   if (action === 'save-signed-pdf')  return handleSaveSignedPdf(req, res);
 
   return json(res, 404, { error: `Unknown DocuSign action: ${action}` });

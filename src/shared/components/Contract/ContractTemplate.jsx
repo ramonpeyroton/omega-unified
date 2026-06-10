@@ -20,9 +20,15 @@
 // just reviewed on screen. The server no longer carries a parallel
 // template (the old short template caused a long-running content
 // mismatch where clients received a 2-page summary).
+//
+// "Edit Contract Terms" (2026-06) — the legal text of the numbered
+// sections can be rewritten PER ENVELOPE when a client negotiates
+// custom terms (e.g. mutual indemnification). Overrides live in
+// component state + sessionStorage only; CLAUSES below stays the
+// untouched standard template for every other client.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Loader2, Send, Lock } from 'lucide-react';
+import { Download, Loader2, Send, Lock, PencilLine, Undo2 } from 'lucide-react';
 
 // Subset of CSS properties we replicate inline when serializing the
 // contract DOM for DocuSign. Listed explicitly so the payload stays
@@ -170,6 +176,26 @@ export function buildContractDocFromDom(rootEl) {
       span.style.background = 'transparent';
       span.style.backgroundColor = 'transparent';
       copy.replaceWith(span);
+      return;
+    }
+
+    // Clause-editing textareas become plain text blocks. Handled here
+    // (not just by exiting edit mode before send) so a serialization
+    // that runs while edit mode is still mounted can never ship a raw
+    // <textarea> to DocuSign.
+    if (copy.tagName === 'TEXTAREA') {
+      const div = document.createElement('div');
+      div.textContent = live.value || '';
+      copyInlineStyles(live, div);
+      div.style.background = 'transparent';
+      div.style.backgroundColor = 'transparent';
+      div.style.border = 'none';
+      div.style.padding = '0';
+      div.style.whiteSpace = 'pre-line';
+      // The auto-grow hook bakes a pixel height inline — drop it so the
+      // text block flows naturally across PDF page breaks.
+      div.style.height = 'auto';
+      copy.replaceWith(div);
       return;
     }
 
@@ -355,6 +381,71 @@ export default function ContractTemplate({
     setPropertyAddress(job?.address || '');
   }, [job?.address]);
 
+  // ─── Per-envelope clause overrides ("Edit Contract Terms") ────────
+  // Lets the sender rewrite the legal text (and title) of any numbered
+  // section for THIS contract only. CLAUSES is never mutated — overrides
+  // live in state, mirrored to sessionStorage per job so a navigation
+  // inside the app doesn't lose a long legal edit. At send time they are
+  // baked into the serialized HTML like every other on-screen edit.
+  const overridesKey = `omega-contract-clauses-${job?.id || 'no-job'}`;
+  const [editTerms, setEditTerms] = useState(false);
+  const [clauseOverrides, setClauseOverrides] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(overridesKey) || '{}') || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    try {
+      if (Object.keys(clauseOverrides).length === 0) sessionStorage.removeItem(overridesKey);
+      else sessionStorage.setItem(overridesKey, JSON.stringify(clauseOverrides));
+    } catch { /* storage blocked — edits still live in state */ }
+  }, [clauseOverrides, overridesKey]);
+
+  const overrideCount = Object.keys(clauseOverrides).length;
+  const clause = (key, base) =>
+    clauseOverrides[key] !== undefined
+      ? clauseOverrides[key]
+      : (base !== undefined ? base : CLAUSES[key]);
+  const setClause = (key) => (e) =>
+    setClauseOverrides((o) => ({ ...o, [key]: e.target.value }));
+  const titleKey = (key) => `${key}__title`;
+
+  // Section title — plain string normally, inline input in edit mode
+  // (e.g. retitling §18 when indemnification becomes mutual).
+  function clauseTitle(key, defaultTitle) {
+    const val = clause(titleKey(key), defaultTitle);
+    if (!editTerms) return val;
+    return (
+      <input
+        value={val}
+        onChange={setClause(titleKey(key))}
+        className="font-bold text-[11px] uppercase tracking-[0.08em] text-gray-900 border border-amber-300 rounded px-1 focus:outline-none focus:border-omega-orange"
+        style={{ width: `${Math.max(String(val).length + 4, 24)}ch`, maxWidth: '100%' }}
+      />
+    );
+  }
+
+  // Section body — string (whitespace-pre-line via <Section>) normally,
+  // auto-growing textarea in edit mode.
+  function clauseBody(key, base) {
+    const val = clause(key, base);
+    if (!editTerms) return val;
+    return <AutoGrowTextarea value={val} onChange={setClause(key)} />;
+  }
+
+  // Loose clause paragraph (inside §7/§8 which mix fixed inputs with
+  // template text) — same edit behavior, keeps its own <p> styling.
+  function clausePara(key, className = '') {
+    if (editTerms) {
+      return <div className={className}><AutoGrowTextarea value={clause(key)} onChange={setClause(key)} /></div>;
+    }
+    return <p className={`${className} whitespace-pre-line`.trim()}>{clause(key)}</p>;
+  }
+
+  function resetClauseOverrides() {
+    if (!window.confirm('Discard ALL custom terms for this contract and restore the standard template text?')) return;
+    setClauseOverrides({});
+  }
+
   const schedule = useMemo(() => readScheduleA(estimate), [estimate]);
   // Total comes from estimate.total_amount (which is the merged sum
   // of every selected estimate's total). The previous Math.max defense
@@ -443,8 +534,12 @@ export default function ContractTemplate({
   // client receives the exact 11-page contract Brenda just reviewed.
   async function handleSendDocuSignClick() {
     if (!docRef.current || !onSendDocuSign) return;
+    // Leave edit mode so the operator sees the final text; the DOM
+    // serializer also converts any still-mounted textarea to plain text,
+    // so the envelope is correct either way.
+    setEditTerms(false);
     const html = buildContractDocFromDom(docRef.current);
-    await onSendDocuSign(html);
+    await onSendDocuSign(html, { editedClauses: Object.keys(clauseOverrides) });
   }
 
   // Inline editable field — underlined, blends with printed contract.
@@ -473,6 +568,44 @@ export default function ContractTemplate({
 
   return (
     <div>
+      {/* ── Per-envelope terms toolbar ── */}
+      <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
+        <div className="text-xs max-w-xl">
+          {editTerms ? (
+            <span className="inline-block p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 leading-relaxed">
+              <strong>Editing legal terms for THIS contract only.</strong>{' '}
+              The standard template is not changed. Rewrite any section below,
+              then click "Done editing" and review before sending.
+            </span>
+          ) : overrideCount > 0 ? (
+            <span className="inline-block px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold">
+              Custom terms active — {overrideCount} edit{overrideCount > 1 ? 's' : ''} apply to this contract only.
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {overrideCount > 0 && (
+            <button
+              onClick={resetClauseOverrides}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-300 hover:text-red-600 text-xs font-semibold text-omega-stone transition"
+            >
+              <Undo2 className="w-3.5 h-3.5" /> Reset to standard terms
+            </button>
+          )}
+          <button
+            onClick={() => setEditTerms((v) => !v)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition ${
+              editTerms
+                ? 'bg-omega-orange border-omega-orange text-white hover:bg-omega-dark'
+                : 'border-gray-200 hover:border-omega-orange text-omega-charcoal'
+            }`}
+          >
+            <PencilLine className="w-3.5 h-3.5" />
+            {editTerms ? 'Done editing' : 'Edit Contract Terms'}
+          </button>
+        </div>
+      </div>
+
       {/* ───────────────────── DOCUMENT BODY ───────────────────── */}
       <div
         ref={docRef}
@@ -527,19 +660,19 @@ export default function ContractTemplate({
           </Section>
 
           {/* ── §2 ── */}
-          <Section number="2" title="SCOPE OF WORK.">
-            {CLAUSES.s2_scope.replace('__ADDRESS__', propertyAddress || '___')}
+          <Section number="2" title={clauseTitle('s2_scope', 'SCOPE OF WORK.')}>
+            {clauseBody('s2_scope', CLAUSES.s2_scope.replace('__ADDRESS__', propertyAddress || '___'))}
           </Section>
 
           {/* ── §3–5 ── */}
-          <Section number="3" title="PLANS, SPECIFICATIONS AND CONSTRUCTION DOCUMENTS.">
-            {CLAUSES.s3_plans}
+          <Section number="3" title={clauseTitle('s3_plans', 'PLANS, SPECIFICATIONS AND CONSTRUCTION DOCUMENTS.')}>
+            {clauseBody('s3_plans')}
           </Section>
-          <Section number="4" title="WORK SITE.">
-            {CLAUSES.s4_site}
+          <Section number="4" title={clauseTitle('s4_site', 'WORK SITE.')}>
+            {clauseBody('s4_site')}
           </Section>
-          <Section number="5" title="PERMITS.">
-            {CLAUSES.s5_permits}
+          <Section number="5" title={clauseTitle('s5_permits', 'PERMITS.')}>
+            {clauseBody('s5_permits')}
           </Section>
           <Section number="6" title="MATERIALS AND/OR LABOR">
             Refer to Schedule A.
@@ -553,7 +686,7 @@ export default function ContractTemplate({
               Owner agrees to pay Contractor the total sum of{' '}
               <span className="font-bold">{fmtMoney(totalAmount)}</span>.
             </p>
-            <p className="mb-3">{CLAUSES.s7_payment_intro}</p>
+            {clausePara('s7_payment_intro', 'mb-3')}
             <p className="mb-2 font-semibold">Payments shall be made as follows:</p>
             <p className="mb-2">
               Initial deposit shall be due on{' '}
@@ -577,7 +710,7 @@ export default function ContractTemplate({
               <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@example.com"
                 className={inputCls} style={autoWidth(ownerEmail, 'owner@example.com', 22)} />
             </p>
-            <p className="mb-3 whitespace-pre-line">{CLAUSES.s7_payment_late}</p>
+            {clausePara('s7_payment_late', 'mb-3')}
           </Section>
 
           {/* ── §8 — Term ── */}
@@ -589,40 +722,40 @@ export default function ContractTemplate({
               <input type="date" value={completionDate} onChange={(e) => setCompletionDate(e.target.value)} className={inputCls} />
               .
             </p>
-            <p className="whitespace-pre-line">{CLAUSES.s8_term}</p>
+            {clausePara('s8_term')}
           </Section>
 
           {/* ── §9 ── */}
-          <Section number="9" title="UNAVOIDABLE DELAYS.">{CLAUSES.s9_unavoidable}</Section>
+          <Section number="9" title={clauseTitle('s9_unavoidable', 'UNAVOIDABLE DELAYS.')}>{clauseBody('s9_unavoidable')}</Section>
 
           <InitialsBox label="Owner Initials (Page 2):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
-          <Section number="10" title="INSURANCE.">{CLAUSES.s10_insurance}</Section>
-          <Section number="11" title="FREE ACCESS TO WORKSITE.">{CLAUSES.s11_access}</Section>
-          <Section number="12" title="PHOTOGRAPHS AND MARKETING.">{CLAUSES.s12_photos}</Section>
-          <Section number="13" title="UTILITIES.">{CLAUSES.s13_utilities}</Section>
-          <Section number="14" title="INSPECTION.">{CLAUSES.s14_inspection}</Section>
-          <Section number="15" title="DEFAULT.">{CLAUSES.s15_default}</Section>
+          <Section number="10" title={clauseTitle('s10_insurance', 'INSURANCE.')}>{clauseBody('s10_insurance')}</Section>
+          <Section number="11" title={clauseTitle('s11_access', 'FREE ACCESS TO WORKSITE.')}>{clauseBody('s11_access')}</Section>
+          <Section number="12" title={clauseTitle('s12_photos', 'PHOTOGRAPHS AND MARKETING.')}>{clauseBody('s12_photos')}</Section>
+          <Section number="13" title={clauseTitle('s13_utilities', 'UTILITIES.')}>{clauseBody('s13_utilities')}</Section>
+          <Section number="14" title={clauseTitle('s14_inspection', 'INSPECTION.')}>{clauseBody('s14_inspection')}</Section>
+          <Section number="15" title={clauseTitle('s15_default', 'DEFAULT.')}>{clauseBody('s15_default')}</Section>
 
           <InitialsBox label="Owner Initials (Page 3):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
-          <Section number="16" title="REMEDIES.">{CLAUSES.s16_remedies}</Section>
-          <Section number="17" title="FORCE MAJEURE.">{CLAUSES.s17_force}</Section>
-          <Section number="18" title="INDEMNIFICATION and EXCLUSION OF CONSEQUENTIAL DAMAGES.">{CLAUSES.s18_indemnity}</Section>
-          <Section number="19" title="SEVERABILITY.">{CLAUSES.s19_severability}</Section>
+          <Section number="16" title={clauseTitle('s16_remedies', 'REMEDIES.')}>{clauseBody('s16_remedies')}</Section>
+          <Section number="17" title={clauseTitle('s17_force', 'FORCE MAJEURE.')}>{clauseBody('s17_force')}</Section>
+          <Section number="18" title={clauseTitle('s18_indemnity', 'INDEMNIFICATION and EXCLUSION OF CONSEQUENTIAL DAMAGES.')}>{clauseBody('s18_indemnity')}</Section>
+          <Section number="19" title={clauseTitle('s19_severability', 'SEVERABILITY.')}>{clauseBody('s19_severability')}</Section>
 
           <InitialsBox label="Owner Initials (Page 4):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           <div className="contract-pagebreak" />
 
-          <Section number="20" title="AMENDMENT.">{CLAUSES.s20_amendment}</Section>
-          <Section number="21" title="GOVERNING LAW.">{CLAUSES.s21_governing}</Section>
-          <Section number="22" title="NOTICE.">{CLAUSES.s22_notice}</Section>
-          <Section number="23" title="NO WAIVER OF CONTRACTUAL RIGHT.">{CLAUSES.s23_no_waiver}</Section>
-          <Section number="24" title="LEGAL FEES and COSTS.">{CLAUSES.s24_legal}</Section>
-          <Section number="25" title="ENTIRE AGREEMENT.">{CLAUSES.s25_entire}</Section>
-          <Section number="26" title="WARRANTY.">{CLAUSES.s26_warranty}</Section>
+          <Section number="20" title={clauseTitle('s20_amendment', 'AMENDMENT.')}>{clauseBody('s20_amendment')}</Section>
+          <Section number="21" title={clauseTitle('s21_governing', 'GOVERNING LAW.')}>{clauseBody('s21_governing')}</Section>
+          <Section number="22" title={clauseTitle('s22_notice', 'NOTICE.')}>{clauseBody('s22_notice')}</Section>
+          <Section number="23" title={clauseTitle('s23_no_waiver', 'NO WAIVER OF CONTRACTUAL RIGHT.')}>{clauseBody('s23_no_waiver')}</Section>
+          <Section number="24" title={clauseTitle('s24_legal', 'LEGAL FEES and COSTS.')}>{clauseBody('s24_legal')}</Section>
+          <Section number="25" title={clauseTitle('s25_entire', 'ENTIRE AGREEMENT.')}>{clauseBody('s25_entire')}</Section>
+          <Section number="26" title={clauseTitle('s26_warranty', 'WARRANTY.')}>{clauseBody('s26_warranty')}</Section>
 
           <InitialsBox label="Owner Initials (Page 5):" value={ownerInitials} onChange={(e) => setOwnerInitials(e.target.value.toUpperCase().slice(0, 5))} />
           {/* ── Cancellation notice + signatures ── */}
@@ -897,6 +1030,30 @@ export default function ContractTemplate({
         }
       `}</style>
     </div>
+  );
+}
+
+// ─── Auto-growing textarea (clause edit mode) ────────────────────────
+// Module-level so React keeps the element identity stable across
+// renders — defining it inside ContractTemplate would remount the
+// textarea on every keystroke and drop focus.
+function AutoGrowTextarea({ value, onChange }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      spellCheck={false}
+      className="w-full px-2 py-1.5 border border-amber-300 rounded-lg text-[12.5px] leading-relaxed text-gray-700 focus:outline-none focus:border-omega-orange resize-none"
+      style={{ overflow: 'hidden' }}
+    />
   );
 }
 

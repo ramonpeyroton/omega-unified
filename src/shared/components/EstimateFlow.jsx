@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper } from 'lucide-react';
 import { validateUserPinDetailed } from '../lib/userPin';
 import { supabase } from '../lib/supabase';
-import { createEnvelope, getEnvelopeStatus, downloadSignedDocument } from '../lib/docusign';
+import { createEnvelope, getEnvelopeStatus, downloadSignedDocument, voidEnvelope } from '../lib/docusign';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
 import StatusBadge from './StatusBadge';
@@ -789,7 +789,7 @@ export default function EstimateFlow({ job, user, onBack }) {
     }
   }
 
-  async function generateAndSendContract(contractHtml) {
+  async function generateAndSendContract(contractHtml, meta) {
     if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
     if (!contractHtml) { setToast({ type: 'error', message: 'Could not snapshot the contract — please reload and try again.' }); return; }
     // ─── Math-check guard — third of 3 layers ──────────────────
@@ -863,7 +863,15 @@ export default function EstimateFlow({ job, user, onBack }) {
 
       setContract(updated);
       setStep(4);
-      logAudit({ user, action: 'contract.send', entityType: 'contract', entityId: updated.id, details: { job_id: job.id, envelope: envelopeId } });
+      logAudit({
+        user, action: 'contract.send', entityType: 'contract', entityId: updated.id,
+        details: {
+          job_id: job.id, envelope: envelopeId,
+          // Which sections were sent with custom (per-envelope) legal text —
+          // traceability for negotiated terms like mutual indemnification.
+          ...(meta?.editedClauses?.length ? { edited_clauses: meta.editedClauses } : {}),
+        },
+      });
       notify({ recipientRole: 'sales', title: 'Contract sent', message: `Contract for ${job.client_name || 'job'} was sent via DocuSign.`, type: 'contract', jobId: job.id });
       notify({ recipientRole: 'owner', title: 'Contract sent', message: `${job.client_name || 'Client'}: $${Number(updated.total_amount || 0).toLocaleString()}`, type: 'contract', jobId: job.id });
       setToast({ type: 'success', message: 'Contract sent via DocuSign' });
@@ -871,6 +879,43 @@ export default function EstimateFlow({ job, user, onBack }) {
       setToast({ type: 'error', message: err.message || 'Failed to send contract' });
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ─── Void & Revise ───────────────────────────────────────────────
+  // Kills the pending envelope for good: voids it on DocuSign (the
+  // client gets a "this envelope was voided" email and can no longer
+  // sign it) and deletes the contract row, then rewinds to Step 3 so
+  // a revised contract can be prepared and sent as a fresh envelope.
+  // Unlike "Review & Re-send", the old envelope cannot linger in the
+  // client's inbox as a signable duplicate.
+  const [confirmVoid, setConfirmVoid] = useState(false);
+  const [voiding, setVoiding] = useState(false);
+
+  async function voidAndRevise() {
+    if (!perms.canSendContract || !contract) return;
+    setVoiding(true);
+    try {
+      if (contract.docusign_envelope_id) {
+        await voidEnvelope(
+          contract.docusign_envelope_id,
+          'This contract was revised — a new version will be sent shortly.'
+        );
+      }
+      const { error: delErr } = await supabase.from('contracts').delete().eq('id', contract.id);
+      if (delErr) throw delErr;
+      logAudit({
+        user, action: 'contract.void', entityType: 'contract', entityId: contract.id,
+        details: { job_id: job.id, envelope: contract.docusign_envelope_id || null },
+      });
+      setContract(null);
+      setConfirmVoid(false);
+      setStep(3);
+      setToast({ type: 'info', message: 'Old envelope voided. Review the contract below and send the revised version when ready.' });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Could not void the envelope' });
+    } finally {
+      setVoiding(false);
     }
   }
 
@@ -1277,7 +1322,51 @@ export default function EstimateFlow({ job, user, onBack }) {
                     <FileText className="w-4 h-4" /> Review &amp; Re-send
                   </button>
                 )}
+
+                {perms.canSendContract && !confirmVoid && (
+                  <button
+                    onClick={() => setConfirmVoid(true)}
+                    disabled={voiding}
+                    title="Void the pending DocuSign envelope (the client can no longer sign it) and prepare a revised contract."
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 hover:border-red-400 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <X className="w-4 h-4" /> Void &amp; Revise
+                  </button>
+                )}
               </div>
+
+              {confirmVoid && (
+                <div className="mt-3 max-w-md p-4 rounded-xl bg-red-50 border border-red-200 text-left">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div className="text-sm text-red-900">
+                      <p className="font-semibold">Void this contract?</p>
+                      <p className="text-xs mt-1 leading-relaxed">
+                        The DocuSign envelope sent to {job.client_name || 'the client'} will be
+                        voided (they receive an email and can no longer sign it) and this
+                        contract will be removed from the app. You'll be taken back to the
+                        contract template to prepare and send a revised version.
+                      </p>
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={voidAndRevise}
+                          disabled={voiding}
+                          className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50"
+                        >
+                          {voiding ? 'Voiding…' : 'Yes, void & revise'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmVoid(false)}
+                          disabled={voiding}
+                          className="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {contract?.docusign_envelope_id && (
                 <p className="text-xs text-omega-stone mt-2">
