@@ -173,8 +173,8 @@ export default function ReceiptCaptureModal({ job, user, companyMode = false, on
   const subheading = companyMode ? 'No client — company overhead' : (job?.client_name || 'Job');
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 sticky top-0 bg-white">
           <div className="inline-flex items-center gap-2">
             <span className={`w-8 h-8 rounded-lg inline-flex items-center justify-center ${isReturn ? 'bg-emerald-100' : 'bg-orange-100'}`}>
