@@ -8,11 +8,12 @@
 // public copy doesn't leak private details.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Loader2, Copy, Check, RefreshCw, Wand2 } from 'lucide-react';
+import { Sparkles, Loader2, Copy, Check, RefreshCw, Wand2, Type, Images } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../../../shared/lib/supabase';
 import { callAnthropicShared } from '../../../shared/lib/anthropic';
 import { serviceBadgeLabel } from '../../../shared/data/services';
+import CarouselMaker from './CarouselMaker';
 
 const CONTENT_TYPES = [
   { id: 'instagram', label: 'Instagram caption', hint: 'short, hooky, 3-6 hashtags + emojis' },
@@ -33,6 +34,7 @@ export default function ContentStudio({ user }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState('copy'); // 'copy' | 'carousel'
 
   useEffect(() => {
     (async () => {
@@ -89,9 +91,25 @@ export default function ContentStudio({ user }) {
 
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
-      <PageHeader icon={Sparkles} title="Content Studio" subtitle="Generate posts & copy from your projects with AI" />
+      <PageHeader icon={Sparkles} title="Content Studio" subtitle="Generate posts, copy & carousels from your projects" />
+
+      {/* Mode toggle */}
+      <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
+        <button onClick={() => setMode('copy')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${mode === 'copy' ? 'bg-omega-orange text-white border-omega-orange' : 'bg-white text-omega-stone border-gray-200 hover:border-omega-orange'}`}>
+          <Type className="w-3.5 h-3.5" /> Copy
+        </button>
+        <button onClick={() => setMode('carousel')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${mode === 'carousel' ? 'bg-omega-orange text-white border-omega-orange' : 'bg-white text-omega-stone border-gray-200 hover:border-omega-orange'}`}>
+          <Images className="w-3.5 h-3.5" /> Carousel
+        </button>
+      </div>
 
       <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-5">
+        {mode === 'carousel' ? (
+          <CarouselMaker jobs={jobs} user={user} />
+        ) : (
+        <>
         {/* Inputs */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
           <div>
@@ -169,6 +187,8 @@ export default function ContentStudio({ user }) {
             </div>
             <p className="text-[15px] leading-relaxed text-omega-charcoal whitespace-pre-wrap">{output}</p>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>
