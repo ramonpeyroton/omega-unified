@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -11,12 +11,14 @@ import JobFullView from '../../shared/components/JobFullView';
 import DailyLogsList from '../../shared/components/DailyLogsList';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import MobileMoreSheet from './components/MobileMoreSheet';
+import Portfolio from './screens/Portfolio';
 import { useJobById } from '../../shared/hooks/useJobById';
 
 // Maps the current URL pathname to the bottom-bar item id for the
 // active-state highlight.
 function screenIdFromPath(pathname) {
   if (pathname.startsWith('/leads')) return 'leads';
+  if (pathname.startsWith('/portfolio')) return 'portfolio';
   if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   if (pathname === '/' || pathname === '') return 'pipeline';
   return null; // job pages — no bottom-bar highlight
@@ -29,9 +31,10 @@ function MobileBottomBar({ onMore }) {
   const screen = screenIdFromPath(location.pathname);
 
   const items = [
-    { id: 'pipeline',   icon: GitBranch,           label: 'Pipeline', to: '/' },
-    { id: 'leads',      icon: ClipboardList,      label: 'Leads',    to: '/leads' },
-    { id: 'daily-logs', icon: MessageCircle,      label: 'Logs',     to: '/daily-logs' },
+    { id: 'pipeline',   icon: GitBranch,           label: 'Pipeline',  to: '/' },
+    { id: 'leads',      icon: ClipboardList,      label: 'Leads',     to: '/leads' },
+    { id: 'portfolio',  icon: Images,             label: 'Portfolio', to: '/portfolio' },
+    { id: 'daily-logs', icon: MessageCircle,      label: 'Logs',      to: '/daily-logs' },
     { id: 'more',       icon: MoreHorizontal,     label: 'More' },
   ];
   return (
@@ -58,7 +61,9 @@ function MarketingShell({ user, onLogout }) {
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const tab = location.pathname.startsWith('/leads') ? 'leads' : 'pipeline';
+  const tab = location.pathname.startsWith('/leads') ? 'leads'
+    : location.pathname.startsWith('/portfolio') ? 'portfolio'
+    : 'pipeline';
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -74,8 +79,9 @@ function MarketingShell({ user, onLogout }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <SidebarBtn active={tab === 'pipeline'} onClick={() => navigate('/')}        icon={GitBranch}     label="Pipeline" />
-          <SidebarBtn active={tab === 'leads'}    onClick={() => navigate('/leads')}   icon={ClipboardList} label="My Leads" />
+          <SidebarBtn active={tab === 'pipeline'}  onClick={() => navigate('/')}          icon={GitBranch}     label="Pipeline" />
+          <SidebarBtn active={tab === 'leads'}     onClick={() => navigate('/leads')}     icon={ClipboardList} label="My Leads" />
+          <SidebarBtn active={tab === 'portfolio'} onClick={() => navigate('/portfolio')} icon={Images}        label="Portfolio" />
 
           <button
             onClick={() => setDailyLogsOpen((o) => !o)}
@@ -197,6 +203,7 @@ export default function MarketingApp({ user, onLogout }) {
         <Route element={<MarketingShell user={user} onLogout={onLogout} />}>
           <Route path="/"            element={<PipelineRoute user={user} />} />
           <Route path="/leads"       element={<LeadsRoute user={user} />} />
+          <Route path="/portfolio"   element={<Portfolio user={user} />} />
           <Route path="/daily-logs"  element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"    element={<JobFullViewRoute user={user} />} />
         </Route>
