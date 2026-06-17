@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images, BarChart3, Sparkles, MessageSquareQuote } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -12,13 +12,26 @@ import DailyLogsList from '../../shared/components/DailyLogsList';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import MobileMoreSheet from './components/MobileMoreSheet';
 import Portfolio from './screens/Portfolio';
+import MarketingDashboard from './screens/MarketingDashboard';
+import ContentStudio from './screens/ContentStudio';
+import Reviews from './screens/Reviews';
 import { useJobById } from '../../shared/hooks/useJobById';
+
+// Screens that live in the desktop sidebar + the mobile "More" sheet.
+const MORE_NAV = [
+  { id: 'insights', icon: BarChart3,          label: 'Insights',  to: '/insights' },
+  { id: 'studio',   icon: Sparkles,           label: 'Content',   to: '/studio' },
+  { id: 'reviews',  icon: MessageSquareQuote, label: 'Reviews',   to: '/reviews' },
+];
 
 // Maps the current URL pathname to the bottom-bar item id for the
 // active-state highlight.
 function screenIdFromPath(pathname) {
   if (pathname.startsWith('/leads')) return 'leads';
   if (pathname.startsWith('/portfolio')) return 'portfolio';
+  if (pathname.startsWith('/insights')) return 'insights';
+  if (pathname.startsWith('/studio')) return 'studio';
+  if (pathname.startsWith('/reviews')) return 'reviews';
   if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   if (pathname === '/' || pathname === '') return 'pipeline';
   return null; // job pages — no bottom-bar highlight
@@ -61,9 +74,7 @@ function MarketingShell({ user, onLogout }) {
   const [dailyLogsOpen, setDailyLogsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const tab = location.pathname.startsWith('/leads') ? 'leads'
-    : location.pathname.startsWith('/portfolio') ? 'portfolio'
-    : 'pipeline';
+  const screen = screenIdFromPath(location.pathname);
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -79,9 +90,12 @@ function MarketingShell({ user, onLogout }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <SidebarBtn active={tab === 'pipeline'}  onClick={() => navigate('/')}          icon={GitBranch}     label="Pipeline" />
-          <SidebarBtn active={tab === 'leads'}     onClick={() => navigate('/leads')}     icon={ClipboardList} label="My Leads" />
-          <SidebarBtn active={tab === 'portfolio'} onClick={() => navigate('/portfolio')} icon={Images}        label="Portfolio" />
+          <SidebarBtn active={screen === 'pipeline'}  onClick={() => navigate('/')}          icon={GitBranch}     label="Pipeline" />
+          <SidebarBtn active={screen === 'leads'}     onClick={() => navigate('/leads')}     icon={ClipboardList} label="My Leads" />
+          <SidebarBtn active={screen === 'portfolio'} onClick={() => navigate('/portfolio')} icon={Images}        label="Portfolio" />
+          <SidebarBtn active={screen === 'insights'}  onClick={() => navigate('/insights')}  icon={BarChart3}     label="Insights" />
+          <SidebarBtn active={screen === 'studio'}    onClick={() => navigate('/studio')}    icon={Sparkles}      label="Content" />
+          <SidebarBtn active={screen === 'reviews'}   onClick={() => navigate('/reviews')}   icon={MessageSquareQuote} label="Reviews" />
 
           <button
             onClick={() => setDailyLogsOpen((o) => !o)}
@@ -125,6 +139,9 @@ function MarketingShell({ user, onLogout }) {
         onClose={() => setMoreOpen(false)}
         user={user}
         onLogout={onLogout}
+        navItems={MORE_NAV}
+        activeId={screen}
+        onNavigate={(to) => { setMoreOpen(false); navigate(to); }}
       />
     </div>
   );
@@ -204,6 +221,9 @@ export default function MarketingApp({ user, onLogout }) {
           <Route path="/"            element={<PipelineRoute user={user} />} />
           <Route path="/leads"       element={<LeadsRoute user={user} />} />
           <Route path="/portfolio"   element={<Portfolio user={user} />} />
+          <Route path="/insights"    element={<MarketingDashboard user={user} />} />
+          <Route path="/studio"      element={<ContentStudio user={user} />} />
+          <Route path="/reviews"     element={<Reviews user={user} />} />
           <Route path="/daily-logs"  element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"    element={<JobFullViewRoute user={user} />} />
         </Route>

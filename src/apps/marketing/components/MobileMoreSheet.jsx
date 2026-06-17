@@ -11,7 +11,7 @@ import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
-export default function MobileMoreSheet({ open, onClose, user, onLogout }) {
+export default function MobileMoreSheet({ open, onClose, user, onLogout, navItems = [], activeId, onNavigate }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { photoUrl, refresh } = useUserProfile(user);
   const userName = user?.name || '';
@@ -47,6 +47,28 @@ export default function MobileMoreSheet({ open, onClose, user, onLogout }) {
             <p className="text-[11px] text-omega-stone">View my profile</p>
           </div>
         </button>
+
+        {navItems.length > 0 && (
+          <>
+            <div className="h-px bg-gray-100 mx-5" />
+            <div className="px-3 py-2 space-y-1">
+              {navItems.map(({ id, icon: Icon, label, to }) => (
+                <button
+                  key={id}
+                  onClick={() => onNavigate?.(to)}
+                  className={`w-full flex items-center gap-3 px-3 min-h-[44px] rounded-xl transition-colors ${
+                    activeId === id ? 'bg-omega-pale text-omega-orange' : 'text-omega-charcoal hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4" />
+                  </span>
+                  <span className="text-sm font-semibold">{label}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="h-px bg-gray-100 mx-5" />
 
