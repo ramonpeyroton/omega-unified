@@ -9,9 +9,10 @@
 // never taints and PNG export always works.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Images, Download, Loader2, Wand2, Upload, X, Layout } from 'lucide-react';
+import { Images, Download, Loader2, Wand2, Upload, X, Layout, Sparkles } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabase';
 import { callAnthropicShared } from '../../../shared/lib/anthropic';
+import { apiFetch } from '../../../shared/lib/apiFetch';
 import { serviceBadgeLabel } from '../../../shared/data/services';
 
 const FORMATS = [
@@ -38,6 +39,9 @@ export default function CarouselMaker({ jobs = [], user }) {
   const [building, setBuilding] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   const job = useMemo(() => jobs.find((j) => j.id === jobId) || null, [jobs, jobId]);
   const fmt = FORMATS.find((f) => f.id === format) || FORMATS[0];
@@ -132,6 +136,38 @@ export default function CarouselMaker({ jobs = [], user }) {
     e.target.value = '';
   }
 
+  // Generate the cover background with Higgsfield (async: submit → poll).
+  async function generateAiCover() {
+    if (!aiPrompt.trim()) { setAiError('Describe the image first.'); return; }
+    setAiBusy(true);
+    setAiError('');
+    try {
+      const dims = fmt.id === 'portrait' ? { width: 1024, height: 1280 } : { width: 1024, height: 1024 };
+      const post = (payload) => apiFetch('/api/ai-proxy', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'higgsfield', ...payload }),
+      }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Higgsfield error'); return d; });
+
+      const gen = await post({ action: 'generate', prompt: aiPrompt.trim(), ...dims });
+      let url = gen.url;
+      const id = gen.id;
+      if (!url && id) {
+        for (let i = 0; i < 20 && !url; i++) {
+          await new Promise((r) => setTimeout(r, 3000));
+          const st = await post({ action: 'status', id });
+          if (st.failed) throw new Error('Generation failed on Higgsfield');
+          if (st.url) url = st.url;
+        }
+      }
+      if (!url) throw new Error('Timed out waiting for the image.');
+      setCustomCover({ url });
+    } catch (err) {
+      setAiError(err.message || 'AI generation failed');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   function downloadAll() {
     slides.forEach((s, i) => {
       setTimeout(() => {
@@ -220,14 +256,30 @@ export default function CarouselMaker({ jobs = [], user }) {
           </div>
         )}
 
-        {/* Custom cover (AI hook) */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 hover:border-omega-orange text-sm text-omega-stone cursor-pointer">
-            <Upload className="w-4 h-4" /> {customCover ? 'Replace cover image' : 'Upload custom cover (optional)'}
-            <input type="file" accept="image/*" className="hidden" onChange={onCustomCover} />
-          </label>
-          {customCover && <button onClick={() => setCustomCover(null)} className="text-xs text-red-600 inline-flex items-center gap-1"><X className="w-3.5 h-3.5" /> Remove</button>}
-          <span className="text-[11px] text-omega-stone">AI-generated covers (Higgsfield) drop in here.</span>
+        {/* Cover background — upload or generate with AI */}
+        <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {customCover && <img src={customCover.url} alt="cover" className="w-12 h-12 rounded-lg object-cover border border-gray-200" />}
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 hover:border-omega-orange text-sm text-omega-stone cursor-pointer">
+              <Upload className="w-4 h-4" /> {customCover ? 'Replace cover image' : 'Upload custom cover (optional)'}
+              <input type="file" accept="image/*" className="hidden" onChange={onCustomCover} />
+            </label>
+            {customCover && <button onClick={() => setCustomCover(null)} className="text-xs text-red-600 inline-flex items-center gap-1"><X className="w-3.5 h-3.5" /> Remove</button>}
+          </div>
+          <div>
+            <Label>Or generate a cover with AI (Higgsfield)</Label>
+            <div className="flex gap-2">
+              <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder="e.g. modern pressure-treated backyard deck at golden hour, photorealistic"
+                className="flex-1 px-3 py-2 rounded-lg border border-gray-200 focus:border-omega-orange outline-none text-sm" />
+              <button onClick={generateAiCover} disabled={aiBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-omega-charcoal text-white text-xs font-semibold disabled:opacity-60 whitespace-nowrap">
+                {aiBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</> : <><Sparkles className="w-3.5 h-3.5" /> Generate</>}
+              </button>
+            </div>
+            {aiError && <p className="text-[11px] text-red-600 mt-1">{aiError}</p>}
+            <p className="text-[11px] text-omega-stone mt-1">Needs <code>HIGGSFIELD_API_KEY</code> set in Vercel. The image becomes the cover background (with a dark overlay for the headline).</p>
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
