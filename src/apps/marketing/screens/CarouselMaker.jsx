@@ -24,6 +24,8 @@ const ORANGE = '#E8500A';
 const CHARCOAL = '#1f2421';
 
 function isPdf(u) { return /\.pdf(\?|$)/i.test(u || ''); }
+function isVideo(u) { return /\.(mp4|mov|webm|m4v|avi|mkv|3gp|hevc)(\?|$)/i.test(u || ''); }
+function isUsablePhoto(u) { return !!u && !isPdf(u) && !isVideo(u); }
 
 export default function CarouselMaker({ jobs = [], user }) {
   const [jobId, setJobId] = useState('');
@@ -58,8 +60,8 @@ export default function CarouselMaker({ jobs = [], user }) {
           .eq('job_id', jobId).eq('folder', 'daily_logs')
           .order('created_at', { ascending: false }).limit(200);
         const urls = [];
-        if (job?.cover_photo_url && !isPdf(job.cover_photo_url)) urls.push(job.cover_photo_url);
-        for (const d of data || []) if (d.photo_url && !isPdf(d.photo_url)) urls.push(d.photo_url);
+        if (isUsablePhoto(job?.cover_photo_url)) urls.push(job.cover_photo_url);
+        for (const d of data || []) if (isUsablePhoto(d.photo_url)) urls.push(d.photo_url);
         if (active) { setPhotos([...new Set(urls)]); setSelected([]); setSlides([]); }
       } finally {
         if (active) setLoadingPhotos(false);

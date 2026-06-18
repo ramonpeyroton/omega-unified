@@ -56,7 +56,7 @@ export default function Portfolio({ user }) {
       // Group daily-log photos by job.
       const photosByJob = new Map();
       for (const d of docs || []) {
-        if (!d.photo_url || isPdf(d.photo_url)) continue;
+        if (!isGalleryImage(d.photo_url)) continue;
         if (!photosByJob.has(d.job_id)) photosByJob.set(d.job_id, []);
         photosByJob.get(d.job_id).push({ url: d.photo_url, title: d.title || '', createdAt: d.created_at });
       }
@@ -67,7 +67,7 @@ export default function Portfolio({ user }) {
       for (const job of jobs || []) {
         const logPhotos = photosByJob.get(job.id) || [];
         const photos = [];
-        if (job.cover_photo_url && !isPdf(job.cover_photo_url)) {
+        if (isGalleryImage(job.cover_photo_url)) {
           photos.push({ url: job.cover_photo_url, title: 'Cover', createdAt: job.updated_at });
         }
         photos.push(...logPhotos);
@@ -329,6 +329,14 @@ function PhotoViewer({ photo, onClose }) {
 
 function isPdf(url) {
   return /\.pdf(\?|$)/i.test(url || '');
+}
+// Videos share the daily_logs folder but can't render as <img> — skip
+// them from the photo gallery (they'd show as broken tiles).
+function isVideo(url) {
+  return /\.(mp4|mov|webm|m4v|avi|mkv|3gp|hevc)(\?|$)/i.test(url || '');
+}
+function isGalleryImage(url) {
+  return !!url && !isPdf(url) && !isVideo(url);
 }
 function guessExt(url) {
   const m = /\.(jpe?g|png|webp|heic|heif|gif)(\?|$)/i.exec(url || '');

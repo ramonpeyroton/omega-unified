@@ -34,7 +34,11 @@ import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import Avatar, { colorFromName } from './ui/Avatar';
 
-const MAX_FILE_BYTES = 4 * 1024 * 1024; // post-compression hard cap
+const MAX_FILE_BYTES  = 4 * 1024 * 1024;   // images (post-compression) / PDFs
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // videos upload direct to Storage, so the
+                                           // Vercel body limit doesn't apply — the real
+                                           // ceiling is the Supabase bucket file-size limit
+                                           // (default 50 MB; raise it there for bigger clips).
 const COMPRESS_OPTS  = {
   maxSizeMB: 2,
   maxWidthOrHeight: 2400,
@@ -319,19 +323,28 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
     for (const f of accepted) {
       try {
         let final = f;
-        // Compress images to keep payloads sane (PDFs/docs pass through).
+        const isVideo = f.type.startsWith('video/');
+        // Compress images to keep payloads sane. Videos and PDFs pass
+        // through untouched (no in-browser video compression).
         if (f.type.startsWith('image/')) {
           try { final = await imageCompression(f, COMPRESS_OPTS); }
           catch { final = f; }
         }
-        if (final.size > MAX_FILE_BYTES) {
-          setError(`"${f.name}" is too large even after compression.`);
+        const cap = isVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES;
+        if (final.size > cap) {
+          setError(
+            isVideo
+              ? `"${f.name}" is too large (max ${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)} MB for video).`
+              : `"${f.name}" is too large even after compression.`
+          );
           continue;
         }
-        const isImage = (final.type || f.type || '').startsWith('image/');
+        // Images and videos both get an object URL so the composer can
+        // preview them before sending.
+        const previewable = (final.type || f.type || '').startsWith('image/') || isVideo;
         processed.push({
           file: final,
-          previewUrl: isImage ? URL.createObjectURL(final) : null,
+          previewUrl: previewable ? URL.createObjectURL(final) : null,
         });
       } catch (err) {
         setError(err?.message || `Failed to process "${f.name}".`);
@@ -586,21 +599,33 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
                 {Array.isArray(m.attachments) && m.attachments.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-2">
                     {m.attachments.map((att, i) => (
-                      <a
-                        key={i}
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block rounded-lg overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors max-w-[320px]"
-                      >
-                        {att.mime?.startsWith('image/') ? (
-                          <img src={att.url} alt={att.name || 'attachment'} className="block max-h-60 w-auto" />
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-omega-charcoal">
-                            <ExternalLink className="w-3.5 h-3.5" /> {att.name || 'File'}
-                          </span>
-                        )}
-                      </a>
+                      att.mime?.startsWith('video/') ? (
+                        // Inline player — NOT wrapped in an <a> so the controls
+                        // (play/seek/fullscreen) work instead of opening a link.
+                        <video
+                          key={i}
+                          src={att.url}
+                          controls
+                          preload="metadata"
+                          className="block rounded-lg overflow-hidden border border-gray-200 max-w-[320px] max-h-60 w-auto bg-black"
+                        />
+                      ) : (
+                        <a
+                          key={i}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-lg overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors max-w-[320px]"
+                        >
+                          {att.mime?.startsWith('image/') ? (
+                            <img src={att.url} alt={att.name || 'attachment'} className="block max-h-60 w-auto" />
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-omega-charcoal">
+                              <ExternalLink className="w-3.5 h-3.5" /> {att.name || 'File'}
+                            </span>
+                          )}
+                        </a>
+                      )
                     ))}
                   </div>
                 )}
@@ -624,6 +649,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           <div className="flex flex-wrap gap-2">
             {pendingFiles.map((pf, idx) => {
               const isImage = (pf.file.type || '').startsWith('image/');
+              const isVideo = (pf.file.type || '').startsWith('video/');
               return (
                 <div key={`${pf.file.name}-${idx}`} className="relative">
                   {isImage && pf.previewUrl ? (
@@ -631,6 +657,14 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
                       src={pf.previewUrl}
                       alt={pf.file.name}
                       className="h-20 w-20 object-cover rounded-lg border border-gray-200"
+                    />
+                  ) : isVideo && pf.previewUrl ? (
+                    <video
+                      src={pf.previewUrl}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-20 w-20 object-cover rounded-lg border border-gray-200 bg-black"
                     />
                   ) : (
                     <div className="h-20 w-20 rounded-lg border border-gray-200 bg-gray-50 flex flex-col items-center justify-center px-1 text-center">
@@ -658,7 +692,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,video/*,application/pdf"
             multiple
             onChange={pickFile}
             className="hidden"
