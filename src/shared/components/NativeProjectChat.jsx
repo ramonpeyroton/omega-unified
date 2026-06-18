@@ -30,6 +30,7 @@ import {
   ExternalLink, MessageCircle,
 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
+import { compressVideo } from '../lib/videoCompress';
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import Avatar, { colorFromName } from './ui/Avatar';
@@ -141,6 +142,9 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   // (blob: URL) and null for other types (PDFs, docs).
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploading, setUploading]       = useState(false);
+  // Video compression progress: { name, pct } while a clip is being
+  // transcoded on-device before upload, else null.
+  const [compress, setCompress]         = useState(null);
 
   const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
@@ -324,11 +328,23 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
       try {
         let final = f;
         const isVideo = f.type.startsWith('video/');
-        // Compress images to keep payloads sane. Videos and PDFs pass
-        // through untouched (no in-browser video compression).
+        // Compress images to keep payloads sane. Videos get transcoded
+        // to H.264 1080p on-device (huge iPhone clips → manageable, and
+        // fixes HEVC playback). PDFs pass through untouched.
         if (f.type.startsWith('image/')) {
           try { final = await imageCompression(f, COMPRESS_OPTS); }
           catch { final = f; }
+        } else if (isVideo) {
+          try {
+            setCompress({ name: f.name, pct: 0 });
+            // compressVideo falls back to the original on any failure,
+            // so `final` is always a usable file.
+            final = await compressVideo(f, (p) => setCompress({ name: f.name, pct: Math.round(p * 100) }));
+          } catch {
+            final = f;
+          } finally {
+            setCompress(null);
+          }
         }
         const cap = isVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES;
         if (final.size > cap) {
@@ -634,6 +650,21 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           );
         })}
       </div>
+
+      {compress && (
+        <div className="flex-shrink-0 px-4 py-2 text-xs text-omega-charcoal bg-omega-pale/60 border-t border-omega-orange/20">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-omega-orange" />
+              Compressing video — keep this open…
+            </span>
+            <span className="tabular-nums text-omega-stone">{compress.pct}%</span>
+          </div>
+          <div className="h-1.5 w-full bg-white rounded-full overflow-hidden">
+            <div className="h-full bg-omega-orange rounded-full transition-all" style={{ width: `${compress.pct}%` }} />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="flex-shrink-0 px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200 flex items-start gap-1.5">
