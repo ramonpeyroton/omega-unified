@@ -482,15 +482,22 @@ async function handleSaveSignedPdf(req, res) {
     const publicUrl = pub?.publicUrl || null;
 
     const signedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    await supabase.from('job_documents').insert([{
+    const { error: insErr } = await supabase.from('job_documents').insert([{
       job_id:      jobId,
       folder:      'contracts',
       title:       `Signed Contract — ${signedDate}`,
       photo_url:   publicUrl,
       uploaded_by: 'DocuSign',
     }]);
+    // The SELECT above is a fast path, but it's not atomic — concurrent
+    // saves can both pass it. Migration 073 adds a partial unique index
+    // (one DocuSign 'Signed Contract' per job), so a racing insert fails
+    // with 23505. That's the idempotent outcome we want, not an error.
+    if (insErr && insErr.code !== '23505') {
+      return json(res, 500, { error: `Document insert failed: ${insErr.message}` });
+    }
 
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, skipped: insErr?.code === '23505' });
   } catch (err) {
     console.error('[docusign/save-signed-pdf]', err);
     return json(res, 500, { error: err.message || 'Internal error' });
