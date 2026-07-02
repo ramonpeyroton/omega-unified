@@ -165,6 +165,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           materialsResp,
           spendResp,
           costsResp,
+          changeOrdersResp,
         ] = await Promise.all([
           supabase
             .from('jobs')
@@ -214,6 +215,12 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             .from('job_costs')
             .select('job_id, estimated_revenue, material_cost, labor_cost, sub_cost, other_costs, updated_at')
             .limit(5000),
+          // Signed change orders — extra approved scope that adds to a
+          // job's revenue (and therefore its margin).
+          supabase
+            .from('change_orders')
+            .select('job_id, amount, status')
+            .limit(5000),
         ]);
 
         if (!active) return;
@@ -230,6 +237,15 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         const estimatesByJob = {};
         for (const e of estimates) {
           (estimatesByJob[e.job_id] ||= []).push(e);
+        }
+
+        // Signed change orders per job (summed) — extra revenue on top of
+        // the base estimate/manual revenue.
+        const signedCoByJob = {};
+        for (const c of (changeOrdersResp.data || [])) {
+          if (c.status === 'signed') {
+            signedCoByJob[c.job_id] = (signedCoByJob[c.job_id] || 0) + (Number(c.amount) || 0);
+          }
         }
 
         // Latest manual Job Costing row per job (Financial tab). The
@@ -358,6 +374,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               manualRevenue: Number(cost?.estimated_revenue) || 0,
               manualCost: manualCostTotal(cost),
               expensesTotal: jobExpenses,
+              changeOrderTotal: signedCoByJob[j.id] || 0,
             });
             const margin = fin.margin;
             const profit = fin.profit;

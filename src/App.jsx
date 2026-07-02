@@ -12,6 +12,7 @@ import ReceptionistApp from './apps/receptionist/App';
 import EstimateView from './apps/estimate-view/EstimateView';
 import EstimateOptionsView from './apps/estimate-view/EstimateOptionsView';
 import EstimateBundleView from './apps/estimate-view/EstimateBundleView';
+import ChangeOrderView from './apps/change-order-view/ChangeOrderView';
 import SubOfferView from './apps/sub-offer/SubOfferView';
 import PrivacyPolicy from './public/PrivacyPolicy';
 import Terms from './public/Terms';
@@ -46,6 +47,8 @@ export default function App() {
   const isEstimateOptions = pathname.startsWith('/estimate-options/');
   // Bundle variant — customer sees N estimates for different services, signs each independently.
   const isEstimateBundle  = pathname.startsWith('/estimate-bundle/');
+  // Public, auth-less page for clients to view + sign a Change Order.
+  const isChangeOrderView = pathname.startsWith('/change-order-view/');
   // Public, auth-less page for subcontractors to Accept / Reject a job offer.
   const isSubOffer        = pathname.startsWith('/sub-offer/');
   // Public legal pages — linked from the Twilio A2P 10DLC campaign and
@@ -100,6 +103,10 @@ export default function App() {
 
   if (isEstimateBundle) {
     return <EstimateBundleView />;
+  }
+
+  if (isChangeOrderView) {
+    return <ChangeOrderView />;
   }
 
   if (isSubOffer) {

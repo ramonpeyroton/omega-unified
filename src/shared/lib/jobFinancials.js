@@ -30,6 +30,14 @@ export function manualCostTotal(cost) {
        + (Number(cost.other_costs) || 0);
 }
 
+// Sum of SIGNED change orders — extra scope the client approved and
+// signed, added on top of the base contract revenue.
+export function sumSignedChangeOrders(changeOrders = []) {
+  return (changeOrders || [])
+    .filter((c) => c?.status === 'signed')
+    .reduce((s, c) => s + (Number(c?.amount) || 0), 0);
+}
+
 /**
  * @param {object} args
  * @param {number} [args.acceptedEstimateTotal] sum of approved/signed estimates
@@ -43,15 +51,20 @@ export function computeJobFinancials({
   manualRevenue = 0,
   manualCost = 0,
   expensesTotal = 0,
+  changeOrderTotal = 0,
 } = {}) {
   const accepted = Number(acceptedEstimateTotal) || 0;
   const manualRev = Number(manualRevenue) || 0;
+  const changeOrders = Number(changeOrderTotal) || 0;
 
-  const revenue = accepted > 0 ? accepted : manualRev;
+  // Base revenue = accepted estimates (else manual). Signed change orders
+  // are extra approved scope, so they add ON TOP of the base.
+  const baseRevenue = accepted > 0 ? accepted : manualRev;
+  const revenue = baseRevenue + changeOrders;
   const cost = (Number(expensesTotal) || 0) + (Number(manualCost) || 0);
   const profit = revenue - cost;
   const margin = revenue > 0 ? (profit / revenue) * 100 : null;
   const revenueSource = accepted > 0 ? 'estimates' : (manualRev > 0 ? 'manual' : 'none');
 
-  return { revenue, cost, profit, margin, revenueSource };
+  return { revenue, baseRevenue, changeOrders, cost, profit, margin, revenueSource };
 }

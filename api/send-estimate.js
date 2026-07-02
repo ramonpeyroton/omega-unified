@@ -377,6 +377,15 @@ export default async function handler(req, res) {
   try { body = await readJson(req); }
   catch { return json(res, 400, { ok: false, error: 'Invalid JSON' }); }
 
+  // Change Orders reuse this endpoint (Vercel Hobby 12-function cap). A
+  // body with changeOrderId routes to the CO send / open-beacon handlers;
+  // everything below stays the estimate path.
+  if (body?.changeOrderId) {
+    if (body?.action === 'opened') return handleChangeOrderOpened(body.changeOrderId, res);
+    if (!requireSecret(req, res)) return;
+    return sendChangeOrder(req, res, body);
+  }
+
   const estimateId = body?.estimateId;
   if (!estimateId) return json(res, 400, { ok: false, error: 'Missing estimateId' });
 
@@ -630,5 +639,101 @@ async function handleEstimateOpened(estimateId, res) {
     } catch { /* swallow — best-effort */ }
   }
 
+  return json(res, 200, { ok: true, firstOpen: isFirstOpen, openCount: patch.client_open_count });
+}
+
+// ─── Change Order: email a signable link ──────────────────────────────
+function renderChangeOrderHTML({ co, job, company, clientLink }) {
+  const companyName = company?.company_name || 'Omega Development';
+  const clientName = job?.client_name || 'there';
+  return `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:600px;margin:0 auto;background:white;padding:28px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
+    <h1 style="font-size:20px;margin:0 0 4px;font-weight:900;">Change Order${co.co_number ? ` #CO-${co.co_number}` : ''}</h1>
+    <p style="font-size:14px;color:#555;margin:0 0 20px;">Hi ${escape(clientName)}, please review and sign the change order below for your project${job?.address ? ` at ${escape(job.address)}` : ''}.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+      <tr><td style="padding:8px 0;color:#6b6b6b;width:30%;">Description</td><td style="padding:8px 0;">${escape(co.description || '—')}</td></tr>
+      ${co.reason ? `<tr><td style="padding:8px 0;color:#6b6b6b;">Reason</td><td style="padding:8px 0;">${escape(co.reason)}</td></tr>` : ''}
+      <tr><td style="padding:8px 0;color:#6b6b6b;">Additional amount</td><td style="padding:8px 0;font-weight:800;font-size:16px;">${money(co.amount)}</td></tr>
+    </table>
+    <a href="${clientLink}" style="display:inline-block;background:#E8590C;color:white;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;font-size:15px;">Review &amp; Sign Change Order &rarr;</a>
+    <p style="font-size:12px;color:#999;margin:24px 0 0;">${escape(companyName)}</p>
+  </div>
+</body></html>`;
+}
+
+async function sendChangeOrder(req, res, body) {
+  const coId = (body?.changeOrderId || '').toString();
+  const { data: co } = await supabase.from('change_orders').select('*').eq('id', coId).maybeSingle();
+  if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
+  const { data: job } = await supabase.from('jobs').select('*').eq('id', co.job_id).maybeSingle();
+  if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
+  if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });
+  const { data: company } = await supabase
+    .from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+
+  const clientLink = `${PUBLIC_APP_URL.replace(/\/$/, '')}/change-order-view/${coId}`;
+  const html = renderChangeOrderHTML({ co, job, company, clientLink });
+  const subject = `Change Order${co.co_number ? ` #CO-${co.co_number}` : ''} — ${company?.company_name || 'Omega Development'}`;
+  const requester = {
+    role: (req.headers['x-omega-role'] || '').toString(),
+    name: (req.headers['x-omega-user'] || '').toString(),
+  };
+
+  let providerId = null, errorMsg = null;
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: RESEND_FROM, to: [job.client_email], reply_to: company?.email || undefined, subject, html }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) errorMsg = data?.message || `Resend HTTP ${r.status}`;
+    else providerId = data?.id || null;
+  } catch (err) { errorMsg = err?.message || String(err); }
+
+  if (!providerId) return json(res, 500, { ok: false, error: errorMsg || 'Send failed' });
+
+  try {
+    await supabase.from('change_orders').update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      sent_by: requester.name || null,
+      pdf_url: clientLink,
+    }).eq('id', coId);
+  } catch { /* ignore */ }
+
+  return json(res, 200, { ok: true, providerId });
+}
+
+// ─── Change Order: opened beacon (public) ─────────────────────────────
+async function handleChangeOrderOpened(coId, res) {
+  const { data: co } = await supabase
+    .from('change_orders').select('id, job_id, client_opened_at, client_open_count').eq('id', coId).maybeSingle();
+  if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
+
+  const isFirstOpen = !co.client_opened_at;
+  const patch = { client_open_count: (Number(co.client_open_count) || 0) + 1 };
+  if (isFirstOpen) patch.client_opened_at = new Date().toISOString();
+  try { await supabase.from('change_orders').update(patch).eq('id', coId); } catch { /* ignore */ }
+
+  if (isFirstOpen) {
+    try {
+      const { data: jobLite } = await supabase.from('jobs').select('client_name').eq('id', co.job_id).maybeSingle();
+      const clientName = jobLite?.client_name || 'Your client';
+      const baseRow = {
+        title: '📬 Client opened change order',
+        message: `${clientName} just viewed the change order.`,
+        type: 'change_order',
+        job_id: co.job_id,
+        read: false,
+      };
+      await supabase.from('notifications').insert([
+        { ...baseRow, recipient_role: 'sales' },
+        { ...baseRow, recipient_role: 'operations' },
+        { ...baseRow, recipient_role: 'owner' },
+      ]);
+    } catch { /* non-fatal */ }
+  }
   return json(res, 200, { ok: true, firstOpen: isFirstOpen, openCount: patch.client_open_count });
 }

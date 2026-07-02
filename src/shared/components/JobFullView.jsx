@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 import PhaseBreakdown from './PhaseBreakdown';
 import JobCostingSection from './JobCostingSection';
+import ChangeOrdersPanel from './ChangeOrdersPanel';
 import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
 import DailyLogsRichTab from './DailyLogsRichTab';
@@ -881,6 +882,9 @@ export default function JobFullView({
                 <p className="text-xs text-omega-stone mb-4">Track revenue, costs and gross margin as the project advances.</p>
                 <JobCostingSection job={job} user={user} />
               </div>
+
+              {/* Change Orders — signable extra scope */}
+              <ChangeOrdersPanel job={job} user={user} />
 
               {/* Actual expenses log */}
               <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { DollarSign, Save, TrendingUp, TrendingDown, Banknote, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
-import { sumAcceptedEstimates } from '../lib/jobFinancials';
+import { sumAcceptedEstimates, sumSignedChangeOrders } from '../lib/jobFinancials';
 
 function parseNum(v) {
   if (v === '' || v == null) return 0;
@@ -53,6 +53,9 @@ export default function JobCostingSection({ job, user }) {
   // line so the cost reduction from returns stays visible.
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [returnsTotal, setReturnsTotal] = useState(0);
+  // Sum of SIGNED change orders — extra approved scope, added on top of
+  // the base revenue.
+  const [changeOrderTotal, setChangeOrderTotal] = useState(0);
   const saveTimer = useRef(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [job?.id]);
@@ -112,6 +115,13 @@ export default function JobCostingSection({ job, user }) {
         return a < 0 ? s + a : s;
       }, 0));
 
+      // Signed change orders — extra approved scope added on top of revenue.
+      const { data: coRows } = await supabase
+        .from('change_orders')
+        .select('amount, status')
+        .eq('job_id', job.id);
+      setChangeOrderTotal(sumSignedChangeOrders(coRows || []));
+
       // Payment milestones — count AND live sum of received_amount.
       // When milestones exist the trigger (migration 058) owns
       // job_costs.amount_received, but we read the live sum directly
@@ -152,9 +162,12 @@ export default function JobCostingSection({ job, user }) {
   }
 
   const calc = useMemo(() => {
-    // Revenue: accepted estimates prevail; else the manual field.
+    // Revenue: accepted estimates prevail; else the manual field. Signed
+    // change orders are extra approved scope, added on top of the base.
     const manualRev = parseNum(form.estimated_revenue);
-    const revenue = acceptedEstTotal > 0 ? acceptedEstTotal : manualRev;
+    const baseRevenue = acceptedEstTotal > 0 ? acceptedEstTotal : manualRev;
+    const changeOrders = Number(changeOrderTotal) || 0;
+    const revenue = baseRevenue + changeOrders;
     const mat = parseNum(form.material_cost);
     const labor = parseNum(form.labor_cost);
     const sub = parseNum(form.sub_cost);
@@ -166,8 +179,8 @@ export default function JobCostingSection({ job, user }) {
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
     const received = parseNum(form.amount_received);
     const balanceDue = revenue - received;
-    return { revenue, totalCost, manualCost, profit, margin, received, balanceDue };
-  }, [form, acceptedEstTotal, expensesTotal]);
+    return { revenue, baseRevenue, changeOrders, totalCost, manualCost, profit, margin, received, balanceDue };
+  }, [form, acceptedEstTotal, expensesTotal, changeOrderTotal]);
 
   function update(k, v) {
     setForm((p) => ({ ...p, [k]: v }));

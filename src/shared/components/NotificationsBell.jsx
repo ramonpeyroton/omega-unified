@@ -10,7 +10,7 @@ export function tabForNotification(type) {
   switch (type) {
     case 'estimate':     return 'estimate';
     case 'contract':     return 'estimate';   // contracts live inside the estimate tab
-    case 'change_order': return 'estimate';
+    case 'change_order': return 'financials';   // CO panel lives in the Financials tab
     case 'finance':
     case 'payment':      return 'financials';
     case 'pipeline':     return 'daily';

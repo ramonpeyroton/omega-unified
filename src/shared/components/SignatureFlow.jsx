@@ -17,6 +17,9 @@ import { useEffect, useRef, useState } from 'react';
 // ─────────────────────────────────────────────────────────────────────
 export default function SignatureFlow({
   estimateId,
+  // When signing a Change Order instead of an estimate, the caller passes
+  // changeOrderId; the same /api/sign-estimate endpoint routes on it.
+  changeOrderId,
   customerName,
   companyPhone,
   disclaimers,
@@ -167,7 +170,7 @@ export default function SignatureFlow({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          estimate_id:              estimateId,
+          ...(changeOrderId ? { change_order_id: changeOrderId } : { estimate_id: estimateId }),
           signature_png:            png,
           initials_png:             initialsPng,
           signed_by:                name,
