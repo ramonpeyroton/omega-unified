@@ -73,8 +73,13 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
       ref={ref}
       className="invoice-doc"
       style={{
-        width: '8.27in',
-        padding: '0.6in',
+        // Full US-Letter width so the PDF (jsPDF format: 'letter') never
+        // clips the right edge. Horizontal whitespace comes from this
+        // element's own side padding (the html2pdf horizontal margin is 0),
+        // so content sits safely inside the page.
+        width: '8.5in',
+        padding: '0 0.6in',
+        boxSizing: 'border-box',
         background: '#ffffff',
         color: '#2C2C2A',
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif",

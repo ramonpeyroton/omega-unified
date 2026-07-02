@@ -549,7 +549,9 @@ export default function EstimateFlow({ job, user, onBack }) {
     const html2pdf = await loadHtml2Pdf();
     const blob = await html2pdf()
       .set({
-        margin: [0.5, 0.5, 0.6, 0.5],
+        // Horizontal margin is 0: the InvoiceTemplate is full letter width
+        // and provides its own side padding, so the right edge never clips.
+        margin: [0.5, 0, 0.6, 0],
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
