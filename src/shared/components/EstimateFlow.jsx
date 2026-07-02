@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper } from 'lucide-react';
+import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper, Plus } from 'lucide-react';
 import { validateUserPinDetailed } from '../lib/userPin';
 import { supabase } from '../lib/supabase';
 import { createEnvelope, getEnvelopeStatus, downloadSignedDocument, voidEnvelope } from '../lib/docusign';
@@ -766,20 +766,25 @@ export default function EstimateFlow({ job, user, onBack }) {
   // carrier estimate's `payment_plan` column (so a reload doesn't lose
   // the scaling we just applied) and advances to Step 3. The picker
   // already showed an explicit math-check modal before getting here.
-  async function confirmPickerAndContinue() {
+  async function confirmPickerAndContinue(editedPlan) {
     if (!estimate) {
       setToast({ type: 'error', message: 'No estimate selected.' });
       return;
     }
+    // The confirm popup now lets the operator edit the payment plan
+    // (labels / % / add / remove) before generating the contract. Use
+    // the edited plan when one comes back; otherwise keep the current.
+    const planToUse = Array.isArray(editedPlan) && editedPlan.length ? editedPlan : paymentPlan;
     setSaving(true);
     try {
+      if (Array.isArray(editedPlan) && editedPlan.length) setPaymentPlan(editedPlan);
       // Best-effort persistence — failure here is non-fatal because
       // the state in memory still drives the next steps. If the user
       // refreshes before sending, loadData re-applies buildPickedEstimate.
       try {
         await supabase
           .from('estimates')
-          .update({ payment_plan: paymentPlan })
+          .update({ payment_plan: planToUse })
           .eq('id', estimate.id);
       } catch { /* tolerated */ }
       setShowPickerConfirm(false);
@@ -1421,6 +1426,7 @@ export default function EstimateFlow({ job, user, onBack }) {
           pickedEstimateIds={pickedEstimateIds}
           total={(approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id))
             .reduce((s, e) => s + (Number(e.total_amount) || 0), 0)}
+          paymentPlan={paymentPlan}
           saving={saving}
           onClose={() => setShowPickerConfirm(false)}
           onConfirm={confirmPickerAndContinue}
@@ -1667,21 +1673,56 @@ function ChevronRightIcon() {
 // selected estimates back with their individual totals and the
 // final sum, so Attila has to confirm the math BEFORE moving on.
 // One of three math-check layers (modal + chip + send guard).
-function PickerConfirmModal({ approvedEstimates, pickedEstimateIds, total, saving, onConfirm, onClose }) {
+// Shown right before the contract is generated (Step 2 → Step 3). Beyond
+// confirming the total, it lets the operator review AND edit the payment
+// plan — installment labels, percentages, add/remove — with a hard
+// "must total 100%" guard. Amounts are derived live from % × total, so
+// the contract's math-check always ties out. The edited plan is handed
+// back via onConfirm(plan).
+function PickerConfirmModal({ approvedEstimates, pickedEstimateIds, total, paymentPlan, saving, onConfirm, onClose }) {
   const picked = (approvedEstimates || []).filter((e) => pickedEstimateIds.includes(e.id));
+
+  const DEFAULT_ROWS = [
+    { label: 'Deposit', percent: 30 },
+    { label: 'Upon start', percent: 30 },
+    { label: 'After painting', percent: 30 },
+    { label: 'Upon completion', percent: 10 },
+  ];
+  const seed = (Array.isArray(paymentPlan) && paymentPlan.length ? paymentPlan : DEFAULT_ROWS)
+    .map((p) => ({ label: p.label || '', percent: String(p.percent ?? '') }));
+  const [rows, setRows] = useState(seed);
+
   if (!picked.length) return null;
+
+  const money = (n) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sumPct = rows.reduce((s, r) => s + (Number(r.percent) || 0), 0);
+  const sumShown = Math.round(sumPct * 100) / 100;
+  const pctOk = Math.abs(sumPct - 100) < 0.5;
+  const labelsOk = rows.every((r) => r.label.trim());
+  const valid = rows.length > 0 && pctOk && labelsOk;
+
+  const setRow = (i, key, val) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [key]: val } : r)));
+  const addRow = () => setRows((prev) => [...prev, { label: '', percent: '' }]);
+  const removeRow = (i) => setRows((prev) => prev.filter((_, idx) => idx !== i));
+
+  function confirm() {
+    const plan = rows.map((r) => {
+      const pct = Number(r.percent) || 0;
+      return { label: r.label.trim(), percent: pct, amount: Math.round((pct / 100) * total * 100) / 100, due_date: '' };
+    });
+    onConfirm(plan);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(ev) => ev.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={(ev) => ev.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
           <h3 className="text-base font-bold text-omega-charcoal flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-omega-success" /> Confirm contract total
+            <CheckCircle2 className="w-5 h-5 text-omega-success" /> Confirm payment plan
           </h3>
         </div>
         <div className="px-6 py-5">
-          <p className="text-sm text-omega-stone mb-3">
-            Verify the math before generating the contract:
-          </p>
+          <p className="text-sm text-omega-stone mb-2">Estimates feeding this contract:</p>
           <ul className="space-y-1 mb-3">
             {picked.map((e) => {
               const tag = e.estimate_number ? `OM-${e.estimate_number}` : 'Estimate';
@@ -1693,18 +1734,58 @@ function PickerConfirmModal({ approvedEstimates, pickedEstimateIds, total, savin
               );
             })}
           </ul>
-          <div className="border-t border-gray-200 pt-3 flex justify-between items-baseline">
+          <div className="border-t border-gray-200 pt-3 flex justify-between items-baseline mb-5">
             <span className="text-xs uppercase tracking-wider font-bold text-omega-stone">Total</span>
             <span className="text-2xl font-bold text-omega-charcoal tabular-nums">${total.toLocaleString()}</span>
           </div>
+
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-wider font-bold text-omega-stone">Payment plan</span>
+            <button onClick={addRow} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark">
+              <Plus className="w-3.5 h-3.5" /> Add installment
+            </button>
+          </div>
+          <div className="space-y-2">
+            {rows.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  value={r.label}
+                  onChange={(e) => setRow(i, 'label', e.target.value)}
+                  placeholder={`Installment ${i + 1}`}
+                  className="flex-1 min-w-0 px-2.5 py-2 rounded-lg border border-gray-200 focus:border-omega-orange outline-none text-sm"
+                />
+                <div className="relative w-16 flex-shrink-0">
+                  <input
+                    type="number" inputMode="decimal" min="0" max="100"
+                    value={r.percent}
+                    onChange={(e) => setRow(i, 'percent', e.target.value)}
+                    placeholder="0"
+                    className="w-full pr-5 pl-2 py-2 rounded-lg border border-gray-200 focus:border-omega-orange outline-none text-sm text-right tabular-nums"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone text-xs">%</span>
+                </div>
+                <span className="w-24 flex-shrink-0 text-right text-sm tabular-nums text-omega-stone">
+                  {money(((Number(r.percent) || 0) / 100) * total)}
+                </span>
+                <button onClick={() => removeRow(i)} className="p-1 text-omega-stone hover:text-red-600 flex-shrink-0" title="Remove installment">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className={`mt-3 flex justify-between text-xs font-bold ${pctOk ? 'text-omega-success' : 'text-red-600'}`}>
+            <span>Sum of percentages</span>
+            <span className="tabular-nums">{sumShown}% {pctOk ? '✓' : '— must equal 100%'}</span>
+          </div>
+          {!labelsOk && <p className="text-[11px] text-red-600 mt-1">Every installment needs a label.</p>}
         </div>
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2 sticky bottom-0 bg-white">
           <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-omega-charcoal hover:bg-gray-50">
             Cancel
           </button>
           <button
-            onClick={onConfirm}
-            disabled={saving}
+            onClick={confirm}
+            disabled={saving || !valid}
             className="px-4 py-2 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Confirm & Continue'}
@@ -1851,7 +1932,7 @@ function ManualAdvancePinModal({ user, onClose, onConfirm }) {
     setVerifying(true);
     setError('');
     try {
-      const result = await validateUserPinDetailed({ name: user?.name, pin, role: user?.role });
+      const result = await validateUserPinDetailed({ name: user?.name, role: user?.role }, pin);
       if (result.ok) {
         await onConfirm();
       } else {
