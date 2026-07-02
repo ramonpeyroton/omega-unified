@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import VoiceNoteRecorder from './VoiceNoteRecorder';
 import BulkDocumentUpload from './BulkDocumentUpload';
+import ChangeOrdersFolder from './ChangeOrdersFolder';
 
 // Roles allowed to use the bulk legacy importer at the bottom of the
 // page. Scoped tight on purpose — Brenda + Rafaela only, since this
@@ -47,7 +48,9 @@ const FOLDERS = [
   { id: 'building_plans', label: 'Building Plans', icon: Home            },
   { id: 'checks',         label: 'Checks',         icon: CheckSquare     },
   { id: 'contracts',      label: 'Contracts',      icon: FileSignature   },
-  { id: 'change_orders',  label: 'Change Orders',  icon: FileText        },
+  // Change Orders are now a signable-document block (rendered next to
+  // Estimates), not a plain upload folder — so they're intentionally NOT
+  // in this generic folders list.
   // Auto-populated from NativeProjectChat uploads (sprint 5). Users
   // typically don't add to this folder manually — they just chat.
   { id: 'daily_logs',     label: 'Daily Logs Media', icon: ImageIcon     },
@@ -270,11 +273,11 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
         )}
       </div>
 
-      {/* Estimates — one row per row, grouped by proposal (group_id). A
-          lone estimate renders as a single-row group; alternatives sit
-          together under an "Option N of M" chip so the audit trail is
-          obvious: what was sent, what the customer rejected, what was
-          signed. */}
+      {/* Estimates + Change Orders — side by side. Both are signable
+          client documents; the folders grid below holds file uploads.
+          Estimates: one row per proposal (group_id) so the audit trail is
+          obvious — what was sent, rejected, signed. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-100 flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-omega-pale flex items-center justify-center">
@@ -385,6 +388,8 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
             })}
           </div>
         ))}
+      </div>
+      <ChangeOrdersFolder job={job} user={user} />
       </div>
 
       {/* Folders grid */}
