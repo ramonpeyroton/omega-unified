@@ -48,6 +48,57 @@ Upon Start 30%
 After Painting Completion 30%
 Upon Completion 10%`;
 
+// ─── Structured payment plan ──────────────────────────────────────────
+// The plan is now the SOURCE OF TRUTH, saved to estimates.payment_plan so
+// the contract reads it directly instead of re-parsing the free-text
+// customer message (which was fragile: dollar amounts, a stray %, or a
+// non-100% sum made the contract silently fall back to a default plan).
+// The customer-facing text is generated FROM these rows so the client
+// still sees the schedule.
+const DEFAULT_PLAN_ROWS = [
+  { label: 'Deposit', percent: '30' },
+  { label: 'Upon Start', percent: '30' },
+  { label: 'After Painting Completion', percent: '30' },
+  { label: 'Upon Completion', percent: '10' },
+];
+
+const PLAN_PRESETS = [
+  { label: '30/30/30/10%', rows: [{ label: 'Deposit', percent: '30' }, { label: 'Upon Start', percent: '30' }, { label: 'After Painting Completion', percent: '30' }, { label: 'Upon Completion', percent: '10' }] },
+  { label: '50/50%',       rows: [{ label: 'Deposit', percent: '50' }, { label: 'Upon Completion', percent: '50' }] },
+  { label: '33/33/34%',    rows: [{ label: 'Deposit', percent: '33' }, { label: 'Midway', percent: '33' }, { label: 'Upon Completion', percent: '34' }] },
+  { label: '25/50/25%',    rows: [{ label: 'Deposit', percent: '25' }, { label: 'Upon Start', percent: '50' }, { label: 'Upon Completion', percent: '25' }] },
+];
+
+// Structured rows → customer-facing schedule text.
+function planRowsToText(rows) {
+  const lines = (rows || [])
+    .filter((r) => (r.label || '').trim() || r.percent)
+    .map((r) => `${(r.label || '').trim()} ${Number(r.percent) || 0}%`.trim());
+  return lines.length ? `Payment Schedule:\n${lines.join('\n')}` : '';
+}
+
+// Backward-compat: turn an old free-text schedule into structured rows so
+// existing estimates keep their plan when reopened. Same permissive
+// "label N%" parse the contract used to rely on — but here it only seeds
+// the editable table; the operator can fix it, and it saves structured.
+function parsePlanRows(message) {
+  if (!message || typeof message !== 'string') return [];
+  const cleaned = message.replace(/payment\s*schedule\s*:?/i, '');
+  const pct = /([\d]+(?:\.\d+)?)\s*%/;
+  const out = [];
+  for (const chunk of cleaned.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean)) {
+    const m = chunk.match(pct);
+    if (!m) continue;
+    const percent = Number(m[1]);
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) continue;
+    const label = chunk.replace(pct, '').replace(/^\s*[-–:•]+\s*/, '').replace(/\s*[-–:•]+\s*$/, '').trim() || `Installment ${out.length + 1}`;
+    out.push({ label, percent: String(percent) });
+  }
+  const totalPct = out.reduce((s, r) => s + Number(r.percent), 0);
+  if (out.length === 0 || Math.abs(totalPct - 100) > 5) return [];
+  return out;
+}
+
 function emptyItem()    { return { id: newId(), description: '', scope: '', price: 0 }; }
 function emptySection() { return { id: newId(), title: 'Section 1', items: [emptyItem()] }; }
 
@@ -62,6 +113,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   const [headerDescription, setHeaderDescription] = useState('');
   const [sections, setSections] = useState([emptySection()]);
   const [customerMessage, setCustomerMessage] = useState(DEFAULT_PAYMENT);
+  // Structured payment plan (source of truth for the contract).
+  const [paymentPlan, setPaymentPlan] = useState(() => DEFAULT_PLAN_ROWS.map((r) => ({ ...r })));
   const [optionLabel, setOptionLabel] = useState('');
   // Disclaimers shown to the customer right above the signature flow.
   // Defaults to the global template; the seller can edit them per-estimate.
@@ -158,6 +211,12 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setHeaderDescription(row?.header_description || '');
     setSections(Array.isArray(row?.sections) && row.sections.length ? ensureIds(row.sections) : [emptySection()]);
     setCustomerMessage(row?.customer_message || DEFAULT_PAYMENT);
+    // Seed the structured plan from the saved column when present; else
+    // parse the old text (backward compat); else the 30/30/30/10 default.
+    const seededPlan = Array.isArray(row?.payment_plan) && row.payment_plan.length
+      ? row.payment_plan.map((p) => ({ label: p.label || '', percent: String(p.percent ?? '') }))
+      : parsePlanRows(row?.customer_message || DEFAULT_PAYMENT);
+    setPaymentPlan(seededPlan.length ? seededPlan : DEFAULT_PLAN_ROWS.map((r) => ({ ...r })));
     setOptionLabel(row?.option_label || '');
     // Use the persisted disclaimers if the seller already customized
     // them on this estimate; otherwise fall back to the default. A row
@@ -293,6 +352,29 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   const total = sections.reduce((acc, sec) =>
     acc + (sec.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
 
+  // ─── Payment plan editor handlers ─────────────────────────────────
+  // Editing the rows keeps the customer-facing message text in sync so
+  // the client always sees the schedule that the contract will use.
+  const planSumPct = paymentPlan.reduce((s, r) => s + (Number(r.percent) || 0), 0);
+  function applyPlanPreset(rows) {
+    const next = rows.map((r) => ({ ...r }));
+    setPaymentPlan(next);
+    setCustomerMessage(planRowsToText(next));
+  }
+  function setPlanRow(i, key, val) {
+    const next = paymentPlan.map((r, idx) => (idx === i ? { ...r, [key]: val } : r));
+    setPaymentPlan(next);
+    setCustomerMessage(planRowsToText(next));
+  }
+  function addPlanRow() {
+    setPaymentPlan((prev) => [...prev, { label: '', percent: '' }]);
+  }
+  function removePlanRow(i) {
+    const next = paymentPlan.filter((_, idx) => idx !== i);
+    setPaymentPlan(next);
+    setCustomerMessage(planRowsToText(next));
+  }
+
   // ─── Persistence ──────────────────────────────────────────────────
   async function persist(extra = {}) {
     const base = {
@@ -300,6 +382,14 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       header_description: headerDescription,
       sections,
       customer_message: customerMessage,
+      // Structured plan — the contract reads this directly (no more
+      // parsing the message text). Amounts derived from the live total.
+      payment_plan: paymentPlan
+        .filter((r) => (r.label || '').trim() || r.percent)
+        .map((r) => {
+          const pct = Number(r.percent) || 0;
+          return { label: (r.label || '').trim(), percent: pct, amount: Math.round((pct / 100) * total * 100) / 100, due_date: '' };
+        }),
       total_amount: total,
       option_label: optionLabel || null,
       bundle_label: bundleLabel || null,
@@ -418,6 +508,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         header_description: current.header_description,
         sections: current.sections,
         customer_message: current.customer_message,
+        payment_plan: current.payment_plan,
         total_amount: current.total_amount,
         status: 'draft',
         group_id: groupId,
@@ -499,6 +590,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         header_description: '',
         sections: [{ title: 'Section 1', items: [{ description: '', scope: '', price: 0 }] }],
         customer_message: current.customer_message,
+        payment_plan: current.payment_plan,
         total_amount: 0,
         status: 'draft',
         bundle_id: newBundleId,
@@ -571,7 +663,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       setEstimate(null); setOptions([]); setActiveId(null);
       setBundleMembers([]); setBundleLabel('');
       setHeaderDescription(''); setSections([emptySection()]);
-      setCustomerMessage(DEFAULT_PAYMENT); setOptionLabel('');
+      setCustomerMessage(DEFAULT_PAYMENT); setPaymentPlan(DEFAULT_PLAN_ROWS.map((r) => ({ ...r }))); setOptionLabel('');
       setDisclaimers(DEFAULT_ESTIMATE_DISCLAIMERS);
       setToast({ type: 'success', message: `${label} deleted.` });
     } catch (err) {
@@ -1088,37 +1180,84 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         </p>
       </div>
 
-      {/* Customer message / payment schedule — kept in its own card so
-          it doesn't fight the action footer for visual weight. */}
+      {/* Payment schedule — STRUCTURED. This table is the source of truth
+          saved to estimates.payment_plan, so the contract reads it directly
+          (no more guessing from text). The customer message below is
+          generated from these rows. */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-          <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Customer Message / Payment Schedule</span>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Payment Schedule</span>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {[
-              { label: '30/30/30/10%', value: 'Payment Schedule:\nDeposit - 30%\nUpon Start 30%\nAfter Painting Completion 30%\nUpon Completion 10%' },
-              { label: '50/50%',       value: 'Payment Schedule:\nDeposit - 50%\nUpon Completion 50%' },
-              { label: '33/33/34%',    value: 'Payment Schedule:\nDeposit - 33%\nMidway 33%\nUpon Completion 34%' },
-              { label: '25/50/25%',    value: 'Payment Schedule:\nDeposit - 25%\nUpon Start 50%\nUpon Completion 25%' },
-            ].map(({ label, value }) => (
+            {PLAN_PRESETS.map((p) => (
               <button
-                key={label}
+                key={p.label}
                 type="button"
-                onClick={() => setCustomerMessage(value)}
+                onClick={() => applyPlanPreset(p.rows)}
                 className="px-2 py-1 rounded-md bg-omega-cloud border border-gray-200 text-[10px] font-bold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
               >
-                {label}
+                {p.label}
               </button>
             ))}
           </div>
         </div>
-        <label className="block">
+
+        <div className="space-y-2">
+          {paymentPlan.map((r, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                value={r.label}
+                onChange={(e) => setPlanRow(i, 'label', e.target.value)}
+                placeholder={`Installment ${i + 1}`}
+                className="flex-1 min-w-0 px-2.5 py-2 rounded-lg border border-gray-200 focus:border-omega-orange outline-none text-sm"
+              />
+              <div className="relative w-24 flex-shrink-0">
+                <input
+                  value={r.percent}
+                  onChange={(e) => setPlanRow(i, 'percent', e.target.value.replace(/[^0-9.]/g, ''))}
+                  inputMode="decimal"
+                  placeholder="0"
+                  className="w-full pr-6 pl-2.5 py-2 rounded-lg border border-gray-200 focus:border-omega-orange outline-none text-sm text-right font-semibold"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-omega-stone text-sm">%</span>
+              </div>
+              <div className="w-24 flex-shrink-0 text-right text-xs text-omega-stone tabular-nums">
+                {total ? `$${Math.round((Number(r.percent) || 0) / 100 * total).toLocaleString()}` : ''}
+              </div>
+              <button
+                type="button"
+                onClick={() => removePlanRow(i)}
+                className="text-omega-stone hover:text-red-600 p-1 flex-shrink-0"
+                title="Remove installment"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between mt-3">
+          <button
+            type="button"
+            onClick={addPlanRow}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add installment
+          </button>
+          <span className={`text-xs font-bold ${Math.abs(planSumPct - 100) < 0.5 ? 'text-omega-success' : 'text-red-600'}`}>
+            Total: {Math.round(planSumPct * 100) / 100}%{Math.abs(planSumPct - 100) < 0.5 ? ' ✓' : ' — must be 100%'}
+          </span>
+        </div>
+
+        {/* Client-facing text — generated from the plan above, still editable. */}
+        <div className="mt-4">
+          <span className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Customer Message (what the client sees)</span>
           <textarea
-            rows={6}
+            rows={5}
             value={customerMessage}
             onChange={(e) => setCustomerMessage(e.target.value)}
             className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none font-mono"
           />
-        </label>
+        </div>
       </div>
 
       {/* Customer-facing options — Acorn financing toggle.
