@@ -19,6 +19,7 @@
 //   SUPABASE_SERVICE_ROLE_KEY      service_role key (bypasses RLS)
 
 import { createClient } from '@supabase/supabase-js';
+import { notifyOfficeRoles } from './_lib/notify.js';
 
 const SUPABASE_URL   = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -241,10 +242,12 @@ export default async function handler(req, res) {
     const message = rejected_siblings > 0
       ? `Customer picked one of ${rejected_siblings + 1} options and signed. Prepare the contract for DocuSign.`
       : 'Customer signed the estimate. Prepare the contract for DocuSign.';
-    await supabase.from('notifications').insert([
-      { recipient_role: 'sales',      title, message, type: 'estimate_approved', job_id: estimate.job_id, read: false },
-      { recipient_role: 'operations', title, message, type: 'estimate_approved', job_id: estimate.job_id, read: false },
-    ]);
+    await notifyOfficeRoles(supabase, {
+      jobId: estimate.job_id,
+      type: 'estimate_approved',
+      title,
+      message,
+    });
   } catch { /* ignore */ }
 
   // Email Omega's main inbox so Brenda + the salesperson see the
@@ -374,11 +377,7 @@ async function signChangeOrder(req, res, body) {
   try {
     const title = `Change order signed by ${signed_by}`;
     const message = `Customer signed a change order${co.amount ? ` for ${money(co.amount)}` : ''}${co.description ? `: ${co.description}` : ''}.`;
-    await supabase.from('notifications').insert([
-      { recipient_role: 'sales',      title, message, type: 'change_order', job_id: co.job_id, read: false },
-      { recipient_role: 'operations', title, message, type: 'change_order', job_id: co.job_id, read: false },
-      { recipient_role: 'owner',      title, message, type: 'change_order', job_id: co.job_id, read: false },
-    ]);
+    await notifyOfficeRoles(supabase, { jobId: co.job_id, type: 'change_order', title, message });
   } catch { /* ignore */ }
 
   // Email Omega's inbox (optional — same Resend transport).

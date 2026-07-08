@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Bell, X, Check, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { recipientRolesFor, renderNotificationText } from '../lib/notifications';
+import { recipientRolesFor, renderNotificationText, dedupeNotifications } from '../lib/notifications';
 
 // Maps notification.type to the JobFullView tab to land on when the
 // user taps the notification. Centralised so the popover and the
@@ -49,10 +49,12 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
         // baked client_name for the current one (audit #9).
         .select('*, jobs(client_name)')
         .order('created_at', { ascending: false })
-        .limit(30);
+        .limit(60);
       if (roles) query = query.in('recipient_role', roles);
       const { data } = await query;
-      setItems(data || []);
+      // Collapse the per-role fan-out so the owner (who sees every role's
+      // row) sees each event once.
+      setItems(dedupeNotifications(data || []));
     } catch {
       setItems([]);
     }
@@ -60,19 +62,31 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read && !n.seen).length, [items]);
 
-  async function markRead(id) {
+  // Scope a query to ALL per-role sibling rows of one event (same
+  // type + job_id + created_at). The owner sees a single deduped item,
+  // but the DB has 3 rows — marking/deleting must hit all of them or the
+  // item reappears on the next load. Falls back to id when incomplete.
+  function scopeToEvent(q, row) {
+    if (row?.type && row?.job_id && row?.created_at) {
+      return q.eq('type', row.type).eq('job_id', row.job_id).eq('created_at', row.created_at);
+    }
+    return q.eq('id', row?.id);
+  }
+
+  async function markRead(row) {
     try {
-      await supabase.from('notifications').update({ read: true, seen: true }).eq('id', id);
-      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true, seen: true } : n)));
+      await scopeToEvent(supabase.from('notifications').update({ read: true, seen: true }), row);
+      setItems((prev) => prev.map((n) => (n.id === row?.id ? { ...n, read: true, seen: true } : n)));
     } catch { /* ignore */ }
   }
 
   async function markAllRead() {
-    const ids = items.filter((n) => !n.read && !n.seen).map((n) => n.id);
-    if (ids.length === 0) return;
+    const unread = items.filter((n) => !n.read && !n.seen);
+    if (unread.length === 0) return;
     try {
-      await supabase.from('notifications').update({ read: true, seen: true }).in('id', ids);
-      setItems((prev) => prev.map((n) => ids.includes(n.id) ? { ...n, read: true, seen: true } : n));
+      await Promise.all(unread.map((n) =>
+        scopeToEvent(supabase.from('notifications').update({ read: true, seen: true }), n)));
+      setItems((prev) => prev.map((n) => (!n.read && !n.seen ? { ...n, read: true, seen: true } : n)));
     } catch { /* ignore */ }
   }
 
@@ -81,7 +95,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
   // wire its existing fullView handler into onOpenJob(job, tab).
   // Falls back to mark-as-read when there's no host handler or job_id.
   async function handleClick(n) {
-    await markRead(n.id);
+    await markRead(n);
     if (n.job_id && typeof onOpenJob === 'function') {
       try {
         const { data: job } = await supabase
@@ -94,11 +108,11 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
     }
   }
 
-  async function deleteOne(id, e) {
+  async function deleteOne(row, e) {
     e?.stopPropagation();
     try {
-      await supabase.from('notifications').delete().eq('id', id);
-      setItems((prev) => prev.filter((n) => n.id !== id));
+      await scopeToEvent(supabase.from('notifications').delete(), row);
+      setItems((prev) => prev.filter((n) => n.id !== row?.id));
     } catch { /* ignore */ }
   }
 
@@ -172,7 +186,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
                       <div className="flex items-start gap-1 flex-shrink-0 mt-1">
                         {!unread && <Check className="w-3.5 h-3.5 text-omega-success" />}
                         <button
-                          onClick={(e) => deleteOne(n.id, e)}
+                          onClick={(e) => deleteOne(n, e)}
                           className="opacity-60 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-omega-stone hover:text-red-600"
                           title="Delete notification"
                         >

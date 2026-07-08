@@ -15,6 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
+import { notifyOfficeRoles, shouldNotifyOpen } from './_lib/notify.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -583,40 +584,36 @@ async function handleEstimateOpened(estimateId, res) {
 
   const isFirstOpen = !estimate.client_opened_at;
   const nowIso = new Date().toISOString();
+  // Notify on every open, but at most once per 30 min per document, so a
+  // client refreshing the page doesn't blast the whole office.
+  const shouldNotify = shouldNotifyOpen(estimate.last_open_notified_at, 30);
   const patch = {
     client_last_opened_at: nowIso,
     client_open_count: (estimate.client_open_count || 0) + 1,
   };
   if (isFirstOpen) patch.client_opened_at = nowIso;
+  if (shouldNotify) patch.last_open_notified_at = nowIso;
 
   try { await supabase.from('estimates').update(patch).eq('id', estimateId); }
   catch { /* non-fatal */ }
 
-  // In-app notification on the FIRST open. Sent to Sales, Operations
-  // and Owner so Attila, Brenda (or whoever replaces her) and Inácio
-  // all see the bell light up. Done even when Resend isn't configured
-  // because the bell doesn't depend on email infrastructure.
-  if (isFirstOpen) {
+  // In-app notification (Sales + Operations + Owner). Done even when
+  // Resend isn't configured — the bell doesn't depend on email.
+  if (shouldNotify) {
     try {
       const { data: jobLite } = await supabase
         .from('jobs').select('client_name').eq('id', estimate.job_id).maybeSingle();
       const clientName = jobLite?.client_name || 'Your client';
-      const baseRow = {
+      await notifyOfficeRoles(supabase, {
+        jobId: estimate.job_id,
+        type: 'estimate',
         title: '📬 Client opened estimate',
         message: `${clientName} just viewed the estimate${estimate.estimate_number ? ` (#${estimate.estimate_number})` : ''}.`,
-        type: 'estimate',
-        job_id: estimate.job_id,
-        read: false,
-      };
-      await supabase.from('notifications').insert([
-        { ...baseRow, recipient_role: 'sales' },
-        { ...baseRow, recipient_role: 'operations' },
-        { ...baseRow, recipient_role: 'owner' },
-      ]);
+      });
     } catch { /* non-fatal */ }
   }
 
-  if (isFirstOpen && RESEND_API_KEY) {
+  if (shouldNotify && RESEND_API_KEY) {
     try {
       const { data: job } = await supabase.from('jobs').select('*').eq('id', estimate.job_id).maybeSingle();
       const { data: company } = await supabase
@@ -709,31 +706,55 @@ async function sendChangeOrder(req, res, body) {
 // ─── Change Order: opened beacon (public) ─────────────────────────────
 async function handleChangeOrderOpened(coId, res) {
   const { data: co } = await supabase
-    .from('change_orders').select('id, job_id, client_opened_at, client_open_count').eq('id', coId).maybeSingle();
+    .from('change_orders').select('id, job_id, client_opened_at, client_open_count, last_open_notified_at, co_number').eq('id', coId).maybeSingle();
   if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
 
   const isFirstOpen = !co.client_opened_at;
+  const nowIso = new Date().toISOString();
+  const shouldNotify = shouldNotifyOpen(co.last_open_notified_at, 30);
   const patch = { client_open_count: (Number(co.client_open_count) || 0) + 1 };
-  if (isFirstOpen) patch.client_opened_at = new Date().toISOString();
+  if (isFirstOpen) patch.client_opened_at = nowIso;
+  if (shouldNotify) patch.last_open_notified_at = nowIso;
   try { await supabase.from('change_orders').update(patch).eq('id', coId); } catch { /* ignore */ }
 
-  if (isFirstOpen) {
+  if (shouldNotify) {
+    let clientName = 'Your client';
     try {
       const { data: jobLite } = await supabase.from('jobs').select('client_name').eq('id', co.job_id).maybeSingle();
-      const clientName = jobLite?.client_name || 'Your client';
-      const baseRow = {
-        title: '📬 Client opened change order',
-        message: `${clientName} just viewed the change order.`,
+      clientName = jobLite?.client_name || 'Your client';
+      await notifyOfficeRoles(supabase, {
+        jobId: co.job_id,
         type: 'change_order',
-        job_id: co.job_id,
-        read: false,
-      };
-      await supabase.from('notifications').insert([
-        { ...baseRow, recipient_role: 'sales' },
-        { ...baseRow, recipient_role: 'operations' },
-        { ...baseRow, recipient_role: 'owner' },
-      ]);
+        title: '📬 Client opened change order',
+        message: `${clientName} just viewed the change order${co.co_number ? ` (#CO-${co.co_number})` : ''}.`,
+      });
     } catch { /* non-fatal */ }
+
+    // Email the office inbox too (parity with estimates).
+    if (RESEND_API_KEY) {
+      try {
+        const { data: company } = await supabase
+          .from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        const to = company?.email;
+        if (to) {
+          const link = `${PUBLIC_APP_URL.replace(/\/$/, '')}/change-order-view/${coId}`;
+          const subject = `📬 Change order opened — ${clientName}`;
+          const html = `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:520px;margin:0 auto;background:white;padding:24px;border-radius:8px;">
+    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:800;">Change order opened</div>
+    <h1 style="font-size:20px;margin:6px 0 12px;font-weight:900;">${escape(clientName)} opened the change order</h1>
+    <p style="font-size:13px;color:#555;">They just viewed it. <a href="${link}">Open the change order</a>.</p>
+  </div>
+</body></html>`;
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html }),
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
   }
   return json(res, 200, { ok: true, firstOpen: isFirstOpen, openCount: patch.client_open_count });
 }

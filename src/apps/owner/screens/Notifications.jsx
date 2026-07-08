@@ -3,6 +3,7 @@ import { Bell, CheckCheck } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { dedupeNotifications } from '../../../shared/lib/notifications';
 
 export default function Notifications({ onBack }) {
   const [notifications, setNotifications] = useState([]);
@@ -16,7 +17,9 @@ export default function Notifications({ onBack }) {
       .select('*, jobs(client_name, service)')
       .order('created_at', { ascending: false })
       .limit(100);
-    setNotifications(data || []);
+    // Collapse the per-role fan-out (sales/operations/owner rows of one
+    // event) so the owner sees each event once, not three times.
+    setNotifications(dedupeNotifications(data || []));
     setLoading(false);
     await supabase.from('notifications').update({ seen: true }).eq('seen', false);
   }

@@ -13,6 +13,7 @@
 //   DOCUSIGN_HMAC_SECRET        // optional; if set, HMAC signature is verified
 
 import { createClient } from '@supabase/supabase-js';
+import { notifyOfficeRoles, shouldNotifyOpen } from './_lib/notify.js';
 import crypto from 'node:crypto';
 import { getAccessToken } from './_lib/docusignAuth.js';
 
@@ -98,6 +99,32 @@ async function notifyOmegaOfSigning({ kind, row, signedAt }) {
   </div>
 </body></html>`;
 
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html }),
+    });
+  } catch { /* silent */ }
+}
+
+// "Client opened the contract" email to the office inbox — parity with
+// the estimate/change-order open emails. Best-effort.
+async function notifyOmegaOfContractOpened({ clientName }) {
+  if (!RESEND_API_KEY) return;
+  try {
+    const { data: company } = await supabase
+      .from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+    const to = company?.email;
+    if (!to) return;
+    const subject = `📬 Contract opened — ${clientName}`;
+    const html = `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:520px;margin:0 auto;background:white;padding:24px;border-radius:8px;">
+    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#E8732A;font-weight:800;">Contract opened</div>
+    <h1 style="font-size:20px;margin:6px 0 12px;font-weight:900;">${escapeHtml(clientName)} opened the contract</h1>
+    <p style="font-size:13px;color:#555;">They just opened it in DocuSign to sign.</p>
+  </div>
+</body></html>`;
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -230,6 +257,11 @@ export default async function handler(req, res) {
       const patch = { docusign_status: status };
       const becomingSigned =
         event === 'envelope-signed' || status === 'completed' || status === 'signed';
+      // Recipient opened the envelope. DocuSign Connect fires
+      // "recipient-delivered" when the signer actually views it — that's
+      // the contract analog of the estimate "opened" beacon.
+      const isOpenedEvent =
+        event === 'recipient-delivered' || event === 'recipient-viewed';
       if (becomingSigned) {
         patch.status = 'signed';
         patch.signed_at = completedAt || new Date().toISOString();
@@ -246,7 +278,18 @@ export default async function handler(req, res) {
       } else if (event === 'envelope-sent' || status === 'sent') {
         patch.status = 'sent';
       }
+      // Throttle the "opened" notification to once per 30 min per contract.
+      const notifyOpen = isOpenedEvent && shouldNotifyOpen(contract.last_open_notified_at, 30);
+      if (notifyOpen) patch.last_open_notified_at = new Date().toISOString();
+
       await supabase.from('contracts').update(patch).eq('id', contract.id);
+
+      // Client name for the messages/emails below.
+      let clientName = 'Your client';
+      try {
+        const { data: jobLite } = await supabase.from('jobs').select('client_name').eq('id', contract.job_id).maybeSingle();
+        clientName = jobLite?.client_name || 'Your client';
+      } catch { /* ignore */ }
 
       // When the customer signs, materialize payment_milestones from the
       // payment_plan JSONB so the Finance area has rows to track. Idempotent
@@ -262,6 +305,24 @@ export default async function handler(req, res) {
         await downloadAndSaveSignedContract({ ...contract, ...patch });
         // Email Omega's main inbox with a simple confirmation.
         await notifyOmegaOfSigning({ kind: 'contract', row: { ...contract, ...patch }, signedAt: patch.signed_at });
+        // In-app bell — Sales + Operations + Owner (one each, deduped).
+        await notifyOfficeRoles(supabase, {
+          jobId: contract.job_id,
+          type: 'contract',
+          title: `Contract signed by ${clientName}`,
+          message: `${clientName} signed the contract. Payment milestones are ready in Finance.`,
+        });
+      }
+
+      // Client opened the contract (throttled).
+      if (notifyOpen) {
+        await notifyOfficeRoles(supabase, {
+          jobId: contract.job_id,
+          type: 'contract',
+          title: '📬 Client opened contract',
+          message: `${clientName} just opened the contract to sign.`,
+        });
+        await notifyOmegaOfContractOpened({ clientName });
       }
 
       res.status(200).json({ ok: true, kind: 'contract' });

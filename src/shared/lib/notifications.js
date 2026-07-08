@@ -110,6 +110,27 @@ export function renderNotificationText(row) {
  * Used by both the NotificationsBell (header popover) and each role's
  * dedicated Alerts screen to keep the filtering consistent.
  */
+/**
+ * Collapse the per-role fan-out (one event inserts a sales + operations +
+ * owner row) into a single item for display. Owner/admin see every role's
+ * row, so without this the owner would see the same event 3×. The 3 rows
+ * from one insert share type + job_id + exact created_at, so that's the
+ * dedupe key. Rows missing any of those key on their id → never merged.
+ */
+export function dedupeNotifications(rows = []) {
+  const seen = new Set();
+  const out = [];
+  for (const r of (rows || [])) {
+    const key = (r.type && r.job_id && r.created_at)
+      ? `${r.type}|${r.job_id}|${r.created_at}`
+      : `id:${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
 export function recipientRolesFor(role) {
   if (role === 'admin' || role === 'owner') return null;            // see everything
   if (role === 'salesperson' || role === 'sales') return ['sales', 'all'];
