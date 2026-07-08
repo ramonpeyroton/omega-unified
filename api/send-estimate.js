@@ -584,9 +584,13 @@ async function handleEstimateOpened(estimateId, res) {
 
   const isFirstOpen = !estimate.client_opened_at;
   const nowIso = new Date().toISOString();
+  // Only a SENT estimate counts as a real "client opened" — internal
+  // "Preview Estimate" on a draft opens the same public page and would
+  // otherwise fire a false alarm to the whole office.
+  const wasSent = !!estimate.sent_at || (estimate.status && estimate.status !== 'draft');
   // Notify on every open, but at most once per 30 min per document, so a
   // client refreshing the page doesn't blast the whole office.
-  const shouldNotify = shouldNotifyOpen(estimate.last_open_notified_at, 30);
+  const shouldNotify = wasSent && shouldNotifyOpen(estimate.last_open_notified_at, 30);
   const patch = {
     client_last_opened_at: nowIso,
     client_open_count: (estimate.client_open_count || 0) + 1,
@@ -706,12 +710,15 @@ async function sendChangeOrder(req, res, body) {
 // ─── Change Order: opened beacon (public) ─────────────────────────────
 async function handleChangeOrderOpened(coId, res) {
   const { data: co } = await supabase
-    .from('change_orders').select('id, job_id, client_opened_at, client_open_count, last_open_notified_at, co_number').eq('id', coId).maybeSingle();
+    .from('change_orders').select('id, job_id, client_opened_at, client_open_count, last_open_notified_at, co_number, sent_at, status').eq('id', coId).maybeSingle();
   if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
 
   const isFirstOpen = !co.client_opened_at;
   const nowIso = new Date().toISOString();
-  const shouldNotify = shouldNotifyOpen(co.last_open_notified_at, 30);
+  // Only a SENT change order counts as a real client open (skip drafts
+  // being previewed internally).
+  const wasSent = !!co.sent_at || (co.status && co.status !== 'draft');
+  const shouldNotify = wasSent && shouldNotifyOpen(co.last_open_notified_at, 30);
   const patch = { client_open_count: (Number(co.client_open_count) || 0) + 1 };
   if (isFirstOpen) patch.client_opened_at = nowIso;
   if (shouldNotify) patch.last_open_notified_at = nowIso;
