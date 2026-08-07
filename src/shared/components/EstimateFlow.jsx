@@ -926,6 +926,25 @@ export default function EstimateFlow({ job, user, onBack }) {
     }
   }
 
+  // Start a SEPARATE contract for another approved/signed estimate on the
+  // same job, even when a contract was already sent (e.g. a client signed
+  // two independent estimates and each needs its own contract). The DB
+  // already allows multiple contract rows per job — the flow just showed
+  // the latest. This drops the active contract from view and returns to
+  // the estimate picker so the seller selects the OTHER estimate and
+  // generates a fresh contract + DocuSign envelope. The already-sent
+  // contract is untouched.
+  function startNewContract() {
+    if (!perms.canSendContract) { setToast({ type: 'warning', message: 'You do not have permission to send contracts' }); return; }
+    setContract(null);
+    setMilestones([]);
+    setPickedEstimateIds([]);
+    setPlanSourceEstimateId(null);
+    setShowPickerConfirm(false);
+    setStep(2);
+    setToast({ type: 'info', message: 'Starting a separate contract — pick the estimate(s) for it, then Generate & Send.' });
+  }
+
   // Test convenience: re-issue the envelope from the Awaiting Signature
   // step without walking the full Review→Approve→PaymentPlan wizard
   // again. Switches to step 3 so ContractTemplate mounts, waits a beat
@@ -1330,6 +1349,17 @@ export default function EstimateFlow({ job, user, onBack }) {
                   </button>
                 )}
 
+                {perms.canSendContract && (
+                  <button
+                    onClick={startNewContract}
+                    disabled={saving}
+                    title="Send a SEPARATE contract for another signed estimate on this job. This does NOT touch the contract already sent."
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-sm font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus className="w-4 h-4" /> New Contract (another estimate)
+                  </button>
+                )}
+
                 {perms.canSendContract && !confirmVoid && (
                   <button
                     onClick={() => setConfirmVoid(true)}
@@ -1386,20 +1416,34 @@ export default function EstimateFlow({ job, user, onBack }) {
 
         {/* STEP 5 — Invoice & Deposit */}
         {step === 5 && (
-          <Step5Invoices
-            contract={contract}
-            job={job}
-            user={user}
-            perms={perms}
-            milestones={milestones}
-            loading={loadingMilestones}
-            sendingMilestoneId={sendingMilestoneId}
-            confirmResendId={confirmResendId}
-            onConfirmResendChange={setConfirmResendId}
-            onSend={handleSendMilestoneInvoice}
-            onMarkReceived={handleMarkMilestoneReceived}
-            onUpdateDueDate={updateMilestoneDueDate}
-          />
+          <>
+            <Step5Invoices
+              contract={contract}
+              job={job}
+              user={user}
+              perms={perms}
+              milestones={milestones}
+              loading={loadingMilestones}
+              sendingMilestoneId={sendingMilestoneId}
+              confirmResendId={confirmResendId}
+              onConfirmResendChange={setConfirmResendId}
+              onSend={handleSendMilestoneInvoice}
+              onMarkReceived={handleMarkMilestoneReceived}
+              onUpdateDueDate={updateMilestoneDueDate}
+            />
+            {perms.canSendContract && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={startNewContract}
+                  disabled={saving}
+                  title="Send a SEPARATE contract for another signed estimate on this job."
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-omega-orange/40 hover:border-omega-orange text-sm font-semibold text-omega-orange hover:bg-omega-pale transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-4 h-4" /> New Contract (another estimate)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
