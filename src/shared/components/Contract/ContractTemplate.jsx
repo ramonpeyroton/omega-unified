@@ -362,6 +362,9 @@ export default function ContractTemplate({
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [beginningDate, setBeginningDate] = useState('');
   const [completionDate, setCompletionDate] = useState('');
+  // Editable construction duration (calendar days) counted from the actual
+  // Commencement Date. Default 120; the seller adjusts per job. See §8.
+  const [completionDays, setCompletionDays] = useState('120');
   const [ownerName, setOwnerName]       = useState(job?.client_name || '');
   const [ownerAddress, setOwnerAddress] = useState(job?.address || '');
   const [ownerEmail, setOwnerEmail]     = useState(job?.client_email || '');
@@ -713,16 +716,34 @@ export default function ContractTemplate({
             {clausePara('s7_payment_late', 'mb-3')}
           </Section>
 
-          {/* ── §8 — Term ── */}
-          <Section number="8" title="TERM.">
-            <p className="mb-2">
-              Contractor shall commence the Work on{' '}
-              <input type="date" value={beginningDate} onChange={(e) => setBeginningDate(e.target.value)} className={inputCls} />
-              {' '}and shall complete the work on or before{' '}
-              <input type="date" value={completionDate} onChange={(e) => setCompletionDate(e.target.value)} className={inputCls} />
-              .
+          {/* ── §8 — Term; Commencement and Completion ──
+              CT Home Improvement Act (§20-429) requires a starting date AND a
+              completion date, so we keep two calendar dates ("Estimated"),
+              but anchor the real commencement to permit issuance + deposit +
+              owner obligations (14-day trigger) and tie every date to the
+              §9 Unavoidable-Delay extension so a slow permit never puts the
+              Contractor in breach. Draft — pending CT attorney review. */}
+          <Section number="8" title="TERM; COMMENCEMENT AND COMPLETION.">
+            <p className="mb-3">
+              <strong>Estimated Commencement Date:</strong> on or about{' '}
+              <input type="date" value={beginningDate} onChange={(e) => setBeginningDate(e.target.value)} className={inputCls} />.
+              {' '}<strong>Estimated Substantial Completion Date:</strong> on or about{' '}
+              <input type="date" value={completionDate} onChange={(e) => setCompletionDate(e.target.value)} className={inputCls} />.
             </p>
-            {clausePara('s8_term')}
+            <p className="mb-3">
+              Notwithstanding the estimated dates set forth above, Contractor shall commence the Work within <strong>fourteen (14) calendar days</strong> after all of the following have occurred: (a)&nbsp;all required building permits, approvals, and licenses have been issued by the applicable governmental authorities; (b)&nbsp;Owner has paid all deposits then due under this Agreement and such funds have cleared; and (c)&nbsp;Owner has satisfied all pre-construction obligations under this Agreement, including without limitation the deposit obligations under Section&nbsp;7, clear site access and boundary stakes under Section&nbsp;4, and water and electrical service under Section&nbsp;13 (the actual date on which such commencement occurs, the &ldquo;<strong>Commencement Date</strong>&rdquo;).
+            </p>
+            <p className="mb-3">
+              Contractor shall substantially complete the Work within{' '}
+              <input value={completionDays} onChange={(e) => setCompletionDays(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} style={autoWidth(completionDays, '120', 4)} />
+              {' '}calendar days after the Commencement Date (as extended, the &ldquo;<strong>Completion Date</strong>&rdquo;).
+            </p>
+            <p className="mb-3">
+              The Estimated Commencement Date, the Commencement Date, and the Completion Date shall each be extended on a day-for-day basis for any Unavoidable Delay as defined in Section&nbsp;9 (including, without limitation, delays in permit approval and other governmental action), and/or for any change order entered into by the Parties that modifies the scope of the Work. Contractor shall not be deemed in breach or default of this Agreement by reason of any such extension.
+            </p>
+            <p>
+              Upon completion of the project, Owner agrees to sign a Notice of Completion within ten (10) days after the completion of the Work.
+            </p>
           </Section>
 
           {/* ── §9 ── */}
