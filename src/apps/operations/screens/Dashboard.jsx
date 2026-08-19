@@ -1,21 +1,42 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Briefcase, FileText, FilePen, ShieldAlert, Search, RefreshCw, Eye, Send, FileSignature, Upload } from 'lucide-react';
+import { Briefcase, FileText, FilePen, ShieldAlert, Search, RefreshCw, Eye, Send, FileSignature, Upload, MapPin, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
 import COIBadge, { getCoiState } from '../components/COIBadge';
-import JobFullView from '../../../shared/components/JobFullView';
+import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
+import { useUserProfile } from '../../../shared/hooks/useUserProfile';
+import UserProfileModal from '../../../shared/components/UserProfileModal';
+import NotificationsBell from '../../../shared/components/NotificationsBell';
 
-function KpiCard({ icon: Icon, label, value, color = 'text-omega-orange' }) {
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function KpiCard({ icon: Icon, label, value, color = 'text-omega-orange', bgColor = 'bg-omega-pale' }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-xl bg-omega-pale flex items-center justify-center ${color}`}>
-        <Icon className="w-5 h-5" />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-3 sm:p-5">
+      {/* Mobile: compact centered */}
+      <div className="flex flex-col items-center text-center sm:hidden">
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${bgColor}`}>
+          <Icon className={`w-5 h-5 ${color}`} />
+        </div>
+        <p className="text-2xl font-black tabular-nums leading-none mt-2 text-omega-charcoal">{value}</p>
+        <p className="text-[11px] text-omega-stone font-semibold leading-tight mt-1">{label}</p>
       </div>
-      <div>
-        <p className="text-xs text-omega-stone uppercase tracking-wider font-semibold">{label}</p>
-        <p className="text-2xl font-bold text-omega-charcoal mt-0.5">{value}</p>
+      {/* Desktop: horizontal */}
+      <div className="hidden sm:flex items-center gap-4">
+        <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${bgColor} ${color}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <div>
+          <p className="text-xs text-omega-stone uppercase tracking-wider font-semibold">{label}</p>
+          <p className="text-2xl font-bold text-omega-charcoal mt-0.5">{value}</p>
+        </div>
       </div>
     </div>
   );
@@ -28,7 +49,7 @@ function maskTaxId(taxId) {
   return '•'.repeat(s.length - 4) + s.slice(-4);
 }
 
-export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
+export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user }) {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -36,13 +57,17 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
   const [subs, setSubs] = useState([]);
   const [toast, setToast] = useState(null);
   const [tab, setTab] = useState('pipeline');
-  const [openJob, setOpenJob] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // filters (pipeline tab)
   const [filterEstimate, setFilterEstimate] = useState('all');
   const [filterContract, setFilterContract] = useState('all');
   const [filterCity, setFilterCity] = useState('');
   const [filterPm, setFilterPm] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const { photoUrl, refresh } = useUserProfile(user);
+  const userName = user?.name || '';
 
   useEffect(() => { loadAll(); }, []);
 
@@ -66,18 +91,13 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
     }
   }
 
-  // KPIs — reads primarily from `pipeline_status` (canonical) and falls back
-  // to legacy signals so old data still counts. COI counts subs expiring
-  // within the next 30 days (not yet expired).
   const kpis = useMemo(() => {
-    // Active = anything in the pipeline except completed or on_hold
     const DONE = new Set(['completed', 'on_hold']);
     const activeJobs = jobs.filter((j) => {
       const ps = j.pipeline_status || 'new_lead';
       return !DONE.has(ps);
     }).length;
 
-    // Estimates pending approval — from job pipeline_status OR estimate status
     const pendingEstJobs = new Set(
       jobs.filter((j) => j.pipeline_status === 'estimate_sent').map((j) => j.id)
     );
@@ -88,7 +108,6 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
     });
     const estPending = pendingEstJobs.size;
 
-    // Contracts awaiting signature — from job pipeline_status OR contract status
     const awaitingJobs = new Set(
       jobs.filter((j) => j.pipeline_status === 'contract_sent').map((j) => j.id)
     );
@@ -101,7 +120,6 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
     });
     const ctrAwaiting = awaitingJobs.size;
 
-    // COI expiring in the next 30 days (not yet expired)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const thirty = new Date(today); thirty.setDate(thirty.getDate() + 30);
@@ -114,7 +132,6 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
     return { activeJobs, estPending, ctrAwaiting, coiExpiring };
   }, [jobs, estimates, contracts, subs]);
 
-  // Job pipeline rows (join estimate + contract)
   const pipelineRows = useMemo(() => {
     const estByJob = Object.fromEntries(estimates.map((e) => [e.job_id, e]));
     const ctrByJob = Object.fromEntries(contracts.map((c) => [c.job_id, c]));
@@ -133,6 +150,8 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
       });
   }, [jobs, estimates, contracts, filterEstimate, filterContract, filterCity, filterPm]);
 
+  const hasActiveFilters = filterEstimate !== 'all' || filterContract !== 'all' || filterCity || filterPm;
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -145,7 +164,31 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
     <div className="flex-1 overflow-auto bg-omega-cloud">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      <header className="px-6 md:px-8 py-6 bg-white border-b border-gray-200 sticky top-0 z-10">
+      {/* ─── Mobile header (md:hidden) ─── */}
+      <header className="md:hidden bg-white border-b border-gray-200 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4">
+        <div className="flex items-center justify-between">
+          <button onClick={() => setProfileOpen(true)} className="flex items-center gap-3 min-w-0">
+            <Avatar name={userName} photoUrl={photoUrl || undefined} size="md" color={colorFromName(userName)} />
+            <div className="min-w-0">
+              <p className="text-[11px] text-omega-stone font-semibold">{getGreeting()}</p>
+              <p className="text-base font-bold text-omega-charcoal truncate">{userName || 'Operations'}</p>
+            </div>
+          </button>
+          <div className="flex items-center gap-1">
+            <NotificationsBell user={user} onOpenJob={onOpenJob} />
+            <button
+              onClick={loadAll}
+              className="p-2.5 rounded-xl text-omega-stone hover:bg-gray-100 transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ─── Desktop header (hidden md:block) ─── */}
+      <header className="hidden md:block px-8 py-6 bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-omega-charcoal">Operations Dashboard</h1>
@@ -161,19 +204,19 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
       </header>
 
       {/* KPIs */}
-      <div className="px-6 md:px-8 pt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={Briefcase} label="Total Active Jobs" value={kpis.activeJobs} />
+      <div className="px-4 md:px-8 pt-4 md:pt-6 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <KpiCard icon={Briefcase} label="Active Jobs" value={kpis.activeJobs} />
         <KpiCard icon={FileText} label="Estimates Pending" value={kpis.estPending} />
-        <KpiCard icon={FilePen} label="Contracts Awaiting Signature" value={kpis.ctrAwaiting} />
-        <KpiCard icon={ShieldAlert} label="COI Expiring Soon" value={kpis.coiExpiring} color="text-red-500" />
+        <KpiCard icon={FilePen} label="Contracts Awaiting" value={kpis.ctrAwaiting} />
+        <KpiCard icon={ShieldAlert} label="COI Expiring" value={kpis.coiExpiring} color="text-red-500" bgColor="bg-red-50" />
       </div>
 
       {/* Tabs */}
-      <div className="px-6 md:px-8 mt-6">
+      <div className="px-4 md:px-8 mt-4 md:mt-6">
         <div className="border-b border-gray-200 flex gap-1 overflow-x-auto">
           {[
-            { id: 'pipeline', label: 'Job Pipeline' },
-            { id: 'subs', label: 'Subcontractors' },
+            { id: 'pipeline', label: 'Pipeline' },
+            { id: 'subs', label: 'Subs' },
             { id: 'estimates', label: 'Estimates' },
           ].map((t) => (
             <button
@@ -192,177 +235,315 @@ export default function Dashboard({ onOpenEstimate, onNavigate, user }) {
       </div>
 
       {/* Tab content */}
-      <div className="p-6 md:p-8 pt-4">
+      <div className="p-4 md:p-8 pt-3 md:pt-4">
         {tab === 'pipeline' && (
-          <div className="bg-white rounded-xl border border-gray-200">
-            {/* filters */}
-            <div className="p-4 border-b border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-3">
-              <select value={filterEstimate} onChange={(e) => setFilterEstimate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
-                <option value="all">All Estimate Statuses</option>
-                <option value="draft">Draft</option>
-                <option value="pending">Pending</option>
-                <option value="sent">Sent</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-                <option value="none">No Estimate</option>
-              </select>
-              <select value={filterContract} onChange={(e) => setFilterContract(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
-                <option value="all">All Contract Statuses</option>
-                <option value="draft">Draft</option>
-                <option value="sent">Sent</option>
-                <option value="signed">Signed</option>
-                <option value="declined">Declined</option>
-                <option value="none">No Contract</option>
-              </select>
-              <input placeholder="City…" value={filterCity} onChange={(e) => setFilterCity(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
-              <input placeholder="PM…" value={filterPm} onChange={(e) => setFilterPm(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+          <>
+            {/* ─ Mobile: filter toggle + cards ─ */}
+            <div className="md:hidden">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-omega-stone font-semibold uppercase tracking-wider">
+                  {pipelineRows.length} job{pipelineRows.length !== 1 ? 's' : ''}
+                </p>
+                <button
+                  onClick={() => setShowFilters((f) => !f)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                    hasActiveFilters ? 'bg-omega-orange text-white' : 'bg-white text-omega-stone border border-gray-200'
+                  }`}
+                >
+                  <Search className="w-3 h-3" />
+                  {hasActiveFilters ? 'Filtered' : 'Filter'}
+                </button>
+              </div>
+              {showFilters && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-3 mb-3 space-y-2">
+                  <select value={filterEstimate} onChange={(e) => setFilterEstimate(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[16px]">
+                    <option value="all">All Estimate Statuses</option>
+                    <option value="draft">Draft</option>
+                    <option value="pending">Pending</option>
+                    <option value="sent">Sent</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="none">No Estimate</option>
+                  </select>
+                  <select value={filterContract} onChange={(e) => setFilterContract(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[16px]">
+                    <option value="all">All Contract Statuses</option>
+                    <option value="draft">Draft</option>
+                    <option value="sent">Sent</option>
+                    <option value="signed">Signed</option>
+                    <option value="declined">Declined</option>
+                    <option value="none">No Contract</option>
+                  </select>
+                  <input placeholder="City…" value={filterCity} onChange={(e) => setFilterCity(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[16px]" />
+                  <input placeholder="PM…" value={filterPm} onChange={(e) => setFilterPm(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[16px]" />
+                  {hasActiveFilters && (
+                    <button
+                      onClick={() => { setFilterEstimate('all'); setFilterContract('all'); setFilterCity(''); setFilterPm(''); }}
+                      className="text-xs font-semibold text-omega-orange"
+                    >
+                      Clear all filters
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {pipelineRows.length === 0 && (
+                <p className="text-center py-8 text-sm text-omega-stone">No jobs match your filters.</p>
+              )}
+              <div className="space-y-2">
+                {pipelineRows.map(({ job, estimate, contract }) => (
+                  <button
+                    key={job.id}
+                    onClick={() => onOpenJob?.(job)}
+                    className="w-full text-left bg-white border border-gray-200 rounded-2xl px-4 py-3.5 active:scale-[.99] active:border-omega-orange transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[15px] font-bold text-omega-charcoal truncate">{job.client_name || job.name || '—'}</p>
+                      <ChevronRight className="w-4 h-4 text-omega-stone flex-shrink-0" />
+                    </div>
+                    <p className="text-[12px] text-omega-stone truncate flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3 h-3 flex-shrink-0" />
+                      {job.city || job.address || '—'}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {job.service && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-omega-pale text-omega-charcoal">
+                          {job.service}
+                        </span>
+                      )}
+                      {estimate && <StatusBadge status={estimate.status} />}
+                      {contract && <StatusBadge status={contract.docusign_status || contract.status} />}
+                      {job.pm_name && (
+                        <span className="text-[10px] text-omega-stone">PM: {job.pm_name}</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* ─ Desktop: table ─ */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200">
+              <div className="p-4 border-b border-gray-200 grid grid-cols-4 gap-3">
+                <select value={filterEstimate} onChange={(e) => setFilterEstimate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                  <option value="all">All Estimate Statuses</option>
+                  <option value="draft">Draft</option>
+                  <option value="pending">Pending</option>
+                  <option value="sent">Sent</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="none">No Estimate</option>
+                </select>
+                <select value={filterContract} onChange={(e) => setFilterContract(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                  <option value="all">All Contract Statuses</option>
+                  <option value="draft">Draft</option>
+                  <option value="sent">Sent</option>
+                  <option value="signed">Signed</option>
+                  <option value="declined">Declined</option>
+                  <option value="none">No Contract</option>
+                </select>
+                <input placeholder="City…" value={filterCity} onChange={(e) => setFilterCity(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                <input placeholder="PM…" value={filterPm} onChange={(e) => setFilterPm(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Client</th>
+                      <th className="px-4 py-3 text-left">City</th>
+                      <th className="px-4 py-3 text-left">Service</th>
+                      <th className="px-4 py-3 text-left">Estimate</th>
+                      <th className="px-4 py-3 text-left">Contract</th>
+                      <th className="px-4 py-3 text-left">PM</th>
+                      <th className="px-4 py-3 text-left">Start</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {pipelineRows.length === 0 && (
+                      <tr><td colSpan={9} className="px-4 py-8 text-center text-omega-stone">No jobs match your filters.</td></tr>
+                    )}
+                    {pipelineRows.map(({ job, estimate, contract }) => (
+                      <tr key={job.id} className="hover:bg-omega-cloud/40 cursor-pointer" onClick={() => onOpenJob?.(job)}>
+                        <td className="px-4 py-3 font-medium text-omega-charcoal">{job.client_name || job.name || '—'}</td>
+                        <td className="px-4 py-3">{job.city || job.address || '—'}</td>
+                        <td className="px-4 py-3">{job.service || '—'}</td>
+                        <td className="px-4 py-3">{estimate ? <StatusBadge status={estimate.status} /> : <span className="text-omega-fog text-xs">—</span>}</td>
+                        <td className="px-4 py-3">{contract ? <StatusBadge status={contract.docusign_status || contract.status} /> : <span className="text-omega-fog text-xs">—</span>}</td>
+                        <td className="px-4 py-3">{job.pm_name || '—'}</td>
+                        <td className="px-4 py-3">{job.start_date ? new Date(job.start_date).toLocaleDateString() : '—'}</td>
+                        <td className="px-4 py-3">{job.status || '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark">
+                            <Eye className="w-3.5 h-3.5" /> View
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'subs' && (
+          <>
+            {/* ─ Mobile: sub cards ─ */}
+            <div className="md:hidden space-y-2">
+              {subs.length === 0 && (
+                <p className="text-center py-8 text-sm text-omega-stone">No subcontractors yet.</p>
+              )}
+              {subs.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => onNavigate('subcontractors')}
+                  className="w-full text-left bg-white border border-gray-200 rounded-2xl px-4 py-3.5 active:scale-[.99] active:border-omega-orange transition-all"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[15px] font-bold text-omega-charcoal truncate">{s.contact_name || s.name}</p>
+                    <COIBadge expiryDate={s.coi_expiry_date} />
+                  </div>
+                  {s.contact_name && s.name !== s.contact_name && (
+                    <p className="text-[12px] text-omega-stone truncate">{s.name}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {s.trade && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-omega-pale text-omega-charcoal">
+                        {s.trade}
+                      </span>
+                    )}
+                    {s.coi_expiry_date && (
+                      <span className="text-[10px] text-omega-stone">
+                        COI: {new Date(s.coi_expiry_date).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* ─ Desktop: table ─ */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
                   <tr>
-                    <th className="px-4 py-3 text-left">Job</th>
-                    <th className="px-4 py-3 text-left">Client</th>
-                    <th className="px-4 py-3 text-left">City</th>
-                    <th className="px-4 py-3 text-left">Service</th>
-                    <th className="px-4 py-3 text-left">Estimate</th>
-                    <th className="px-4 py-3 text-left">Contract</th>
-                    <th className="px-4 py-3 text-left">PM</th>
-                    <th className="px-4 py-3 text-left">Start</th>
-                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Name</th>
+                    <th className="px-4 py-3 text-left">Trade</th>
+                    <th className="px-4 py-3 text-left">Tax ID</th>
+                    <th className="px-4 py-3 text-left">COI</th>
+                    <th className="px-4 py-3 text-left">Expiry</th>
+                    <th className="px-4 py-3 text-left">Active Jobs</th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {pipelineRows.length === 0 && (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-omega-stone">No jobs match your filters.</td></tr>
+                  {subs.length === 0 && (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-omega-stone">No subcontractors yet.</td></tr>
                   )}
-                  {pipelineRows.map(({ job, estimate, contract }) => (
-                    <tr key={job.id} className="hover:bg-omega-cloud/40">
-                      <td className="px-4 py-3 font-medium text-omega-charcoal">{job.client_name || job.name || '—'}</td>
-                      <td className="px-4 py-3">{job.client_name || '—'}</td>
-                      <td className="px-4 py-3">{job.city || job.address || '—'}</td>
-                      <td className="px-4 py-3">{job.service || '—'}</td>
-                      <td className="px-4 py-3">{estimate ? <StatusBadge status={estimate.status} /> : <span className="text-omega-fog text-xs">—</span>}</td>
-                      <td className="px-4 py-3">{contract ? <StatusBadge status={contract.docusign_status || contract.status} /> : <span className="text-omega-fog text-xs">—</span>}</td>
-                      <td className="px-4 py-3">{job.pm_name || '—'}</td>
-                      <td className="px-4 py-3">{job.start_date ? new Date(job.start_date).toLocaleDateString() : '—'}</td>
-                      <td className="px-4 py-3">{job.status || '—'}</td>
+                  {subs.map((s) => (
+                    <tr key={s.id} className="hover:bg-omega-cloud/40">
+                      <td className="px-4 py-3 font-medium text-omega-charcoal">{s.name}</td>
+                      <td className="px-4 py-3">{s.trade || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{maskTaxId(s.tax_id)}</td>
+                      <td className="px-4 py-3"><COIBadge expiryDate={s.coi_expiry_date} /></td>
+                      <td className="px-4 py-3">{s.coi_expiry_date ? new Date(s.coi_expiry_date).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-3">{s.active_jobs_count ?? '—'}</td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setOpenJob(job)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> View
-                        </button>
+                        <div className="inline-flex gap-2">
+                          <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"><Eye className="w-3.5 h-3.5" /> View</button>
+                          <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-info hover:text-blue-900"><Upload className="w-3.5 h-3.5" /> COI</button>
+                          <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-success hover:text-green-900"><Send className="w-3.5 h-3.5" /> Agreement</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {tab === 'subs' && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
-                <tr>
-                  <th className="px-4 py-3 text-left">Name</th>
-                  <th className="px-4 py-3 text-left">Trade</th>
-                  <th className="px-4 py-3 text-left">Tax ID</th>
-                  <th className="px-4 py-3 text-left">COI</th>
-                  <th className="px-4 py-3 text-left">Expiry</th>
-                  <th className="px-4 py-3 text-left">Active Jobs</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {subs.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-omega-stone">No subcontractors yet.</td></tr>
-                )}
-                {subs.map((s) => (
-                  <tr key={s.id} className="hover:bg-omega-cloud/40">
-                    <td className="px-4 py-3 font-medium text-omega-charcoal">{s.name}</td>
-                    <td className="px-4 py-3">{s.trade || '—'}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{maskTaxId(s.tax_id)}</td>
-                    <td className="px-4 py-3"><COIBadge expiryDate={s.coi_expiry_date} /></td>
-                    <td className="px-4 py-3">{s.coi_expiry_date ? new Date(s.coi_expiry_date).toLocaleDateString() : '—'}</td>
-                    <td className="px-4 py-3">{s.active_jobs_count ?? '—'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex gap-2">
-                        <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"><Eye className="w-3.5 h-3.5" /> View</button>
-                        <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-info hover:text-blue-900"><Upload className="w-3.5 h-3.5" /> COI</button>
-                        <button onClick={() => onNavigate('subcontractors')} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-success hover:text-green-900"><Send className="w-3.5 h-3.5" /> Agreement</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          </>
         )}
 
         {tab === 'estimates' && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
-                <tr>
-                  <th className="px-4 py-3 text-left">Job</th>
-                  <th className="px-4 py-3 text-left">Amount</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-left">Created By</th>
-                  <th className="px-4 py-3 text-left">Date</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {estimates.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-omega-stone">No estimates yet.</td></tr>
-                )}
-                {estimates.map((e) => {
-                  const job = jobs.find((j) => j.id === e.job_id);
-                  return (
-                    <tr key={e.id} className="hover:bg-omega-cloud/40">
-                      <td className="px-4 py-3 font-medium text-omega-charcoal">{job?.client_name || job?.name || '—'}</td>
-                      <td className="px-4 py-3">{e.total_amount != null ? `$${Number(e.total_amount).toLocaleString()}` : '—'}</td>
-                      <td className="px-4 py-3"><StatusBadge status={e.status} /></td>
-                      <td className="px-4 py-3">{e.created_by_name || e.created_by || '—'}</td>
-                      <td className="px-4 py-3">{new Date(e.created_at).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex gap-2">
-                          <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"><Eye className="w-3.5 h-3.5" /> View</button>
-                          <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-info hover:text-blue-900"><Send className="w-3.5 h-3.5" /> Send</button>
-                          <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-success hover:text-green-900"><FileSignature className="w-3.5 h-3.5" /> Contract</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* ─ Mobile: estimate cards ─ */}
+            <div className="md:hidden space-y-2">
+              {estimates.length === 0 && (
+                <p className="text-center py-8 text-sm text-omega-stone">No estimates yet.</p>
+              )}
+              {estimates.map((e) => {
+                const job = jobs.find((j) => j.id === e.job_id);
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => job && onOpenJob?.(job)}
+                    className="w-full text-left bg-white border border-gray-200 rounded-2xl px-4 py-3.5 active:scale-[.99] active:border-omega-orange transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[15px] font-bold text-omega-charcoal truncate">{job?.client_name || job?.name || '—'}</p>
+                      <StatusBadge status={e.status} />
+                    </div>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <span className="text-sm font-bold text-omega-charcoal tabular-nums">
+                        {e.total_amount != null ? `$${Number(e.total_amount).toLocaleString()}` : '—'}
+                      </span>
+                      <span className="text-[11px] text-omega-stone">
+                        {new Date(e.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    {(e.created_by_name || e.created_by) && (
+                      <p className="text-[11px] text-omega-stone mt-0.5">By {e.created_by_name || e.created_by}</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* ─ Desktop: table ─ */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-omega-cloud text-omega-stone uppercase text-xs tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Job</th>
+                    <th className="px-4 py-3 text-left">Amount</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Created By</th>
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {estimates.length === 0 && (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-omega-stone">No estimates yet.</td></tr>
+                  )}
+                  {estimates.map((e) => {
+                    const job = jobs.find((j) => j.id === e.job_id);
+                    return (
+                      <tr key={e.id} className="hover:bg-omega-cloud/40">
+                        <td className="px-4 py-3 font-medium text-omega-charcoal">{job?.client_name || job?.name || '—'}</td>
+                        <td className="px-4 py-3">{e.total_amount != null ? `$${Number(e.total_amount).toLocaleString()}` : '—'}</td>
+                        <td className="px-4 py-3"><StatusBadge status={e.status} /></td>
+                        <td className="px-4 py-3">{e.created_by_name || e.created_by || '—'}</td>
+                        <td className="px-4 py-3">{new Date(e.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex gap-2">
+                            <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-orange hover:text-omega-dark"><Eye className="w-3.5 h-3.5" /> View</button>
+                            <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-info hover:text-blue-900"><Send className="w-3.5 h-3.5" /> Send</button>
+                            <button onClick={() => job && onOpenEstimate(job)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-success hover:text-green-900"><FileSignature className="w-3.5 h-3.5" /> Contract</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
-      {openJob && (
-        <JobFullView
-          job={openJob}
-          user={user}
-          onClose={() => setOpenJob(null)}
-          onJobUpdated={(updated) => {
-            setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
-            setOpenJob(updated);
-          }}
-          onJobDeleted={(deleted) => {
-            setJobs((prev) => prev.filter((j) => j.id !== deleted.id));
-            setOpenJob(null);
-          }}
-          onOpenEstimateFlow={onOpenEstimate}
-        />
-      )}
+      <UserProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} user={user} onUserUpdated={refresh} />
     </div>
   );
 }

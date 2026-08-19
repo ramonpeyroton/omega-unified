@@ -124,6 +124,7 @@ function DashboardRoute({ user }) {
       user={user}
       onOpenEstimate={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/' } })}
       onNavigate={(id) => navigateForId(navigate, id)}
+      onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
     />
   );
 }
