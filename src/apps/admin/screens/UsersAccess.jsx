@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Plus, Edit3, X, Eye, EyeOff, Save, Camera, Loader2,
-  Phone as PhoneIcon, MapPin, User as UserIcon, AtSign,
+  Phone as PhoneIcon, MapPin, User as UserIcon, AtSign, Trash2,
 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../lib/supabase';
@@ -297,6 +297,28 @@ export default function UsersAccess({ user }) {
     }
   }
 
+  async function deleteUser(u) {
+    // Destructive + irreversible — two-line confirm spelling out the name.
+    if (!window.confirm(`Delete "${u.name}" permanently?\n\nThis removes their login for good and cannot be undone. To keep their history but block access, use "Deactivate" instead.`)) return;
+    try {
+      const { error } = await supabase.from('users').delete().eq('id', u.id);
+      if (error) throw error;
+      setUsers((prev) => prev.filter((x) => x.id !== u.id));
+      logAudit({ user, action: 'user.delete', entityType: 'user', entityId: u.id, details: { name: u.name, role: u.role } });
+      setToast({ type: 'success', message: `Deleted ${u.name}` });
+    } catch (err) {
+      // A foreign-key violation means the user is still referenced by
+      // other rows — steer the admin to Deactivate rather than dumping SQL.
+      const fk = err?.code === '23503' || /foreign key|violates|referenced/i.test(err?.message || '');
+      setToast({
+        type: 'error',
+        message: fk
+          ? `Can't delete ${u.name} — they still have linked records. Use "Deactivate" instead.`
+          : (err.message || 'Failed to delete user'),
+      });
+    }
+  }
+
   function maskPin(pin) {
     if (!pin) return '—';
     return '•'.repeat(Math.max(0, pin.length - 2)) + pin.slice(-2);
@@ -376,6 +398,9 @@ export default function UsersAccess({ user }) {
                       </button>
                       <button onClick={() => toggleActive(u)} className="inline-flex items-center gap-1 text-xs font-semibold text-omega-slate hover:text-omega-charcoal">
                         {u.active ? 'Deactivate' : 'Activate'}
+                      </button>
+                      <button onClick={() => deleteUser(u)} className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
                       </button>
                     </div>
                   </td>
