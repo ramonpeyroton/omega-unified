@@ -4,9 +4,12 @@
 // route so refresh and shared links preserve the open card. Back
 // inside a card always goes to /pipeline.
 
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
+import { LayoutDashboard, GitBranch, DollarSign, FileText, MoreHorizontal } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
+import MobileMoreSheet from './components/MobileMoreSheet';
 import Dashboard from './screens/Dashboard';
 import ContractManager from './screens/ContractManager';
 import SubcontractorManager from './screens/SubcontractorManager';
@@ -42,12 +45,42 @@ function navigateForId(navigate, id) {
   return navigate(`/${id}`);
 }
 
+// ─── Mobile bottom bar ─────────────────────────────────────────────
+
+const BOTTOM_ITEMS = [
+  { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+  { id: 'pipeline',  icon: GitBranch,       label: 'Pipeline' },
+  { id: 'finance',   icon: DollarSign,      label: 'Finance' },
+  { id: 'contracts', icon: FileText,        label: 'Contracts' },
+  { id: 'more',      icon: MoreHorizontal,  label: 'More' },
+];
+
+function MobileBottomBar({ screen, onNavigate, onMore }) {
+  return (
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex md:hidden safe-bottom">
+      {BOTTOM_ITEMS.map(({ id, icon: Icon, label }) => (
+        <button
+          key={id}
+          onClick={() => (id === 'more' ? onMore() : onNavigate(id))}
+          className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-h-[44px] ${
+            screen === id ? 'text-omega-orange' : 'text-omega-stone'
+          }`}
+        >
+          <Icon className="w-5 h-5" />
+          <span className="text-[10px] font-semibold">{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 // ─── Shell ─────────────────────────────────────────────────────────
 
 function OperationsShell({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
   const screen = screenIdFromPath(location.pathname);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-omega-cloud overflow-hidden">
@@ -59,9 +92,22 @@ function OperationsShell({ user, onLogout }) {
         user={user}
         onOpenJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: location.pathname } })}
       />
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         <Outlet />
       </main>
+
+      <MobileBottomBar
+        screen={screen}
+        onNavigate={(id) => navigateForId(navigate, id)}
+        onMore={() => setMoreOpen(true)}
+      />
+      <MobileMoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        onNavigate={(id) => navigateForId(navigate, id)}
+        user={user}
+        onLogout={onLogout}
+      />
     </div>
   );
 }

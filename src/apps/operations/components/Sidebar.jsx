@@ -25,7 +25,7 @@ export default function Sidebar({ screen, onNavigate, onLogout, userName, user, 
   const { photoUrl, refresh } = useUserProfile(user);
 
   return (
-    <aside className="w-56 flex-shrink-0 bg-omega-charcoal flex flex-col min-h-screen">
+    <aside className="w-56 flex-shrink-0 bg-omega-charcoal hidden md:flex flex-col min-h-screen">
       <div className="px-5 py-6 border-b border-white/10">
         <Logo size="sm" />
       </div>
