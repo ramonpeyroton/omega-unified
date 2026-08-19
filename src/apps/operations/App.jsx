@@ -6,10 +6,11 @@
 
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LayoutDashboard, GitBranch, DollarSign, FileText, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, GitBranch, DollarSign, FileText, MessageCircle, MoreHorizontal } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
 import MobileMoreSheet from './components/MobileMoreSheet';
+import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import Dashboard from './screens/Dashboard';
 import ContractManager from './screens/ContractManager';
 import SubcontractorManager from './screens/SubcontractorManager';
@@ -37,6 +38,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/invoice-inbox'))  return 'invoice-inbox';
   if (pathname.startsWith('/leads'))          return 'leads';
   if (pathname.startsWith('/commissions'))    return 'commissions';
+  if (pathname.startsWith('/daily-logs'))     return 'daily-logs';
   return null;
 }
 
@@ -48,11 +50,12 @@ function navigateForId(navigate, id) {
 // ─── Mobile bottom bar ─────────────────────────────────────────────
 
 const BOTTOM_ITEMS = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
-  { id: 'pipeline',  icon: GitBranch,       label: 'Pipeline' },
-  { id: 'finance',   icon: DollarSign,      label: 'Finance' },
-  { id: 'contracts', icon: FileText,        label: 'Contracts' },
-  { id: 'more',      icon: MoreHorizontal,  label: 'More' },
+  { id: 'dashboard',  icon: LayoutDashboard, label: 'Home' },
+  { id: 'pipeline',   icon: GitBranch,       label: 'Pipeline' },
+  { id: 'finance',    icon: DollarSign,      label: 'Finance' },
+  { id: 'contracts',  icon: FileText,        label: 'Contracts' },
+  { id: 'daily-logs', icon: MessageCircle,   label: 'Logs' },
+  { id: 'more',       icon: MoreHorizontal,  label: 'More' },
 ];
 
 function MobileBottomBar({ screen, onNavigate, onMore }) {
@@ -206,6 +209,7 @@ export default function App({ user, onLogout }) {
           <Route path="/invoice-inbox"             element={<InvoiceInbox user={user} />} />
           <Route path="/leads"                     element={<LeadsRoute user={user} />} />
           <Route path="/commissions"               element={<CommissionsScreen user={user} />} />
+          <Route path="/daily-logs"                element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"                  element={<JobFullViewRoute user={user} />} />
           <Route path="/jobs/:id/estimate-flow"    element={<EstimateFlowRoute user={user} />} />
         </Route>
