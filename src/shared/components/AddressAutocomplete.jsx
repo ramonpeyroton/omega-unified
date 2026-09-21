@@ -1,5 +1,7 @@
 /**
- * AddressAutocomplete — thin wrapper around Google Places Autocomplete.
+ * AddressAutocomplete — address search powered by Photon (Komoot / OpenStreetMap).
+ *
+ * 100% free, no API key, no account. Focused on US addresses via country bias.
  *
  * Props:
  *   value            {string}   — controlled input value
@@ -11,52 +13,31 @@
  *   placeholder      {string}
  *   className        {string}   — full className for the <input>
  *   autoFocus        {bool}
- *
- * Graceful degradation: if VITE_GOOGLE_MAPS_API_KEY is not set, the component
- * renders a plain <input> so no functionality is lost.
- *
- * Loading strategy: the Maps JS script is injected once into <head> via a
- * module-level singleton promise — repeated mounts do NOT re-inject it.
  */
 
-import { useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
-// ── Singleton loader ───────────────────────────────────────────────────────
-let _mapsPromise = null;
+const PHOTON_URL = 'https://photon.komoot.io/api/';
 
-function loadGoogleMaps() {
-  if (_mapsPromise) return _mapsPromise;
+// US state abbreviation lookup
+const STATE_ABBR = {
+  Alabama:'AL',Alaska:'AK',Arizona:'AZ',Arkansas:'AR',California:'CA',
+  Colorado:'CO',Connecticut:'CT',Delaware:'DE',Florida:'FL',Georgia:'GA',
+  Hawaii:'HI',Idaho:'ID',Illinois:'IL',Indiana:'IN',Iowa:'IA',Kansas:'KS',
+  Kentucky:'KY',Louisiana:'LA',Maine:'ME',Maryland:'MD',Massachusetts:'MA',
+  Michigan:'MI',Minnesota:'MN',Mississippi:'MS',Missouri:'MO',Montana:'MT',
+  Nebraska:'NE',Nevada:'NV','New Hampshire':'NH','New Jersey':'NJ',
+  'New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND',
+  Ohio:'OH',Oklahoma:'OK',Oregon:'OR',Pennsylvania:'PA','Rhode Island':'RI',
+  'South Carolina':'SC','South Dakota':'SD',Tennessee:'TN',Texas:'TX',
+  Utah:'UT',Vermont:'VT',Virginia:'VA',Washington:'WA','West Virginia':'WV',
+  Wisconsin:'WI',Wyoming:'WY',
+};
 
-  _mapsPromise = new Promise((resolve, reject) => {
-    const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!key) {
-      reject(new Error('VITE_GOOGLE_MAPS_API_KEY not set'));
-      return;
-    }
-    // Already loaded (e.g. HMR re-mount)
-    if (window.google?.maps?.places) {
-      resolve();
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    script.async = true;
-    script.defer = true;
-    script.onload  = () => resolve();
-    script.onerror = () => reject(new Error('Google Maps failed to load'));
-    document.head.appendChild(script);
-  });
-
-  return _mapsPromise;
+function abbrevState(name) {
+  return STATE_ABBR[name] || name || '';
 }
 
-// ── Helper: pull one component from the Places result ─────────────────────
-function getComponent(components, type, short = false) {
-  const c = components?.find((c) => c.types.includes(type));
-  return c ? (short ? c.short_name : c.long_name) : '';
-}
-
-// ── Component ──────────────────────────────────────────────────────────────
 export default function AddressAutocomplete({
   value,
   onChange,
@@ -65,75 +46,136 @@ export default function AddressAutocomplete({
   className = '',
   autoFocus = false,
 }) {
-  const inputRef = useRef(null);
-  const acRef    = useRef(null);   // google.maps.places.Autocomplete instance
+  const [suggestions, setSuggestions] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const wrapperRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  const fetchSuggestions = useCallback(async (query) => {
+    if (!query || query.length < 4) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: '6',
+        lang: 'en',
+        // Bias toward Fairfield County CT area
+        lat: '41.14',
+        lon: '-73.26',
+      });
+      const resp = await fetch(`${PHOTON_URL}?${params}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const filtered = (data.features || []).filter(
+        (f) => f.properties?.country === 'United States'
+      );
+      setSuggestions(filtered);
+      setShowDropdown(true);
+      setActiveIndex(-1);
+    } catch {
+      // Network issue — degrade silently
+    }
+  }, []);
+
+  function handleInputChange(e) {
+    const val = e.target.value;
+    onChange?.(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(val), 300);
+  }
+
+  function selectSuggestion(feature) {
+    const p = feature.properties || {};
+    const houseNumber = p.housenumber || '';
+    const streetName = p.street || p.name || '';
+    const street = [houseNumber, streetName].filter(Boolean).join(' ');
+    const city = p.city || p.locality || p.district || '';
+    const state = abbrevState(p.state || '');
+    const zip = p.postcode || '';
+    const formatted = [street, city, state, zip].filter(Boolean).join(', ');
+
+    onChange?.(street || formatted);
+    onPlaceSelected?.({ street, city, state, zip, formatted });
+    setSuggestions([]);
+    setShowDropdown(false);
+  }
+
+  function formatLabel(feature) {
+    const p = feature.properties || {};
+    const houseNumber = p.housenumber || '';
+    const streetName = p.street || p.name || '';
+    const street = [houseNumber, streetName].filter(Boolean).join(' ');
+    const city = p.city || p.locality || '';
+    const state = abbrevState(p.state || '');
+    return { street, detail: [city, state].filter(Boolean).join(', ') };
+  }
+
+  function handleKeyDown(e) {
+    if (!showDropdown || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => (i < suggestions.length - 1 ? i + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => (i > 0 ? i - 1 : suggestions.length - 1));
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[activeIndex]);
+    } else if (e.key === 'Escape') {
+      setShowDropdown(false);
+    }
+  }
 
   useEffect(() => {
-    let mounted = true;
-
-    loadGoogleMaps()
-      .then(() => {
-        if (!mounted || !inputRef.current) return;
-
-        const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
-          types: ['address'],
-          componentRestrictions: { country: 'us' },
-          fields: ['address_components', 'formatted_address'],
-        });
-        acRef.current = ac;
-
-        ac.addListener('place_changed', () => {
-          const place = ac.getPlace();
-          if (!place?.address_components) return;
-
-          const comps = place.address_components;
-          const streetNumber = getComponent(comps, 'street_number');
-          const route        = getComponent(comps, 'route');
-          const street       = [streetNumber, route].filter(Boolean).join(' ');
-          const city =
-            getComponent(comps, 'locality') ||
-            getComponent(comps, 'sublocality_level_1') ||
-            getComponent(comps, 'neighborhood');
-          const state = getComponent(comps, 'administrative_area_level_1', true); // e.g. "CT"
-          const zip   = getComponent(comps, 'postal_code');
-
-          // Update the controlled input with the street portion
-          onChange?.(street || place.formatted_address);
-
-          // Give the parent everything it needs to fill sibling fields
-          onPlaceSelected?.({
-            street,
-            city,
-            state,
-            zip,
-            formatted: place.formatted_address,
-          });
-        });
-      })
-      .catch(() => {
-        // Maps unavailable — input still works as plain text. No-op.
-      });
-
-    return () => {
-      mounted = false;
-      // Remove the pac-container dropdown that Google appended to <body>
-      // when this input unmounts (avoids ghost dropdowns on navigation).
-      if (acRef.current) {
-        window.google?.maps?.event?.clearInstanceListeners?.(acRef.current);
+    function handleClick(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowDropdown(false);
       }
-    };
-  }, []); // runs once per mount
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
 
   return (
-    <input
-      ref={inputRef}
-      type="text"
-      value={value}
-      onChange={(e) => onChange?.(e.target.value)}
-      placeholder={placeholder}
-      className={className}
-      autoComplete="off"   /* suppress browser autocomplete behind Google's */
-      autoFocus={autoFocus}
-    />
+    <div ref={wrapperRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={handleInputChange}
+        onKeyDown={handleKeyDown}
+        onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
+        placeholder={placeholder}
+        className={className}
+        autoComplete="off"
+        autoFocus={autoFocus}
+      />
+      {showDropdown && suggestions.length > 0 && (
+        <ul className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+          {suggestions.map((feat, i) => {
+            const { street, detail } = formatLabel(feat);
+            return (
+              <li key={feat.properties?.osm_id || i}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => selectSuggestion(feat)}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                    i === activeIndex ? 'bg-omega-pale text-omega-charcoal' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="font-medium">{street || feat.properties?.name}</span>
+                  {detail && <span className="text-gray-400 ml-1">{detail}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
