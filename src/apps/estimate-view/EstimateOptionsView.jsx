@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import html2pdf from 'html2pdf.js';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import SignatureFlow from '../../shared/components/SignatureFlow';
@@ -38,6 +39,8 @@ export default function EstimateOptionsView() {
   const [job, setJob] = useState(null);
   const [company, setCompany] = useState(null);
   const [err, setErr] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const contentRef = useRef(null);
 
   // UI: which option is expanded (showing the full breakdown) and
   // which one the customer picked (radio).
@@ -88,20 +91,57 @@ export default function EstimateOptionsView() {
   const customerLines = [job?.client_name, job?.address, job?.client_phone, job?.client_email].filter(Boolean);
   const signedOption = options.find((e) => e.signed_at);
 
+  const handleDownloadPDF = async () => {
+    if (!contentRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      const clientName = (job?.client_name || 'Estimate').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+      const filename = `Omega_Estimate_Options_${clientName}.pdf`;
+
+      await html2pdf()
+        .set({
+          margin: [8, 4, 8, 4],
+          filename,
+          image: { type: 'jpeg', quality: 0.95 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            ignoreElements: (el) => el.classList?.contains('no-print'),
+          },
+          jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        })
+        .from(contentRef.current)
+        .save();
+    } catch (pdfErr) {
+      console.error('PDF download failed:', pdfErr);
+      alert('Failed to generate PDF. Please try using Print instead.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div style={{ padding: '32px 16px', background: '#f5f5f3', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif', color: '#2C2C2A' }}>
       <div style={{ maxWidth: 1080, margin: '0 auto' }}>
 
-        <div className="no-print" style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="no-print" style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button
             onClick={() => window.print()}
-            style={{ padding: '10px 16px', borderRadius: 8, border: 'none', background: ORANGE, color: 'white', fontWeight: 700, cursor: 'pointer' }}
+            style={{ padding: '10px 16px', borderRadius: 8, border: `2px solid ${ORANGE}`, background: 'white', color: ORANGE, fontWeight: 700, cursor: 'pointer' }}
           >
-            Print / Save as PDF
+            🖨️ Print
+          </button>
+          <button
+            onClick={handleDownloadPDF}
+            disabled={downloading}
+            style={{ padding: '10px 16px', borderRadius: 8, border: 'none', background: downloading ? '#ccc' : ORANGE, color: 'white', fontWeight: 700, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.7 : 1 }}
+          >
+            {downloading ? '⏳ Generating…' : '📄 Download PDF'}
           </button>
         </div>
 
-        <div style={{ background: 'white', padding: 32, borderRadius: 8, boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+        <div ref={contentRef} style={{ background: 'white', padding: 32, borderRadius: 8, boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
 
           {/* Header — same visual language as the single EstimateView */}
           <Header company={company} />
