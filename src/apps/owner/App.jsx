@@ -28,6 +28,7 @@ import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import Questionnaire from '../sales/screens/Questionnaire';
+import NewJob from '../sales/screens/NewJob';
 import PageHeader from '../../shared/components/ui/PageHeader';
 import MobileMoreSheet from './components/MobileMoreSheet';
 import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle, MoreHorizontal } from 'lucide-react';
@@ -51,6 +52,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/warehouse')) return 'warehouse';
   if (pathname.startsWith('/omega-brain')) return 'omega-brain';
   if (pathname.startsWith('/leads')) return 'leads';
+  if (pathname.startsWith('/new-lead')) return 'new-lead';
   if (pathname.startsWith('/commissions')) return 'commissions';
   if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   return null; // job pages, etc — no sidebar highlight
@@ -156,6 +158,11 @@ function PipelineRoute({ user }) {
       onBack={() => navigate('/')}
       onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/pipeline' } })}
       onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/pipeline' } })}
+      onStartNewJobForClient={(clientData) => {
+        const token = Math.random().toString(36).slice(2, 10);
+        sessionStorage.setItem(`prefill:${token}`, JSON.stringify(clientData));
+        navigate(`/new-lead?prefill=${token}`);
+      }}
     />
   );
 }
@@ -183,6 +190,27 @@ function CommissionsRoute({ user })    { const navigate = useNavigate(); return 
 function LeadsRoute({ user }) {
   const navigate = useNavigate();
   return <LeadsList user={user} onBack={() => navigate('/')} onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/leads' } })} />;
+}
+
+function NewJobRoute({ user }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefillToken = searchParams.get('prefill');
+  const prefilledClient = prefillToken
+    ? JSON.parse(sessionStorage.getItem(`prefill:${prefillToken}`) || 'null')
+    : null;
+
+  return (
+    <NewJob
+      user={user}
+      onNavigate={(target) => navigate(target === 'home' ? '/' : `/${target}`)}
+      prefilledClient={prefilledClient}
+      onJobCreated={() => {
+        if (prefillToken) sessionStorage.removeItem(`prefill:${prefillToken}`);
+        navigate('/');
+      }}
+    />
+  );
 }
 
 function JobFullViewRoute({ user }) {
@@ -299,6 +327,7 @@ function OwnerRoutes({ user, onLogout, notifCount }) {
         <Route path="/warehouse"       element={<WarehouseRoute />} />
         <Route path="/omega-brain"     element={<OmegaBrainRoute />} />
         <Route path="/leads"           element={<LeadsRoute user={user} />} />
+        <Route path="/new-lead"        element={<NewJobRoute user={user} />} />
         <Route path="/commissions"     element={<CommissionsRoute user={user} />} />
         <Route path="/daily-logs"      element={<MobileDailyLogs user={user} />} />
       </Route>

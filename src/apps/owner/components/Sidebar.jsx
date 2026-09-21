@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign, ClipboardList, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Users, Bell, LogOut, FileSearch, Package, Brain, GitBranch, Calendar, DollarSign, ClipboardList, PlusCircle, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import Logo from './Logo';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
@@ -11,6 +11,7 @@ const NAV = [
   { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
   { id: 'pipeline',         label: 'Pipeline',          icon: GitBranch },
   { id: 'leads',            label: 'My Leads',          icon: ClipboardList },
+  { id: 'new-lead',         label: 'New Lead',          icon: PlusCircle },
   { id: 'calendar',         label: 'Calendar',          icon: Calendar },
   { id: 'finance',          label: 'Finance',           icon: DollarSign },
   { id: 'commissions',      label: 'Commissions',       icon: DollarSign },

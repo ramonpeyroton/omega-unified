@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  X, Users, Package, FileText, Brain, ClipboardList, DollarSign,
+  X, Users, Package, FileText, Brain, ClipboardList, PlusCircle, DollarSign,
   LogOut,
 } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
@@ -21,6 +21,7 @@ const ITEMS = [
   { id: 'project-analyzer',label: 'Project Analyzer', icon: FileText },
   { id: 'omega-brain',     label: 'Omega Brain',     icon: Brain },
   { id: 'leads',           label: 'My Leads',        icon: ClipboardList },
+  { id: 'new-lead',        label: 'New Lead',        icon: PlusCircle },
   { id: 'commissions',     label: 'Commissions',     icon: DollarSign },
 ];
 
