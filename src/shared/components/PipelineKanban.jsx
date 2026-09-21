@@ -435,7 +435,8 @@ function MobilePipelineView({
   visibleJobs, jobsByColumn, estByJob, anyEstByJob, costByJob, coiWarningByJob,
   lastReadByJob, searchText, setSearchText, clearFilters,
   filterCity, setFilterCity, filterService, setFilterService,
-  cityOptions, serviceOptions, onOpenJob, hideMoney,
+  filterSource, setFilterSource,
+  cityOptions, serviceOptions, sourceOptions, onOpenJob, hideMoney,
 }) {
   const [showFilters, setShowFilters] = useState(false);
   // Which sections are collapsed. Default: ALL collapsed — the user opens
@@ -451,7 +452,7 @@ function MobilePipelineView({
     setCollapsed((prev) => ({ ...prev, [colId]: !prev[colId] }));
   }
 
-  const hasFilters = searchText.trim() || filterCity !== 'all' || filterService !== 'all';
+  const hasFilters = searchText.trim() || filterCity !== 'all' || filterService !== 'all' || filterSource !== 'all';
 
   return (
     <div className="flex-1 overflow-y-auto bg-omega-cloud">
@@ -489,6 +490,11 @@ function MobilePipelineView({
               className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none">
               <option value="all">All services</option>
               {serviceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none">
+              <option value="all">All sources</option>
+              {sourceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
             {hasFilters && (
               <button onClick={() => { clearFilters(); setShowFilters(false); }}
@@ -630,6 +636,7 @@ export default function PipelineKanban({
   const [searchText, setSearchText] = useState('');
   const [filterCity, setFilterCity] = useState('all');
   const [filterService, setFilterService] = useState('all');
+  const [filterSource, setFilterSource] = useState('all');
   const [filterPm, setFilterPm] = useState('all');
 
   const canSeePmFilter = user?.role === 'operations' || user?.role === 'owner';
@@ -823,6 +830,7 @@ export default function PipelineKanban({
       if (salesMatches && !salesMatches.has(j.id)) return false;
       if (filterCity !== 'all' && (j.city || '') !== filterCity) return false;
       if (filterService !== 'all' && (j.service || '') !== filterService) return false;
+      if (filterSource !== 'all' && (j.lead_source || '') !== filterSource) return false;
       if (canSeePmFilter && filterPm !== 'all' && (j.pm_name || '') !== filterPm) return false;
       if (searchText.trim()) {
         const q = searchText.trim().toLowerCase();
@@ -831,13 +839,14 @@ export default function PipelineKanban({
       }
       return true;
     });
-  }, [jobs, filterCity, filterService, filterPm, searchText, canSeePmFilter, salesMatches]);
+  }, [jobs, filterCity, filterService, filterSource, filterPm, searchText, canSeePmFilter, salesMatches]);
 
   const showSalesFallbackBanner =
     filterBySalesperson && user?.name && salesMatches === null && jobs.length > 0;
 
   const cityOptions    = useMemo(() => Array.from(new Set(jobs.map((j) => j.city).filter(Boolean))).sort(), [jobs]);
   const serviceOptions = useMemo(() => Array.from(new Set(jobs.map((j) => j.service).filter(Boolean))).sort(), [jobs]);
+  const sourceOptions  = useMemo(() => Array.from(new Set(jobs.map((j) => j.lead_source).filter(Boolean))).sort(), [jobs]);
   const pmOptions      = useMemo(() => Array.from(new Set(jobs.map((j) => j.pm_name).filter(Boolean))).sort(), [jobs]);
 
   // Group jobs + sum estimate totals by pipeline column.
@@ -1065,7 +1074,7 @@ export default function PipelineKanban({
   }
 
   function clearFilters() {
-    setFilterCity('all'); setFilterService('all'); setFilterPm('all'); setSearchText('');
+    setFilterCity('all'); setFilterService('all'); setFilterSource('all'); setFilterPm('all'); setSearchText('');
   }
 
   const activeJob = activeId ? jobs.find((j) => j.id === activeId) : null;
@@ -1108,8 +1117,11 @@ export default function PipelineKanban({
             setFilterCity={setFilterCity}
             filterService={filterService}
             setFilterService={setFilterService}
+            filterSource={filterSource}
+            setFilterSource={setFilterSource}
             cityOptions={cityOptions}
             serviceOptions={serviceOptions}
+            sourceOptions={sourceOptions}
             onOpenJob={handleOpenJob}
           />
         )}
@@ -1158,7 +1170,7 @@ export default function PipelineKanban({
         </div>
 
         {/* Filters */}
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-2">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-6 gap-2">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone" />
             <input
@@ -1183,6 +1195,14 @@ export default function PipelineKanban({
           >
             <option value="all">All services</option>
             {serviceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-omega-orange focus:outline-none transition"
+          >
+            <option value="all">All sources</option>
+            {sourceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           {canSeePmFilter ? (
             <select
