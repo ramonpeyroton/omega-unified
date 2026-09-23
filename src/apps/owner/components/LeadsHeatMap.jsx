@@ -368,10 +368,9 @@ export default function LeadsHeatMap() {
               zoomControl={true}
               attributionControl={true}
             >
-              {/* Clean light tile (CartoDB Positron) — free, no API key */}
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
                 maxZoom={19}
               />
 
