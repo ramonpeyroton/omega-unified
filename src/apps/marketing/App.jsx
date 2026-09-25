@@ -1,16 +1,18 @@
-// Marketing sub-app — read-only Pipeline + My Leads, plus the Daily
-// Logs cascade. Migrated to URL-based routing.
+// Marketing sub-app — Pipeline (full access), My Leads, Calendar,
+// plus the Daily Logs cascade. Migrated to URL-based routing.
 
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images, BarChart3, Sparkles, MessageSquareQuote } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images, BarChart3, Sparkles, MessageSquareQuote, Calendar } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import LeadsList from '../receptionist/screens/LeadsList';
 import JobFullView from '../../shared/components/JobFullView';
+import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
 import DailyLogsList from '../../shared/components/DailyLogsList';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import MobileMoreSheet from './components/MobileMoreSheet';
+import PageHeader from '../../shared/components/ui/PageHeader';
 import Portfolio from './screens/Portfolio';
 import MarketingDashboard from './screens/MarketingDashboard';
 import ContentStudio from './screens/ContentStudio';
@@ -19,22 +21,24 @@ import { useJobById } from '../../shared/hooks/useJobById';
 
 // Screens that live in the desktop sidebar + the mobile "More" sheet.
 const MORE_NAV = [
-  { id: 'insights', icon: BarChart3,          label: 'Insights',  to: '/insights' },
-  { id: 'studio',   icon: Sparkles,           label: 'Content',   to: '/studio' },
-  { id: 'reviews',  icon: MessageSquareQuote, label: 'Reviews',   to: '/reviews' },
+  { id: 'portfolio', icon: Images,             label: 'Portfolio', to: '/portfolio' },
+  { id: 'insights',  icon: BarChart3,          label: 'Insights',  to: '/insights' },
+  { id: 'studio',    icon: Sparkles,           label: 'Content',   to: '/studio' },
+  { id: 'reviews',   icon: MessageSquareQuote, label: 'Reviews',   to: '/reviews' },
 ];
 
 // Maps the current URL pathname to the bottom-bar item id for the
 // active-state highlight.
 function screenIdFromPath(pathname) {
   if (pathname.startsWith('/leads')) return 'leads';
+  if (pathname.startsWith('/calendar')) return 'calendar';
   if (pathname.startsWith('/portfolio')) return 'portfolio';
   if (pathname.startsWith('/insights')) return 'insights';
   if (pathname.startsWith('/studio')) return 'studio';
   if (pathname.startsWith('/reviews')) return 'reviews';
   if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   if (pathname === '/' || pathname === '') return 'pipeline';
-  return null; // job pages — no bottom-bar highlight
+  return null;
 }
 
 // ─── Mobile bottom bar ────────────────────────────────────────────
@@ -46,7 +50,7 @@ function MobileBottomBar({ onMore }) {
   const items = [
     { id: 'pipeline',   icon: GitBranch,           label: 'Pipeline',  to: '/' },
     { id: 'leads',      icon: ClipboardList,      label: 'Leads',     to: '/leads' },
-    { id: 'portfolio',  icon: Images,             label: 'Portfolio', to: '/portfolio' },
+    { id: 'calendar',   icon: Calendar,           label: 'Calendar',  to: '/calendar' },
     { id: 'daily-logs', icon: MessageCircle,      label: 'Logs',      to: '/daily-logs' },
     { id: 'more',       icon: MoreHorizontal,     label: 'More' },
   ];
@@ -92,6 +96,7 @@ function MarketingShell({ user, onLogout }) {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <SidebarBtn active={screen === 'pipeline'}  onClick={() => navigate('/')}          icon={GitBranch}     label="Pipeline" />
           <SidebarBtn active={screen === 'leads'}     onClick={() => navigate('/leads')}     icon={ClipboardList} label="My Leads" />
+          <SidebarBtn active={screen === 'calendar'}  onClick={() => navigate('/calendar')}  icon={Calendar}      label="Calendar" />
           <SidebarBtn active={screen === 'portfolio'} onClick={() => navigate('/portfolio')} icon={Images}        label="Portfolio" />
           <SidebarBtn active={screen === 'insights'}  onClick={() => navigate('/insights')}  icon={BarChart3}     label="Insights" />
           <SidebarBtn active={screen === 'studio'}    onClick={() => navigate('/studio')}    icon={Sparkles}      label="Content" />
@@ -152,8 +157,10 @@ function PipelineRoute({ user }) {
   return (
     <PipelineKanban
       user={user}
-      readOnly
+      filterBySalesperson={false}
+      onBack={() => navigate('/')}
       onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+      onOpenEstimateFlow={(job) => navigate(`/jobs/${job.id}/estimate-flow`, { state: { from: '/' } })}
     />
   );
 }
@@ -166,6 +173,16 @@ function LeadsRoute({ user }) {
       onBack={() => navigate('/')}
       onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/leads' } })}
     />
+  );
+}
+
+function CalendarRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <PageHeader icon={Calendar} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
+      <div className="flex-1 min-h-0 overflow-hidden"><CalendarScreen user={user} /></div>
+    </div>
   );
 }
 
@@ -220,6 +237,7 @@ export default function MarketingApp({ user, onLogout }) {
         <Route element={<MarketingShell user={user} onLogout={onLogout} />}>
           <Route path="/"            element={<PipelineRoute user={user} />} />
           <Route path="/leads"       element={<LeadsRoute user={user} />} />
+          <Route path="/calendar"    element={<CalendarRoute user={user} />} />
           <Route path="/portfolio"   element={<Portfolio user={user} />} />
           <Route path="/insights"    element={<MarketingDashboard user={user} />} />
           <Route path="/studio"      element={<ContentStudio user={user} />} />
