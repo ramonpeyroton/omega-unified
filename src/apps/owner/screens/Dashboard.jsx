@@ -27,6 +27,9 @@ import { sumAcceptedEstimates, manualCostTotal, computeJobFinancials } from '../
 
 const ACTIVE_PHASES = new Set([
   'new_lead',
+  'contacted',
+  'visit_scheduled',
+  'visited',
   'estimate_draft',
   'estimate_sent',
   'estimate_negotiating',
@@ -743,11 +746,14 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
           }
         }
 
-        // Active leads with no touch in > 4 days → call them
+        // Active leads with no touch in > 4 days → call them. Early funnel
+        // (not visited yet: New Lead / Contacted / Visit Scheduled) plus
+        // Estimate Sent.
+        const CALL_LEAD_PHASES = new Set(['new_lead', 'contacted', 'visit_scheduled', 'estimate_sent']);
         const fourDaysAgo = new Date(Date.now() - 4 * 86400000);
         for (const j of jobs) {
           if (!ACTIVE_PHASES.has(j.pipeline_status)) continue;
-          if (j.pipeline_status !== 'new_lead' && j.pipeline_status !== 'estimate_sent') continue;
+          if (!CALL_LEAD_PHASES.has(j.pipeline_status)) continue;
           if (j.last_touch_at && new Date(j.last_touch_at) >= fourDaysAgo) continue;
           actions.push({
             id: `call-${j.id}`,
@@ -1596,6 +1602,10 @@ const MARKETING_COLORS = ['#3B82F6', '#F97316', '#22C55E', '#A78BFA', '#F43F5E',
 // Status badge config for the leads drill-down panel
 const LEAD_STATUS_META = {
   new_lead:             { label: 'New Lead',       cls: 'bg-gray-100 text-gray-600' },
+  contacted:            { label: 'Contacted',      cls: 'bg-sky-100 text-sky-700' },
+  visit_scheduled:      { label: 'Visit Scheduled', cls: 'bg-indigo-100 text-indigo-700' },
+  visited:              { label: 'Visited',        cls: 'bg-teal-100 text-teal-700' },
+  estimate_draft:       { label: 'Estimate Draft', cls: 'bg-gray-100 text-gray-700' },
   estimate_sent:        { label: 'Estimate Sent',  cls: 'bg-violet-100 text-violet-700' },
   estimate_negotiating: { label: 'Negotiating',    cls: 'bg-amber-100 text-amber-700' },
   estimate_approved:    { label: 'Approved',       cls: 'bg-emerald-100 text-emerald-700' },
@@ -1603,7 +1613,7 @@ const LEAD_STATUS_META = {
   contract_signed:      { label: 'Won',            cls: 'bg-emerald-100 text-emerald-800' },
   in_progress:          { label: 'In Progress',    cls: 'bg-emerald-100 text-emerald-800' },
   completed:            { label: 'Completed',      cls: 'bg-green-100 text-green-800' },
-  estimate_rejected:    { label: 'Rejected',       cls: 'bg-red-100 text-red-700' },
+  estimate_rejected:    { label: 'Lost',           cls: 'bg-red-100 text-red-700' },
 };
 
 function MarketingOverview({ marketing, total, best, overallCpl, totalSpend, leads = [], onSelectJob }) {

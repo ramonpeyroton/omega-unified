@@ -69,11 +69,15 @@ function isSameDayCT(a, b) {
 }
 
 // ─── Pipeline phases shown on the overview list ─────────────────────
-// Order matches the redesign: lead → estimate sent → negotiating →
-// contract sent → won. Pre-lead drafts and rejected are hidden so the
-// seller only sees stages that still have a path to close.
+// Order matches the redesign: lead → contacted → visit scheduled →
+// visited → estimate sent → negotiating → contract sent → won. Pre-lead
+// drafts and Lost are hidden so the seller only sees stages that still
+// have a path to close.
 const OVERVIEW_PHASES = [
   { key: 'new_lead',             label: 'New Lead',             tint: 'bg-omega-pale text-omega-charcoal' },
+  { key: 'contacted',            label: 'Contacted',            tint: 'bg-sky-100 text-sky-700' },
+  { key: 'visit_scheduled',      label: 'Visit Scheduled',      tint: 'bg-indigo-100 text-indigo-700' },
+  { key: 'visited',              label: 'Visited',              tint: 'bg-teal-100 text-teal-700' },
   { key: 'estimate_sent',        label: 'Estimate Sent',        tint: 'bg-violet-100 text-violet-700' },
   { key: 'estimate_negotiating', label: 'Negotiating',          tint: 'bg-amber-100 text-amber-700' },
   { key: 'estimate_approved',    label: 'Approved',             tint: 'bg-emerald-100 text-emerald-700' },
@@ -298,9 +302,20 @@ function PipelineFunnel() {
   );
 }
 
+// Badge on each "Recent Leads" row (early-funnel stages only).
+const RECENT_LEAD_BADGE = {
+  new_lead:        { label: 'New',             cls: 'bg-blue-100 text-blue-700' },
+  contacted:       { label: 'Contacted',       cls: 'bg-sky-100 text-sky-700' },
+  visit_scheduled: { label: 'Visit Scheduled', cls: 'bg-indigo-100 text-indigo-700' },
+};
+
 // Stage-dot colors for the mobile pipeline list — orange at the top of the
-// funnel fading to dark grey at the bottom, matching the mockup.
-const STAGE_DOTS = ['bg-omega-orange', 'bg-omega-orange', 'bg-orange-300', 'bg-gray-300', 'bg-gray-400', 'bg-gray-700'];
+// funnel fading to dark grey at the bottom, matching the mockup. One per
+// OVERVIEW_PHASES row.
+const STAGE_DOTS = [
+  'bg-omega-orange', 'bg-omega-orange', 'bg-orange-400', 'bg-orange-300', 'bg-orange-200',
+  'bg-gray-300', 'bg-gray-400', 'bg-gray-500', 'bg-gray-700',
+];
 
 // ─── Activity icon by event kind ────────────────────────────────────
 function activityIconFor(kind) {
@@ -598,10 +613,11 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
     return { rows, totalValue };
   }, [jobs, estimates, jobCosts]);
 
-  // ─── Recent leads (latest 4) ─────────────────────────────────────
+  // ─── Recent leads (latest 4) — early funnel, not visited yet ─────
   const recentLeads = useMemo(() => {
+    const EARLY = new Set(['new_lead', 'contacted', 'visit_scheduled']);
     return jobs
-      .filter((j) => j.pipeline_status === 'new_lead')
+      .filter((j) => EARLY.has(j.pipeline_status))
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 4);
   }, [jobs]);
@@ -931,8 +947,10 @@ export default function Home({ user, onNavigate, onLogout, onOpenJob }) {
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
-                          NEW
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          (RECENT_LEAD_BADGE[j.pipeline_status] || RECENT_LEAD_BADGE.new_lead).cls
+                        }`}>
+                          {(RECENT_LEAD_BADGE[j.pipeline_status] || RECENT_LEAD_BADGE.new_lead).label}
                         </span>
                         <p className="text-[11px] text-omega-stone mt-0.5">{relTime(j.created_at)}</p>
                       </div>

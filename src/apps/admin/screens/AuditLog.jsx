@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import { PIPELINE_STEP_LABEL } from '../../../shared/config/phaseBreakdown';
+import { lostReasonLabel } from '../../receptionist/lib/leadCatalog';
 import { FOLDER_LABELS } from '../../../shared/lib/documentClassifier';
 
 // ─── Detail formatters ────────────────────────────────────────────
@@ -23,7 +24,7 @@ const FORMATTERS = {
   'user.login':   (d) => `Signed in${d?.role ? ` as ${d.role}` : ''}${d?.remember ? ' (remember me)' : ''}.`,
   'user.logout':  ()  => 'Signed out.',
 
-  'job.move':     (d) => `Moved ${quote(d?.client) || 'job'} on the pipeline: ${phaseLabel(d?.from)} → ${phaseLabel(d?.to)}${d?.source ? ` · via ${d.source}` : ''}.`,
+  'job.move':     (d) => `Moved ${quote(d?.client) || 'job'} on the pipeline: ${phaseLabel(d?.from)} → ${phaseLabel(d?.to)}${d?.lost_reason ? ` · reason: ${lostReasonLabel(d.lost_reason) || d.lost_reason}${d?.lost_note ? ` (${d.lost_note})` : ''}` : ''}${d?.source ? ` · via ${d.source}` : ''}.`,
   'job.create':   (d) => `Created job for ${quote(d?.client_name) || 'a new client'}${d?.source ? ` · source: ${d.source}` : ''}.`,
   'job.delete':   (d) => `Deleted job for ${quote(d?.client) || 'a client'}${d?.service ? ` (${d.service})` : ''}${d?.pipeline_status ? ` · was at ${phaseLabel(d.pipeline_status)}` : ''}${d?.authorized_by ? ` · authorized by ${d.authorized_by}` : ''}.`,
 

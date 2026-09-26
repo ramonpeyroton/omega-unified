@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { toE164 } from '../../../shared/lib/phone';
 import { logAudit } from '../../../shared/lib/audit';
 import {
-  SERVICES, LEAD_SOURCES, LEAD_STATUSES,
+  SERVICES, ALL_LEAD_SOURCES, LEAD_STATUSES,
 } from '../../receptionist/lib/leadCatalog';
 
 // ─────────────────────────────────────────────────────────────────
@@ -120,13 +120,14 @@ function normalizeDate(raw) {
   return null;
 }
 
-// Match a free-text source value against the canonical LEAD_SOURCES
-// list. Falls back to capitalized input when no match.
+// Match a free-text source value against the catalog — current AND retired
+// channels (old sheets say "Angi", "Google", …). Falls back to capitalized
+// input when no match.
 function normalizeSource(raw) {
   const s = (raw || '').trim();
   if (!s) return null;
   const lower = s.toLowerCase();
-  const hit = LEAD_SOURCES.find((opt) => opt.toLowerCase() === lower);
+  const hit = ALL_LEAD_SOURCES.find((opt) => opt.toLowerCase() === lower);
   if (hit) return hit;
   // Capitalize fallback so "google" still reads "Google" in the UI.
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -452,7 +453,6 @@ export default function ImportLeads({ user }) {
                     <Th>Address</Th>
                     <Th>Service</Th>
                     <Th>Source</Th>
-                    <Th>Status</Th>
                     <Th>Lead Date</Th>
                     <Th>Notes</Th>
                   </tr>
@@ -471,7 +471,6 @@ export default function ImportLeads({ user }) {
                         <td className="px-2 py-1.5 text-omega-slate truncate max-w-[180px]">{r.address || '—'}</td>
                         <td className="px-2 py-1.5 text-omega-slate">{r.service || '—'}</td>
                         <td className="px-2 py-1.5 text-omega-slate">{r.lead_source || '—'}</td>
-                        <td className="px-2 py-1.5 text-omega-slate">{r.lead_status || '—'}</td>
                         <td className="px-2 py-1.5 text-omega-slate whitespace-nowrap">{r.lead_date || '—'}</td>
                         <td className="px-2 py-1.5 text-omega-slate truncate max-w-[200px]">{r.last_touch_note || '—'}</td>
                       </tr>

@@ -11,7 +11,9 @@ import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
 import { validateUserPinDetailed } from '../../../shared/lib/userPin';
 import { logAudit } from '../../../shared/lib/audit';
-import { CITIES_BY_STATE, STATES, SERVICES, LEAD_SOURCES, PIPELINE_STATUSES, LEAD_STATUSES, leadStatusMeta } from '../lib/leadCatalog';
+import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../../../shared/config/phaseBreakdown';
+import LostMoveModal from '../../../shared/components/LostMoveModal';
+import { CITIES_BY_STATE, STATES, SERVICES, ALL_LEAD_SOURCES, leadSourceOptions, PIPELINE_STATUSES } from '../lib/leadCatalog';
 
 const FILTERS = [
   { id: 'today', label: 'Today' },
@@ -32,20 +34,22 @@ const CARD_SORT_OPTIONS = [
   { id: 'project',  label: 'Project' },
   { id: 'owner',    label: 'Owner' },
   { id: 'appt',     label: 'Appt Date' },
-  { id: 'status',   label: 'Status' },
+  { id: 'stage',    label: 'Stage' },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'touch',    label: 'Last Touch' },
 ];
 
-// Left-border accent color for card view.
-// Priority: appointment_set (blue) > follow_up (amber) > lost/declined (red)
-//           > in_pipeline (orange) > default (gray).
+// Left-border accent color for card view: the pipeline stage's color while
+// the lead is on the board, gray when it's off (cold / Lost).
 function getCardBorderColor(r) {
-  if (r.lead_status === 'appointment_set')               return '#378ADD';
-  if (r.lead_status === 'follow_up')                     return '#EF9F27';
-  if (r.lead_status === 'lost' || r.lead_status === 'declined') return '#E24B4A';
-  if (r.in_pipeline)                                     return '#D85A30';
+  if (r.in_pipeline) return PIPELINE_COLORS[r.pipeline_status || 'new_lead']?.hex || '#D85A30';
   return '#888780';
+}
+
+// Sort key for the Stage column — pipeline order, unknown stages last.
+function stageSortKey(r) {
+  const i = PIPELINE_ORDER.indexOf(r.pipeline_status || 'new_lead');
+  return i === -1 ? '' : i;
 }
 
 // Default view mode per role.
@@ -100,7 +104,7 @@ const COLUMNS = [
   { id: 'owner',    label: 'Owner',        get: (r) => r.lead_owner || '' },
   { id: 'project',  label: 'Project',      get: (r) => joinedServices(r) },
   { id: 'appt',     label: 'Appt Date',    get: (r) => r.appt_date_effective || '' },
-  { id: 'status',   label: 'Status',       get: (r) => (leadStatusMeta(r.lead_status)?.label || '') },
+  { id: 'stage',    label: 'Stage',        get: stageSortKey },
   { id: 'pipeline', label: 'Pipeline',     get: (r) => (r.in_pipeline ? 'Yes' : 'No') },
   { id: 'touch',    label: 'Last Touch',   get: (r) => r.last_touch_at || '' },
   { id: 'notes',    label: 'Info / Notes', get: (r) => r.last_touch_note || '' },
@@ -131,7 +135,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
   const [viewMode, setViewMode]         = useState(() => defaultViewForRole(user?.role));
   const [prefLoaded, setPrefLoaded]     = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [filters, setFilters]           = useState({ status: '', source: '', owner: '', pipeline: '' });
+  const [filters, setFilters]           = useState({ stage: '', source: '', owner: '', pipeline: '' });
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
 
@@ -150,7 +154,8 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
         if (!active) return;
         if (data) {
           if (data.leads_view_mode)  setViewMode(data.leads_view_mode);
-          if (data.leads_sort_field) setSortBy(data.leads_sort_field);
+          // 'status' (the old Lead Status column) is gone — sort by Stage.
+          if (data.leads_sort_field) setSortBy(data.leads_sort_field === 'status' ? 'stage' : data.leads_sort_field);
           if (data.leads_sort_dir)   setSortDir(data.leads_sort_dir);
         }
       } catch { /* table not yet created — silent */ }
@@ -186,7 +191,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
     try {
       let q = supabase
         .from('jobs')
-        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, lead_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
+        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
         .order('created_at', { ascending: false })
         .limit(2000);
 
@@ -295,28 +300,21 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
     setPinGate({ lead });
   }
 
-  async function saveLeadStatus(id, value) {
-    const next = value || null;
-    const prev = rows;
-    setRows((p) => p.map((r) => (r.id === id ? { ...r, lead_status: next } : r)));
+  async function saveLead(lead, patch) {
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ lead_status: next })
-        .eq('id', id);
+      const { error } = await supabase.from('jobs').update(patch).eq('id', lead.id);
       if (error) throw error;
-      setToast({ type: 'success', message: next ? `Status: ${leadStatusMeta(next)?.label || next}` : 'Status cleared' });
-    } catch (err) {
-      setRows(prev);
-      setToast({ type: 'error', message: err.message || 'Failed to update status' });
-    }
-  }
-
-  async function saveLead(id, patch) {
-    try {
-      const { error } = await supabase.from('jobs').update(patch).eq('id', id);
-      if (error) throw error;
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+      setRows((prev) => prev.map((r) => (r.id === lead.id ? { ...r, ...patch } : r)));
+      const from = lead.pipeline_status || 'new_lead';
+      if (patch.pipeline_status && patch.pipeline_status !== from) {
+        logAudit({
+          user, action: 'job.move', entityType: 'job', entityId: lead.id,
+          details: {
+            from, to: patch.pipeline_status, client: patch.client_name || lead.client_name, source: 'edit_lead',
+            ...(patch.lost_reason ? { lost_reason: patch.lost_reason, lost_note: patch.lost_note } : {}),
+          },
+        });
+      }
       setToast({ type: 'success', message: 'Lead updated' });
       setEditingLead(null);
     } catch (err) {
@@ -357,11 +355,17 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
     return [...set].sort();
   }, [rows]);
 
+  // Source filter: current + retired channels, plus any other value that
+  // is actually on a loaded lead (old imports, free text).
+  const sourceFilterOptions = useMemo(() => (
+    [...new Set([...ALL_LEAD_SOURCES, ...rows.map((r) => r.lead_source).filter(Boolean)])]
+  ), [rows]);
+
   // Active filters as [key, value] pairs for chip display.
   const activeFilters = Object.entries(filters).filter(([, v]) => v !== '');
 
   function filterChipLabel(key, value) {
-    if (key === 'status')   return leadStatusMeta(value)?.label || value;
+    if (key === 'stage')    return PIPELINE_STEP_LABEL[value] || value;
     if (key === 'pipeline') return value === 'yes' ? 'In Pipeline' : 'Not in Pipeline';
     return value;
   }
@@ -386,7 +390,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
     }
 
     // Categorical filters
-    if (filters.status)             out = out.filter((r) => r.lead_status === filters.status);
+    if (filters.stage)              out = out.filter((r) => (r.pipeline_status || 'new_lead') === filters.stage);
     if (filters.source)             out = out.filter((r) => r.lead_source === filters.source);
     if (filters.owner)              out = out.filter((r) => r.lead_owner  === filters.owner);
     if (filters.pipeline === 'yes') out = out.filter((r) => !!r.in_pipeline);
@@ -531,14 +535,14 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
       {showFilterPanel && (
         <div className="bg-white border-b border-gray-200 px-6 md:px-8 py-3 flex flex-wrap gap-3 items-center flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone whitespace-nowrap">Status</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-omega-stone whitespace-nowrap">Stage</span>
             <select
-              value={filters.status}
-              onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+              value={filters.stage}
+              onChange={(e) => setFilters((f) => ({ ...f, stage: e.target.value }))}
               className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:border-omega-orange focus:outline-none"
             >
               <option value="">All</option>
-              {LEAD_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {PIPELINE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
 
@@ -550,7 +554,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
               className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:border-omega-orange focus:outline-none"
             >
               <option value="">All</option>
-              {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {sourceFilterOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
 
@@ -581,7 +585,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
 
           {activeFilters.length > 0 && (
             <button
-              onClick={() => setFilters({ status: '', source: '', owner: '', pipeline: '' })}
+              onClick={() => setFilters({ stage: '', source: '', owner: '', pipeline: '' })}
               className="text-xs text-omega-stone hover:text-red-500 transition-colors font-semibold ml-auto"
             >
               Clear all
@@ -652,7 +656,6 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
               </thead>
               <tbody>
                 {visibleRows.map((r) => {
-                  const ls = leadStatusMeta(r.lead_status);
                   return (
                     <tr key={r.id} className="hover:bg-omega-cloud/60 border-b border-gray-100 align-top">
                       <td className="px-3 py-2 text-xs text-omega-charcoal whitespace-nowrap">{fmtShortDate(effectiveDate(r))}</td>
@@ -700,11 +703,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
                           : <span className="text-omega-stone">—</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <LeadStatusSelect
-                          value={r.lead_status || ''}
-                          meta={ls}
-                          onChange={(v) => saveLeadStatus(r.id, v)}
-                        />
+                        <StagePill status={r.pipeline_status} />
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <PipelineToggle
@@ -764,7 +763,6 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
                 onOpenJob={onOpenJob}
                 onEdit={() => setEditingLead(r)}
                 onEditTouch={() => setEditing(r)}
-                onStatusChange={(v) => saveLeadStatus(r.id, v)}
                 onPipelineToggle={() => requestPipelineToggle(r)}
                 onDelete={() => setDeletingLead(r)}
                 user={user}
@@ -785,8 +783,9 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
       {editingLead && (
         <EditLeadModal
           lead={editingLead}
+          user={user}
           onClose={() => setEditingLead(null)}
-          onSave={(patch) => saveLead(editingLead.id, patch)}
+          onSave={(patch) => saveLead(editingLead, patch)}
         />
       )}
 
@@ -815,11 +814,9 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
 
 // ─── Lead card (card view) ────────────────────────────────────────
 // Colored left border (3 px) gives instant visual priority signal.
-// Footer row has the status selector, pipeline toggle, and action
-// buttons so the most-frequent actions are reachable without opening
-// a modal.
-function LeadCard({ r, onOpenJob, onEdit, onEditTouch, onStatusChange, onPipelineToggle, onDelete, user }) {
-  const ls          = leadStatusMeta(r.lead_status);
+// Footer row has the pipeline toggle and action buttons so the
+// most-frequent actions are reachable without opening a modal.
+function LeadCard({ r, onOpenJob, onEdit, onEditTouch, onPipelineToggle, onDelete, user }) {
   const borderColor = getCardBorderColor(r);
   const services    = joinedServices(r);
 
@@ -831,11 +828,7 @@ function LeadCard({ r, onOpenJob, onEdit, onEditTouch, onStatusChange, onPipelin
       {/* ── Header: badges + date ── */}
       <div className="px-3 pt-3 pb-2 flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
-          {ls && (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${ls.cls}`}>
-              {ls.label}
-            </span>
-          )}
+          <StagePill status={r.pipeline_status} />
           {r.lead_source && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-omega-slate border border-gray-200">
               {r.lead_source}
@@ -910,13 +903,8 @@ function LeadCard({ r, onOpenJob, onEdit, onEditTouch, onStatusChange, onPipelin
         </div>
       )}
 
-      {/* ── Footer: status select + pipeline + action buttons ── */}
+      {/* ── Footer: pipeline + action buttons ── */}
       <div className="mt-auto border-t border-gray-100 px-3 py-2 flex items-center gap-2 flex-wrap">
-        <LeadStatusSelect
-          value={r.lead_status || ''}
-          meta={ls}
-          onChange={onStatusChange}
-        />
         <PipelineToggle on={!!r.in_pipeline} onToggle={onPipelineToggle} />
         <div className="ml-auto flex items-center gap-0.5">
           {!r.last_touch_note && (
@@ -1111,21 +1099,18 @@ function PipelinePinModal({ lead, user, onClose, onConfirm }) {
   );
 }
 
-// Inline pill-shaped <select> for the Status column / card footer.
-function LeadStatusSelect({ value, meta, onChange }) {
-  const cls = meta?.cls || 'bg-gray-100 text-omega-stone border-gray-200';
+// Read-only pill with the lead's pipeline stage (Stage column / card
+// header). Replaced the old receptionist "Lead Status" select (077).
+function StagePill({ status }) {
+  const key = status || 'new_lead';
+  const hex = PIPELINE_COLORS[key]?.hex || '#6B7280';
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border focus:outline-none focus:ring-2 focus:ring-omega-orange/40 cursor-pointer ${cls}`}
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border whitespace-nowrap"
+      style={{ color: hex, background: `${hex}14`, borderColor: `${hex}40` }}
     >
-      <option value="">Set status…</option>
-      {LEAD_STATUSES.map((s) => (
-        <option key={s.value} value={s.value}>{s.label}</option>
-      ))}
-    </select>
+      {PIPELINE_STEP_LABEL[key] || key}
+    </span>
   );
 }
 
@@ -1227,7 +1212,7 @@ function extractState(address) {
   return m ? m[1].toUpperCase() : 'CT';
 }
 
-function EditLeadModal({ lead, onClose, onSave }) {
+function EditLeadModal({ lead, user, onClose, onSave }) {
   const initialName = splitName(lead.client_name);
   const [form, setForm] = useState({
     lead_date:       lead.lead_date || '',
@@ -1242,11 +1227,11 @@ function EditLeadModal({ lead, onClose, onSave }) {
     services:        [lead.service, ...(Array.isArray(lead.additional_services) ? lead.additional_services : [])].filter(Boolean),
     lead_source:     lead.lead_source || '',
     pipeline_status: lead.pipeline_status || 'new_lead',
-    lead_status:     lead.lead_status || '',
     lead_owner:      lead.lead_owner || '',
     notes:           lead.last_touch_note || '',
   });
   const [saving, setSaving] = useState(false);
+  const [askLost, setAskLost] = useState(false); // moving INTO Lost → reason + PIN first
   const [staff, setStaff]   = useState([]);
   useEffect(() => {
     let active = true;
@@ -1273,7 +1258,19 @@ function EditLeadModal({ lead, onClose, onSave }) {
     });
   }
 
-  async function handleSave() {
+  const prevStatus = lead.pipeline_status || 'new_lead';
+
+  function handleSave() {
+    // Moving into Lost asks the same reason + PIN as the Kanban.
+    if (form.pipeline_status === 'estimate_rejected' && prevStatus !== 'estimate_rejected') {
+      setAskLost(true);
+      return;
+    }
+    void doSave(null);
+  }
+
+  // `lost` = { lost_reason, lost_note } from LostMoveModal (Lost moves only).
+  async function doSave(lost) {
     setSaving(true);
     const clientName = `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
     const streetLine = form.unit_number.trim()
@@ -1296,9 +1293,16 @@ function EditLeadModal({ lead, onClose, onSave }) {
       additional_services: extra.length ? extra : null,
       lead_source:         form.lead_source || null,
       pipeline_status:     form.pipeline_status || null,
-      lead_status:         form.lead_status || null,
       lead_owner:          form.lead_owner || null,
     };
+    // A stage change puts the lead on the board (same as dragging it on
+    // the Kanban); a move into Lost takes it off — trigger 038 would flip
+    // it anyway, writing it here keeps this list in sync. Saving without
+    // changing the stage leaves in_pipeline alone.
+    if ((form.pipeline_status || 'new_lead') !== prevStatus) {
+      patch.in_pipeline = form.pipeline_status !== 'estimate_rejected';
+    }
+    if (lost) Object.assign(patch, lost);
     await onSave(patch);
     setSaving(false);
   }
@@ -1307,6 +1311,7 @@ function EditLeadModal({ lead, onClose, onSave }) {
   const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:border-omega-orange focus:ring-1 focus:ring-omega-orange outline-none';
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
       <div className="bg-white rounded-t-2xl md:rounded-2xl w-full md:max-w-2xl p-5 max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between mb-4 sticky top-0 bg-white pb-2 border-b border-gray-100">
@@ -1331,14 +1336,6 @@ function EditLeadModal({ lead, onClose, onSave }) {
                 {PIPELINE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
-          </div>
-
-          <div>
-            <label className={labelCls}>Lead Status</label>
-            <select className={inputCls} value={form.lead_status} onChange={(e) => set('lead_status', e.target.value)}>
-              <option value="">— None —</option>
-              {LEAD_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
           </div>
 
           <div>
@@ -1415,7 +1412,8 @@ function EditLeadModal({ lead, onClose, onSave }) {
             <label className={labelCls}>Lead Source</label>
             <select className={inputCls} value={form.lead_source} onChange={(e) => set('lead_source', e.target.value)}>
               <option value="">Select…</option>
-              {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {/* Keeps a retired source (e.g. Angi) selected so saving doesn't wipe it. */}
+              {leadSourceOptions(lead.lead_source).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
 
@@ -1461,5 +1459,15 @@ function EditLeadModal({ lead, onClose, onSave }) {
         </div>
       </div>
     </div>
+
+    {askLost && (
+      <LostMoveModal
+        user={user}
+        jobName={lead.client_name || 'this lead'}
+        onCancel={() => setAskLost(false)}
+        onConfirm={async (lost) => { setAskLost(false); await doSave(lost); }}
+      />
+    )}
+    </>
   );
 }

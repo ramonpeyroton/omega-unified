@@ -29,11 +29,14 @@ const ADMIN_ROLES = new Set(['owner', 'operations', 'admin']);
 
 const PIPELINE_LABEL = {
   new_lead:             'New Lead',
+  contacted:            'Contacted',
+  visit_scheduled:      'Visit Scheduled',
+  visited:              'Visited',
   estimate_draft:       'Estimate Draft',
   estimate_sent:        'Estimate Sent',
   estimate_negotiating: 'Negotiating',
   estimate_approved:    'Approved',
-  estimate_rejected:    'Rejected',
+  estimate_rejected:    'Lost',
   contract_sent:        'Contract Sent',
   contract_signed:      'Contract Signed',
   in_progress:          'In Progress',

@@ -15,6 +15,9 @@ import { supabase } from '../lib/supabase';
 
 const ACTIVE_PHASES = new Set([
   'new_lead',
+  'contacted',
+  'visit_scheduled',
+  'visited',
   'estimate_draft',
   'estimate_sent',
   'estimate_negotiating',

@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import PhaseBreakdown from '../../../shared/components/PhaseBreakdown';
 import ContactSection from '../../../shared/components/ContactSection';
 import MaterialsSection from '../../../shared/components/MaterialsSection';
+import { PIPELINE_STEP_LABEL } from '../../../shared/config/phaseBreakdown';
 
 // Manager's phase view — uses the SHARED PhaseBreakdown so the Manager
 // sees the same detailed phase templates (`jobs.phase_data`) that the
@@ -50,7 +51,7 @@ export default function PhaseView({ job: initialJob, user, onNavigate }) {
         )}
         {job.pipeline_status && (
           <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-green-500 text-white">
-            {String(job.pipeline_status).replace(/_/g, ' ')}
+            {PIPELINE_STEP_LABEL[job.pipeline_status] || String(job.pipeline_status).replace(/_/g, ' ')}
           </span>
         )}
         <button

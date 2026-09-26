@@ -143,6 +143,14 @@ export default function MarketingSpend({ user }) {
     }
   }
 
+  // Current channels first, then any other channel that already has a saved
+  // row (e.g. retired ones like Angi) — otherwise its spend would still
+  // count in the total but vanish from the table.
+  const channels = useMemo(() => [
+    ...LEAD_SOURCES,
+    ...Object.keys(rowsByChannel).filter((ch) => !LEAD_SOURCES.includes(ch)).sort(),
+  ], [rowsByChannel]);
+
   const totalMonthlySpend = Object.values(rowsByChannel).reduce(
     (s, r) => s + (Number(r.amount) || 0), 0,
   );
@@ -193,14 +201,22 @@ export default function MarketingSpend({ user }) {
                 </tr>
               </thead>
               <tbody>
-                {LEAD_SOURCES.map((channel) => {
+                {channels.map((channel) => {
                   const row = rowsByChannel[channel] || { amount: '', notes: '', dirty: false };
                   const leadsCount = leadsByChannel[channel] || 0;
                   const spendNum = Number(row.amount) || 0;
                   const cpl = leadsCount === 0 || spendNum === 0 ? null : spendNum / leadsCount;
+                  const retired = !LEAD_SOURCES.includes(channel);
                   return (
                     <tr key={channel} className={`border-t border-gray-100 ${row.dirty ? 'bg-omega-pale/30' : ''}`}>
-                      <td className="py-2 px-4 font-bold text-omega-charcoal">{channel}</td>
+                      <td className="py-2 px-4 font-bold text-omega-charcoal">
+                        {channel}
+                        {retired && (
+                          <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-omega-stone bg-gray-100 px-1.5 py-0.5 rounded">
+                            retired
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 px-4">
                         <div className="relative">
                           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-omega-stone text-xs">$</span>

@@ -9,13 +9,7 @@ import { notify } from '../../../shared/lib/notifications';
 import { formatPhoneInput, toE164 } from '../../../shared/lib/phone';
 import { createEvent } from '../../../shared/lib/calendar';
 import AddressAutocomplete from '../../../shared/components/AddressAutocomplete';
-
-// Same list as receptionist (leadCatalog.js)
-const LEAD_SOURCES = [
-  'Google', 'Referral', 'Houzz', 'HomeAdvisor', 'Angi',
-  'Mr.NailEdit', 'Door to Door', 'Social Media', 'Repeat Client',
-  'Drove By', 'Other',
-];
+import { LEAD_SOURCES } from '../../receptionist/lib/leadCatalog';
 
 function ServiceIcon({ name }) {
   const Icon = Icons[name] || Icons.Wrench;

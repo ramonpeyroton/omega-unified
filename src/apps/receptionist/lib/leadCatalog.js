@@ -130,51 +130,100 @@ export const SERVICES = [
   { value: 'newconstruction',label: 'New Construction'    },
 ];
 
-// Marketing channels Omega tracks for new leads. Order is
-// alphabetical-ish but with high-volume sources surfaced first
-// ("Google" / "Referral") so the receptionist hits the right one
-// fastest in the dropdown.
+// Marketing channels offered for NEW leads (Lead Central, migration 077).
+// The website intake writes 'Website', 'Google Ads', 'Houzz' and
+// 'Local Services' straight into jobs.lead_source — keep those spellings.
 export const LEAD_SOURCES = [
-  'Google',
-  'Referral',
   'Houzz',
-  'HomeAdvisor',
-  'Angi',          // formerly "Angie's List" — rebranded; kept this name only.
-  'Mr.NailEdit',
-  'Door to Door',
-  'Social Media',
+  'Local Services',
+  'Google Ads',
+  'Website',
+  'Called In',
+  'Referral',
   'Repeat Client',
   'Drove By',
   'Other',
 ];
 
+// Retired channels. Leads that already carry one keep it — it still
+// displays, filters and survives an edit — but it's no longer offered
+// when creating a lead.
+export const LEGACY_LEAD_SOURCES = [
+  'Angi',
+  'HomeAdvisor',
+  'Mr.NailEdit',
+  'Google',
+  'Door to Door',
+  'Social Media',
+];
+
+export const ALL_LEAD_SOURCES = [...LEAD_SOURCES, ...LEGACY_LEAD_SOURCES];
+
+// Options for an edit <select>: the current list plus the lead's own
+// value when it's legacy / free text, so saving the form never wipes it.
+export function leadSourceOptions(current) {
+  const v = (current || '').trim();
+  return v && !LEAD_SOURCES.includes(v) ? [...LEAD_SOURCES, v] : LEAD_SOURCES;
+}
+
+// "Open in Google" link for leads that arrived with a source URL (website /
+// Local Services / Houzz intake). Only http(s) URLs become links.
+export function leadSourceLink(url) {
+  const raw = (url || '').trim();
+  if (!raw) return null;
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase();
+  const label = host.includes('houzz') ? 'Open in Houzz'
+    : host.includes('google') || host === 'goo.gl' ? 'Open in Google'
+    : 'Open lead source';
+  return { href: u.href, label };
+}
+
 export const PIPELINE_STATUSES = [
   { value: 'new_lead',             label: 'New Lead' },
+  { value: 'contacted',            label: 'Contacted' },
+  { value: 'visit_scheduled',      label: 'Visit Scheduled' },
+  { value: 'visited',              label: 'Visited' },
   { value: 'estimate_draft',       label: 'Estimate — Draft' },
   { value: 'estimate_sent',        label: 'Estimate — Sent' },
   { value: 'estimate_negotiating', label: 'Estimate — Negotiating' },
   { value: 'estimate_approved',    label: 'Estimate — Approved' },
-  { value: 'estimate_rejected',    label: 'Estimate — Rejected (LOST)' },
   { value: 'contract_sent',        label: 'Contract — Sent' },
   { value: 'contract_signed',      label: 'Contract — Signed' },
   { value: 'in_progress',          label: 'In Progress' },
   { value: 'completed',            label: 'Completed' },
+  { value: 'estimate_rejected',    label: 'Lost' },
 ];
+
+// Why a job went to Lost. Values match jobs_lost_reason_check (077).
+// 'estimate_rejected' is also what the DB fills in when a job lands in
+// Lost without a reason (e.g. the Estimate Flow "Reject" button).
+export const LOST_REASONS = [
+  { value: 'no_response',          label: 'No response' },
+  { value: 'not_a_fit',            label: 'Not a fit' },
+  { value: 'price',                label: 'Price' },
+  { value: 'went_with_competitor', label: 'Went with another contractor' },
+  { value: 'out_of_area',          label: 'Out of area' },
+  { value: 'estimate_rejected',    label: 'Estimate rejected' },
+  { value: 'other',                label: 'Other' },
+];
+
+export function lostReasonLabel(v) {
+  return LOST_REASONS.find((r) => r.value === v)?.label || null;
+}
 
 export function serviceLabel(v) {
   return SERVICES.find((s) => s.value === v)?.label || v;
 }
 
-// ─── Lead Status (Rafaela's day-to-day tag) ──────────────────────
+// ─── Lead Status (Rafaela's old day-to-day tag) ──────────────────
 //
-// Independent from PIPELINE_STATUSES: this is the receptionist's
-// quick label for "what state is THIS phone call in?" — she'll flip
-// these all day as she dials through the list. Pipeline stays the
-// salesperson's funnel.
-//
-// Values match the CHECK constraint in migration 035; do not add
-// new ones here without also updating the SQL or the insert will
-// fail with a constraint violation.
+// HIDDEN from the UI since Lead Central (077) — the pipeline stages
+// (Contacted, Visit Scheduled, …) replaced it. jobs.lead_status and its
+// CHECK constraint (035) stay in the DB; the list is kept so Import Leads
+// can still map a spreadsheet's STATUS column into it.
 export const LEAD_STATUSES = [
   { value: 'appointment_set', label: 'Appointment Set', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
   { value: 'follow_up',       label: 'Follow Up',       cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -184,6 +233,3 @@ export const LEAD_STATUSES = [
   { value: 'lost',            label: 'Lost',            cls: 'bg-red-100 text-red-700 border-red-200' },
 ];
 
-export function leadStatusMeta(v) {
-  return LEAD_STATUSES.find((s) => s.value === v) || null;
-}

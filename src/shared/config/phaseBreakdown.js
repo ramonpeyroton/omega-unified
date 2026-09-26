@@ -572,9 +572,13 @@ export function progressFromPhaseData(phaseData) {
 
 // Pipeline status → display label. Keep keys in sync with PIPELINE_COLORS
 // below and with the Supabase check constraint in
-// migrations/004_receptionist_and_pipeline.sql.
+// migrations/077_lead_central_pipeline.sql. `estimate_rejected` shows as
+// "Lost" — only the label changed, the key is still the one in the DB.
 export const PIPELINE_STEP_LABEL = {
   new_lead:             'New Lead',
+  contacted:            'Contacted',
+  visit_scheduled:      'Visit Scheduled',
+  visited:              'Visited',
   estimate_draft:       'Estimate Draft',
   estimate_sent:        'Estimate Sent',
   estimate_negotiating: 'Estimate Negotiating',
@@ -583,13 +587,16 @@ export const PIPELINE_STEP_LABEL = {
   contract_signed:      'Contract Signed',
   in_progress:          'In Progress',
   completed:            'Completed',
-  estimate_rejected:    'Estimate Rejected',
+  estimate_rejected:    'Lost',
 };
 
 // Canonical color per status. Single source of truth — Kanban columns,
 // job-card badges and any ad-hoc pill reads from here.
 export const PIPELINE_COLORS = {
   new_lead:             { hex: '#6B7280', tailwindBg: 'bg-gray-500',    soft: 'bg-gray-50' },
+  contacted:            { hex: '#0EA5E9', tailwindBg: 'bg-sky-500',     soft: 'bg-sky-50' },
+  visit_scheduled:      { hex: '#6366F1', tailwindBg: 'bg-indigo-500',  soft: 'bg-indigo-50' },
+  visited:              { hex: '#14B8A6', tailwindBg: 'bg-teal-500',    soft: 'bg-teal-50' },
   estimate_draft:       { hex: '#4B5563', tailwindBg: 'bg-gray-600',    soft: 'bg-gray-100' },
   estimate_sent:        { hex: '#3B82F6', tailwindBg: 'bg-blue-500',    soft: 'bg-blue-50/60' },
   estimate_negotiating: { hex: '#8B5CF6', tailwindBg: 'bg-violet-500',  soft: 'bg-violet-50' },
@@ -604,6 +611,9 @@ export const PIPELINE_COLORS = {
 // Canonical Kanban column order (left → right).
 export const PIPELINE_ORDER = [
   'new_lead',
+  'contacted',
+  'visit_scheduled',
+  'visited',
   'estimate_draft',
   'estimate_sent',
   'estimate_negotiating',

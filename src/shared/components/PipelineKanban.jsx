@@ -17,7 +17,8 @@ import {
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
-  Eye, EyeOff, ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
+  ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
+  PhoneCall, CalendarClock, ClipboardCheck, ExternalLink,
 } from 'lucide-react';
 import PageHeader from './ui/PageHeader';
 import { supabase } from '../lib/supabase';
@@ -25,10 +26,14 @@ import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
 import JobFullView from './JobFullView';
 import DeleteJobModal from './DeleteJobModal';
+import LostMoveModal from './LostMoveModal';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
 import { logAudit } from '../lib/audit';
 import { notify } from '../lib/notifications';
-import { validateUserPin } from '../lib/userPin';
+import {
+  stageAge, STAGE_TONE, useNow, nyDateKey, formatDateKey, formatClockTime, formatNyTime,
+} from '../lib/stageAge';
+import { lostReasonLabel, leadSourceLink } from '../../apps/receptionist/lib/leadCatalog';
 
 // Phases from which a card move should notify the salesperson. The
 // rule of thumb: anything from "estimate sent" onwards is part of
@@ -48,10 +53,10 @@ const SALES_NOTIFY_PHASES = new Set([
   'completed',
 ]);
 
-// Phases that require a PIN confirmation before moving a card into
-// them. Anything terminal goes here so a stray drop doesn't quietly
-// archive a real lead. Currently only "Estimate Rejected" — the
-// kind of phase you want the user to *think* about before committing.
+// Phases that require confirmation before moving a card into them.
+// Currently only Lost (key `estimate_rejected`): the drop opens
+// LostMoveModal, which asks for a reason + the user's own PIN so a
+// stray drop doesn't quietly archive a real lead.
 const PIN_GATED_PHASES = new Set(['estimate_rejected']);
 
 // Only Owner, Operations and Admin can initiate a delete from the card.
@@ -143,6 +148,9 @@ function relTime(iso) {
 // flavor — clicking still opens JobFullView, the icon doesn't drive UX.
 function footerIconFor(status) {
   switch (status) {
+    case 'contacted':            return PhoneCall;
+    case 'visit_scheduled':      return CalendarClock;
+    case 'visited':              return ClipboardCheck;
     case 'estimate_draft':       return FileText;
     case 'estimate_sent':        return Mail;
     case 'estimate_negotiating': return MessageIconFallback;
@@ -197,6 +205,49 @@ function CardCover({ url, columnHex }) {
   );
 }
 
+// ─── Lead Central card extras ─────────────────────────────────────
+// Lost reason chip. Legacy Lost cards (reason NULL) show nothing.
+function LostReasonChip({ job }) {
+  if (job.pipeline_status !== 'estimate_rejected') return null;
+  const label = lostReasonLabel(job.lost_reason);
+  if (!label) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-100 font-semibold text-[10px] uppercase tracking-wider"
+      title={job.lost_note ? `Lost: ${label} — ${job.lost_note}` : `Lost: ${label}`}
+    >
+      <XCircle className="w-2.5 h-2.5" /> {label}
+    </span>
+  );
+}
+
+// "Visit booked by client: Mon, Sep 28 · 10:30 AM" — website leads that
+// picked a visit slot themselves, while they're still in New Lead.
+function websiteBookingText(job) {
+  if (job.created_by !== 'Website' || job.pipeline_status !== 'new_lead' || !job.preferred_visit_date) return null;
+  const when = [formatDateKey(job.preferred_visit_date), formatClockTime(job.preferred_visit_time)].filter(Boolean).join(' · ');
+  return when ? `Visit booked by client: ${when}` : null;
+}
+
+// Visit used by the Visit Scheduled label: the next upcoming sales_visit
+// on the calendar, else the most recent past one, else the lead's
+// preferred_visit_date. `times` = that job's non-cancelled visit instants,
+// ascending.
+function resolveVisit(job, times, now) {
+  if (times?.length) {
+    const at = times.find((t) => t >= now) ?? times[times.length - 1];
+    return { dateKey: nyDateKey(at), timeLabel: formatNyTime(at), source: 'calendar' };
+  }
+  if (job.preferred_visit_date) {
+    return {
+      dateKey: String(job.preferred_visit_date).slice(0, 10),
+      timeLabel: formatClockTime(job.preferred_visit_time),
+      source: 'lead',
+    };
+  }
+  return null;
+}
+
 // ─── Service badge — colored to match the column ──────────────────
 function ServiceBadge({ service, columnHex }) {
   if (!service) return null;
@@ -214,7 +265,7 @@ function ServiceBadge({ service, columnHex }) {
 }
 
 // ─── Job Card ─────────────────────────────────────────────────────
-function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDelete, isDragging }) {
+function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDelete, isDragging, now = Date.now(), visit = null }) {
   const address = [job.address, job.city].filter(Boolean).join(', ');
   // The receptionist tags every lead with how it came in — Houzz, Angi,
   // Google, Referral, etc. Surface that in place of the old generic
@@ -225,11 +276,20 @@ function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDele
   const calledIn   = !leadSource && job.created_by === 'receptionist';
   const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
   const FooterIcon = footerIconFor(job.pipeline_status);
+  // Time in stage — label + a very light tint when the card is getting
+  // late (rules in shared/lib/stageAge.js). Stages without a rule keep
+  // the plain "last activity" footer.
+  const age = stageAge(job, { now, visit });
+  const tone = age?.tone ? STAGE_TONE[age.tone] : null;
+  const booking = websiteBookingText(job);
+  const sourceLink = leadSourceLink(job.lead_source_url);
 
   return (
     <div
       onClick={(e) => { if (!isDragging) onOpen(job); }}
-      className={`group relative select-none bg-white rounded-2xl shadow-card border border-black/[0.04] overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 cursor-grab active:cursor-grabbing transition-all ${
+      className={`group relative select-none rounded-2xl shadow-card border overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 cursor-grab active:cursor-grabbing transition-all ${
+        tone ? tone.card : 'bg-white border-black/[0.04]'
+      } ${
         isDragging ? 'opacity-60 rotate-1' : ''
       }`}
     >
@@ -303,10 +363,43 @@ function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDele
           </div>
         )}
 
-        {/* Footer: small icon + relative time */}
-        <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-omega-stone">
-          <FooterIcon className="w-3 h-3" />
-          <span>{relTime(job.last_touch || job.updated_at || job.created_at)}</span>
+        {/* Lost reason (Lost column only) */}
+        {job.pipeline_status === 'estimate_rejected' && lostReasonLabel(job.lost_reason) && (
+          <div className="mt-2 flex">
+            <LostReasonChip job={job} />
+          </div>
+        )}
+
+        {/* Website lead that booked its own visit slot */}
+        {booking && (
+          <p className="mt-2 px-1.5 py-1 rounded-md bg-indigo-50 border border-indigo-100 text-[10px] font-semibold text-indigo-700 leading-snug">
+            {booking}
+          </p>
+        )}
+
+        {/* Source link (website / Local Services / Houzz intake). Stops
+            the click + pointerdown so it neither opens the card nor
+            starts a drag. */}
+        {sourceLink && (
+          <a
+            href={sourceLink.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+          >
+            <ExternalLink className="w-3 h-3" /> {sourceLink.label}
+          </a>
+        )}
+
+        {/* Footer: icon + time in stage (or last activity for stages
+            without a time rule) */}
+        <div className={`mt-2.5 flex items-center gap-1.5 text-[11px] ${tone ? `${tone.text} font-semibold` : 'text-omega-stone'}`}>
+          <FooterIcon className="w-3 h-3 flex-shrink-0" />
+          {age
+            ? <span className="truncate" title={age.title}>{age.label}</span>
+            : <span>{relTime(job.last_touch_at || job.updated_at || job.created_at)}</span>}
         </div>
       </div>
     </div>
@@ -373,7 +466,7 @@ function DroppableColumn({ columnId, children, isOver }) {
 // ─── Mobile list card ─────────────────────────────────────────────
 // Compact single-row card for the mobile list view. No cover photo,
 // just the key info: name, address, service badge, time, amount.
-function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob, hasUnread, onOpen, hideMoney }) {
+function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob, hasUnread, onOpen, hideMoney, now, visit }) {
   const col = COLUMN_BY_ID[job.pipeline_status] || COLUMN_BY_ID.new_lead;
   const address = [job.address, job.city].filter(Boolean).join(', ');
   const est    = estByJob[job.id];
@@ -381,11 +474,16 @@ function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob,
   const anyEst = anyEstByJob[job.id];
   const amount = Number(est?.total_amount) || Number(cost?.estimated_revenue) || Number(anyEst?.total_amount) || 0;
   const leadSource = (job.lead_source || '').trim();
+  const age = stageAge(job, { now, visit });
+  const tone = age?.tone ? STAGE_TONE[age.tone] : null;
+  const booking = websiteBookingText(job);
 
   return (
     <button
       onClick={() => onOpen(job)}
-      className="w-full text-left bg-white rounded-xl border border-gray-200 active:bg-omega-cloud transition-colors px-4 py-3 flex items-center gap-3"
+      className={`w-full text-left rounded-xl border active:bg-omega-cloud transition-colors px-4 py-3 flex items-center gap-3 ${
+        tone ? tone.card : 'bg-white border-gray-200'
+      }`}
     >
       {/* Color dot matching the column */}
       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: col.hex }} />
@@ -415,8 +513,12 @@ function MobileJobCard({ job, estByJob, anyEstByJob, coiWarningByJob, costByJob,
               <PhoneIncoming className="w-2.5 h-2.5" />{leadSource}
             </span>
           )}
-          <span className="text-[10px] text-omega-stone">{relTime(job.last_touch || job.updated_at || job.created_at)}</span>
+          <LostReasonChip job={job} />
+          {age
+            ? <span className={`text-[10px] ${tone ? `${tone.text} font-semibold` : 'text-omega-stone'}`}>{age.label}</span>
+            : <span className="text-[10px] text-omega-stone">{relTime(job.last_touch_at || job.updated_at || job.created_at)}</span>}
         </div>
+        {booking && <p className="text-[10px] font-semibold text-indigo-700 mt-1">{booking}</p>}
       </div>
 
       {amount > 0 && !hideMoney && (
@@ -437,6 +539,7 @@ function MobilePipelineView({
   filterCity, setFilterCity, filterService, setFilterService,
   filterSource, setFilterSource,
   cityOptions, serviceOptions, sourceOptions, onOpenJob, hideMoney,
+  now, visitFor,
 }) {
   const [showFilters, setShowFilters] = useState(false);
   // Which sections are collapsed. Default: ALL collapsed — the user opens
@@ -553,6 +656,8 @@ function MobilePipelineView({
                       hasUnread={isJobUnread(job, lastReadByJob[job.id])}
                       onOpen={onOpenJob}
                       hideMoney={hideMoney}
+                      now={now}
+                      visit={visitFor(job)}
                     />
                   ))}
                 </div>
@@ -624,10 +729,16 @@ export default function PipelineKanban({
   // missing entirely) gets a red dot on its card.
   const [lastReadByJob, setLastReadByJob] = useState({});
 
-  // PIN-gate state — when the user drops a card on a PIN-gated phase
-  // (Estimate Rejected) we stash the move details and show a PIN
-  // modal instead of saving immediately. The actual save runs once
-  // the user confirms with their own PIN.
+  // job_id → ascending instants of that job's non-cancelled sales visits.
+  // Drives the Visit Scheduled label/tint (see resolveVisit).
+  const [visitTimesByJob, setVisitTimesByJob] = useState({});
+
+  // Ticks every minute so the time-in-stage labels and tints stay current.
+  const now = useNow();
+
+  // Lost-gate state — when the user drops a card on Lost we stash the
+  // move details and open LostMoveModal (reason + own PIN) instead of
+  // saving immediately. The actual save runs once the user confirms.
   const [pendingMove, setPendingMove] = useState(null);
 
   const canDelete = !readOnly && CAN_DELETE_JOB.has(user?.role);
@@ -674,13 +785,14 @@ export default function PipelineKanban({
               .eq('in_pipeline', true)
               .order('pipeline_position', { ascending: true, nullsFirst: false })
               .order('created_at', { ascending: false }),
-        // Last 10 rejected — regardless of in_pipeline. Sorted by
-        // updated_at so the most recently rejected sit at top of the
-        // column. Older rejections live only in My Leads.
+        // Last 10 Lost — regardless of in_pipeline. Sorted by when they
+        // entered Lost (stage_entered_at, migration 077) so the most
+        // recently lost sit at the top of the column. Older ones live
+        // only in My Leads.
         supabase
           .from('jobs').select('*')
           .eq('pipeline_status', 'estimate_rejected')
-          .order('updated_at', { ascending: false })
+          .order('stage_entered_at', { ascending: false, nullsFirst: false })
           .limit(10),
         supabase.from('estimates').select('*'),
         supabase.from('subcontractors').select('id, coi_expiry_date'),
@@ -711,7 +823,16 @@ export default function PipelineKanban({
       // (rare) case of a rejected job that's also in_pipeline=true
       // doesn't render twice. Older rejected rows live only in My
       // Leads — they're intentionally absent from the kanban.
-      const recentRejected = recentRejectedResp?.data || [];
+      let recentRejected = recentRejectedResp?.data || [];
+      if (recentRejectedResp?.error && /stage_entered_at/.test(recentRejectedResp.error.message || '')) {
+        // Migration 077 not applied yet — keep the old ordering.
+        const fallback = await supabase
+          .from('jobs').select('*')
+          .eq('pipeline_status', 'estimate_rejected')
+          .order('updated_at', { ascending: false })
+          .limit(10);
+        recentRejected = fallback.data || [];
+      }
       const main = jobsData || [];
       const seenIds = new Set(main.map((j) => j.id));
       const merged = main.concat(recentRejected.filter((r) => !seenIds.has(r.id)));
@@ -721,6 +842,7 @@ export default function PipelineKanban({
       // happened to already have a pipeline_position get bucketed
       // correctly here.
       setJobs(sortJobsForKanban(merged));
+      loadVisitTimes(merged.map((j) => j.id));
       setEstimates(e || []);
       setSubs(s || []);
       // Load this user's read pointers in a separate query so a missing
@@ -755,6 +877,37 @@ export default function PipelineKanban({
     } finally {
       setLoading(false);
     }
+  }
+
+  // Sales visits for the loaded jobs — one query (chunked only for huge
+  // boards so the URL stays short). Best-effort and non-blocking: on
+  // error the Visit Scheduled cards fall back to preferred_visit_date.
+  async function loadVisitTimes(ids) {
+    try {
+      const times = {};
+      for (let i = 0; i < ids.length; i += 150) {
+        const { data: ev, error: evErr } = await supabase
+          .from('calendar_events')
+          .select('job_id, starts_at, visit_status')
+          .eq('kind', 'sales_visit')
+          .in('job_id', ids.slice(i, i + 150))
+          .order('starts_at', { ascending: true });
+        if (evErr) return;
+        for (const e of ev || []) {
+          if (!e.job_id || !e.starts_at || e.visit_status === 'cancelled') continue;
+          const t = new Date(e.starts_at).getTime();
+          if (Number.isFinite(t)) (times[e.job_id] ||= []).push(t);
+        }
+      }
+      setVisitTimesByJob(times);
+    } catch { /* keep the preferred_visit_date fallback */ }
+  }
+
+  // Visit for the Visit Scheduled label — null for every other stage.
+  function visitFor(job) {
+    return job.pipeline_status === 'visit_scheduled'
+      ? resolveVisit(job, visitTimesByJob[job.id], now)
+      : null;
   }
 
   // SUM of all APPROVED/SIGNED estimates per job — primary source for
@@ -959,11 +1112,11 @@ export default function PipelineKanban({
     // No-op detection: same column AND same position-neighbors.
     if (previous === targetCol && Number(job.pipeline_position) === newPosition) return;
 
-    // PIN gate — moves into a terminal phase (e.g. Estimate Rejected)
-    // pause here and pop a PIN modal so the user has to confirm with
-    // their own PIN. The actual save runs from `confirmPendingMove`
-    // once the PIN checks out.
-    if (PIN_GATED_PHASES.has(targetCol)) {
+    // Lost gate — a move INTO Lost pauses here and opens LostMoveModal
+    // (reason + the user's own PIN). The save runs from
+    // `confirmPendingMove`. Reordering inside the Lost column isn't a
+    // move into Lost, so it saves straight away.
+    if (PIN_GATED_PHASES.has(targetCol) && previous !== targetCol) {
       setPendingMove({ activeJobId, previous, targetCol, newPosition, job });
       return;
     }
@@ -972,29 +1125,46 @@ export default function PipelineKanban({
   }
 
   // Shared move-persistence used by both the normal drag path and the
-  // PIN-gated path. Optimistic state update first, then DB write,
-  // with a fallback to legacy patch shape if migration 028 is
-  // missing. Rolls back on failure and toasts the error.
-  async function commitMove({ activeJobId, previous, targetCol, newPosition, job }) {
+  // Lost-gated path (`lost` = { lost_reason, lost_note } from the modal).
+  // Optimistic state update first, then DB write, with a fallback to
+  // legacy patch shape if migration 028 is missing. Rolls back on
+  // failure and toasts the error.
+  async function commitMove({ activeJobId, previous, targetCol, newPosition, job, lost = null }) {
     setSavingId(activeJobId);
     // Optimistic update + RE-SORT — without the sort, the array stays
     // in the same order even though the moved card has a new
     // pipeline_position, so the kanban renders the card in its OLD
     // visual slot. The sort uses the same precedence as the Supabase
     // load query (position ASC NULLS LAST, created_at DESC).
+    // A real stage change also restarts the time-in-stage clock and
+    // mirrors what the DB trigger (077) does to lost_reason / lost_note.
+    const toLost = targetCol === 'estimate_rejected';
+    const stageChange = previous !== targetCol
+      ? {
+          stage_entered_at: new Date().toISOString(),
+          lost_reason: toLost ? (lost?.lost_reason ?? 'estimate_rejected') : null,
+          lost_note:   toLost ? (lost?.lost_note ?? null) : null,
+          ...(toLost ? { in_pipeline: false } : {}),
+        }
+      : {};
     setJobs((prev) =>
       sortJobsForKanban(prev.map((j) => (j.id === activeJobId
-        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition, in_pipeline: true }
+        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition, ...(toLost ? {} : { in_pipeline: true }), ...stageChange }
         : j)))
     );
 
     // Dragging a card by definition puts it in the pipeline. Any cold
     // lead Attila drags in becomes visible to everyone else (otherwise
     // his bypass lets him see it but Brenda / Inácio still wouldn't).
-    // The trigger from migration 038 still flips it back to false on
-    // moves to estimate_rejected — that's the desired outcome.
-    const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition, in_pipeline: true };
-    const legacyPatch = { pipeline_status: targetCol, in_pipeline: true };
+    // Lost is the exception: we leave in_pipeline alone there — the
+    // trigger from migration 038 flips it to false on a move INTO Lost,
+    // and a reorder inside the Lost column must not put a lost job back
+    // on the board.
+    // Status + Lost reason go in the SAME update.
+    const lostPatch = lost ? { lost_reason: lost.lost_reason, lost_note: lost.lost_note } : {};
+    const onBoard = toLost ? {} : { in_pipeline: true };
+    const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition, ...onBoard, ...lostPatch };
+    const legacyPatch = { pipeline_status: targetCol, ...onBoard, ...lostPatch };
     let { error } = await supabase
       .from('jobs')
       .update(positionMigrationMissing ? legacyPatch : fullPatch)
@@ -1012,10 +1182,9 @@ export default function PipelineKanban({
     setSavingId(null);
 
     if (error) {
+      // Put the card back exactly as it was before the drop.
       setJobs((prev) =>
-        sortJobsForKanban(prev.map((j) => (j.id === activeJobId
-          ? { ...j, pipeline_status: previous, pipeline_position: job.pipeline_position }
-          : j)))
+        sortJobsForKanban(prev.map((j) => (j.id === activeJobId ? job : j)))
       );
       setToast({ type: 'error', message: `Failed to move job: ${error.message}` });
       return;
@@ -1035,7 +1204,10 @@ export default function PipelineKanban({
         action: 'job.move',
         entityType: 'job',
         entityId: activeJobId,
-        details: { from: previous, to: targetCol, client: job.client_name, source: 'kanban' },
+        details: {
+          from: previous, to: targetCol, client: job.client_name, source: 'kanban',
+          ...(lost ? { lost_reason: lost.lost_reason, lost_note: lost.lost_note } : {}),
+        },
       });
       setToast({ type: 'success', message: 'Job moved' });
 
@@ -1060,16 +1232,16 @@ export default function PipelineKanban({
     }
   }
 
-  // Cancels a pending PIN-gated move — drops the optimistic state
-  // change and clears the modal. Called by the modal's Cancel and the
-  // outside-click handler.
+  // Cancels a pending Lost move. Nothing was saved or moved yet, so the
+  // card simply stays where it was. Called by the modal's Cancel, Escape
+  // and the outside-click handler.
   function cancelPendingMove() {
     setPendingMove(null);
   }
 
-  async function confirmPendingMove() {
+  async function confirmPendingMove(lost) {
     if (!pendingMove) return;
-    await commitMove(pendingMove);
+    await commitMove({ ...pendingMove, lost });
     setPendingMove(null);
   }
 
@@ -1123,6 +1295,8 @@ export default function PipelineKanban({
             serviceOptions={serviceOptions}
             sourceOptions={sourceOptions}
             onOpenJob={handleOpenJob}
+            now={now}
+            visitFor={visitFor}
           />
         )}
 
@@ -1320,6 +1494,8 @@ export default function PipelineKanban({
                                 onDelete={setDeleteJob}
                                 canDelete={canDelete}
                                 isDragging={isDragging}
+                                now={now}
+                                visit={visitFor(j)}
                               />
                             )}
                           </SortableJobCard>
@@ -1345,6 +1521,8 @@ export default function PipelineKanban({
                 job={activeJob}
                 coiWarning={coiWarningByJob.has(activeJob.id)}
                 onOpen={() => {}}
+                now={now}
+                visit={visitFor(activeJob)}
               />
             </div>
           )}
@@ -1388,77 +1566,13 @@ export default function PipelineKanban({
       )}
 
       {pendingMove && (
-        <PinConfirmModal
+        <LostMoveModal
           user={user}
-          targetLabel={PIPELINE_STEP_LABEL[pendingMove.targetCol] || pendingMove.targetCol}
           jobName={pendingMove.job?.client_name || 'this job'}
           onCancel={cancelPendingMove}
           onConfirm={confirmPendingMove}
         />
       )}
-    </div>
-  );
-}
-
-// ─── PIN confirmation modal — opens whenever a card is dropped on a
-// PIN-gated phase (Estimate Rejected). Validates the pin against the
-// CURRENT user via users table + hardcoded fallback. Fails closed.
-function PinConfirmModal({ user, targetLabel, jobName, onCancel, onConfirm }) {
-  const [pin, setPin] = useState('');
-  const [show, setShow] = useState(false);
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function handleConfirm() {
-    setErr('');
-    setBusy(true);
-    try {
-      const ok = await validateUserPin(user, pin);
-      if (!ok) { setErr('Wrong PIN. Try again.'); return; }
-      onConfirm();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !busy && onCancel()}>
-      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="p-5 border-b border-gray-200">
-          <p className="font-bold text-omega-charcoal text-lg">Confirm move to {targetLabel}</p>
-          <p className="text-sm text-omega-stone mt-1">
-            Moving <strong>{jobName}</strong> to a terminal phase. Type your own PIN to confirm — this stops accidental drops.
-          </p>
-        </div>
-        <div className="p-5 space-y-3">
-          <div>
-            <label className="text-xs font-semibold text-omega-stone uppercase">Your PIN</label>
-            <div className="relative mt-1">
-              <input
-                autoFocus
-                type={show ? 'text' : 'password'}
-                value={pin}
-                onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
-                className="w-full px-3 py-2.5 pr-10 rounded-lg border-2 border-gray-200 focus:border-omega-orange focus:outline-none text-base font-mono tracking-[0.3em]"
-                placeholder="••••"
-              />
-              <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone">
-                {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            {err && <p className="text-xs text-red-600 font-semibold mt-1.5">{err}</p>}
-          </div>
-        </div>
-        <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
-          <button onClick={onCancel} disabled={busy} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">
-            Cancel
-          </button>
-          <button onClick={handleConfirm} disabled={busy || !pin} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-            {busy ? 'Confirming…' : 'Confirm Move'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

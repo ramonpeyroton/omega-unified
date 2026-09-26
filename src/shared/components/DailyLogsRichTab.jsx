@@ -29,6 +29,9 @@ import NativeProjectChat from './NativeProjectChat';
 // stay hidden so the list doesn't fill up with dead conversations.
 const ACTIVE_PHASES = new Set([
   'new_lead',
+  'contacted',
+  'visit_scheduled',
+  'visited',
   'estimate_draft',
   'estimate_sent',
   'estimate_negotiating',

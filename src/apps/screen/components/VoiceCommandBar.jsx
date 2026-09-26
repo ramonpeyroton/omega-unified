@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabase';
 import { parseVoiceIntent } from '../../../shared/lib/groq';
+import { PIPELINE_STEP_LABEL } from '../../../shared/config/phaseBreakdown';
 
 // ─── Ambient voice assistant for the TV dashboard ──────────────
 // Two modes coexist:
@@ -596,7 +597,7 @@ function ResultCard({ result, running, onDismiss }) {
         <div className="mt-4 grid grid-cols-3 gap-3">
           <KpiBlock label="Última Estimate" value={est?.total_amount ? money(est.total_amount) : '—'} sub={est?.signed_at ? `Signed ${fmtDate(est.signed_at)}` : (est?.status || '').toUpperCase()} accent={!!est?.signed_at} />
           <KpiBlock label="Contrato" value={ctr?.total_amount ? money(ctr.total_amount) : '—'} sub={ctr?.signed_at ? `Signed ${fmtDate(ctr.signed_at)}` : (ctr?.status || '').toUpperCase()} accent={!!ctr?.signed_at} />
-          <KpiBlock label="Pipeline" value={(job.pipeline_status || '—').replace(/_/g, ' ').toUpperCase()} />
+          <KpiBlock label="Pipeline" value={(PIPELINE_STEP_LABEL[job.pipeline_status] || (job.pipeline_status || '—').replace(/_/g, ' ')).toUpperCase()} />
         </div>
       </div>
     );

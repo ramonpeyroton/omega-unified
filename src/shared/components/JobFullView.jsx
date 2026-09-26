@@ -4,7 +4,7 @@ import {
   User as UserIcon, Briefcase, HardHat, FileText, Hammer, Sparkles, ClipboardEdit,
   AlertCircle, DollarSign, Clock, Receipt, ArrowRight, TrendingUp, Info, MessageSquare,
   FolderClosed, RotateCcw, UserPlus, Globe, Loader2, Plus, MoreHorizontal, UsersRound,
-  ChevronDown,
+  ChevronDown, ExternalLink, XCircle,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
@@ -23,15 +23,17 @@ import EstimateBuilder from './EstimateBuilder';
 import MaterialsSection from './MaterialsSection';
 import JobSubcontractorsSection from './JobSubcontractorsSection';
 import JobCoverPhotoUpload from './JobCoverPhotoUpload';
+import LostMoveModal from './LostMoveModal';
 import { logAudit } from '../lib/audit';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
 import { SERVICES, parseJobServices, joinJobServices } from '../data/services';
-import { validateUserPin, validateOwnerPin } from '../lib/userPin';
+import { validateOwnerPin } from '../lib/userPin';
+import { lostReasonLabel, leadSourceLink } from '../../apps/receptionist/lib/leadCatalog';
 
-// Phases that require a PIN confirmation when moved into via the
-// status picker. Mirrors the kanban's PIN_GATED_PHASES set so both
-// surfaces have the same friction for terminal phases.
+// Phases that need confirmation when picked in the status picker. Mirrors
+// the kanban's PIN_GATED_PHASES: moving to Lost opens LostMoveModal
+// (reason + the user's own PIN).
 const PICKER_PIN_GATED = new Set(['estimate_rejected']);
 
 // Roles allowed to see the Financials tab (Cost Projection + Job Costing + Actual Costs).
@@ -291,6 +293,9 @@ export default function JobFullView({
       // collateral the seller wouldn't want to re-enter.
       const patch = {
         pipeline_status: 'new_lead',
+        // A reset lead belongs on the board — without this, resetting a
+        // Lost job (in_pipeline=false) made the card vanish from the Kanban.
+        in_pipeline: true,
         status: 'draft',
         answers: {},
         questionnaire_modified: null,
@@ -480,6 +485,7 @@ export default function JobFullView({
                 currentKey={pipelineKey}
                 user={user}
                 jobId={job.id}
+                jobName={job.client_name}
                 onMoved={(updated) => { setJob(updated); onJobUpdated?.(updated); }}
                 palette={pipelinePalette}
                 label={pipelineLabel}
@@ -567,6 +573,7 @@ export default function JobFullView({
               currentKey={pipelineKey}
               user={user}
               jobId={job.id}
+              jobName={job.client_name}
               onMoved={(updated) => { setJob(updated); onJobUpdated?.(updated); }}
               palette={pipelinePalette}
               label={pipelineLabel}
@@ -1074,6 +1081,7 @@ function DetailsTab({
                     currentKey={job.pipeline_status || 'new_lead'}
                     user={user}
                     jobId={job.id}
+                    jobName={job.client_name}
                     onMoved={(updated) => onJobUpdated?.(updated)}
                     palette={{ bg: 'bg-omega-pale', text: 'text-omega-orange' }}
                     label="Move Phase"
@@ -1108,9 +1116,17 @@ function DetailsTab({
             <Field icon={MapPin}    label="Address"         value={job.address} />
             <Field icon={Briefcase} label="Salesperson"     value={job.salesperson_name} />
             <Field icon={HardHat}   label="Project Manager" value={job.pm_name} />
-            <Field icon={Globe}     label="Source"          value={job.lead_source} />
+            <Field icon={Globe}     label="Source"          value={job.lead_source} link={leadSourceLink(job.lead_source_url)} />
             <Field icon={Calendar}  label="Created"         value={job.created_at ? new Date(job.created_at).toLocaleDateString() : null} />
-            <Field icon={Clock}     label="Last Contact"    value={job.last_touch ? new Date(job.last_touch).toLocaleDateString() : null} />
+            <Field icon={Clock}     label="Last Contact"    value={job.last_touch_at ? new Date(job.last_touch_at).toLocaleDateString() : null} />
+            {job.pipeline_status === 'estimate_rejected' && lostReasonLabel(job.lost_reason) && (
+              <Field
+                icon={XCircle}
+                label="Lost Reason"
+                value={[lostReasonLabel(job.lost_reason), job.lost_note].filter(Boolean).join(' — ')}
+                colSpan={job.lost_note ? 2 : 1}
+              />
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1263,27 +1279,34 @@ function DetailsTab({
 // works regardless of viewport width, and is the only path for
 // receptionists / readOnlyBasic roles (which we explicitly hide it
 // from at the call site).
-function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label, variant = 'badge', menuAlign = 'left' }) {
+function PipelineStatusPicker({ currentKey, user, jobId, jobName, onMoved, palette, label, variant = 'badge', menuAlign = 'left' }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // PIN-gate state: when the user picks a terminal phase (Estimate
-  // Rejected) we open a PIN modal instead of saving immediately.
+  // Lost-gate state: picking Lost opens LostMoveModal (reason + own PIN)
+  // instead of saving immediately.
   const [pendingKey, setPendingKey] = useState(null);
 
-  async function performMove(nextKey) {
+  // `lost` = { lost_reason, lost_note } when moving to Lost — written in
+  // the same update as the status.
+  async function performMove(nextKey, lost = null) {
     if (nextKey === currentKey) { setOpen(false); return; }
     setSaving(true);
     try {
+      // Picking a phase puts the job on the board, same as dragging it on
+      // the Kanban — otherwise a job taken out of Lost here stayed
+      // in_pipeline=false and vanished. Moving INTO Lost leaves the flag
+      // to trigger 038, which flips it to false.
+      const onBoard = nextKey === 'estimate_rejected' ? {} : { in_pipeline: true };
       const { data, error } = await supabase
         .from('jobs')
-        .update({ pipeline_status: nextKey })
+        .update({ pipeline_status: nextKey, ...onBoard, ...(lost || {}) })
         .eq('id', jobId)
         .select().single();
       if (error) throw error;
       onMoved?.(data);
       logAudit({
         user, action: 'job.move', entityType: 'job', entityId: jobId,
-        details: { from: currentKey, to: nextKey, source: 'status_picker' },
+        details: { from: currentKey, to: nextKey, source: 'status_picker', ...(lost || {}) },
       });
       setOpen(false);
     } catch (err) {
@@ -1296,8 +1319,8 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
   function moveTo(nextKey) {
     if (nextKey === currentKey) { setOpen(false); return; }
     if (PICKER_PIN_GATED.has(nextKey)) {
-      // Hold the move open for PIN confirmation. The picker dropdown
-      // closes so the modal isn't visually competing with it.
+      // Hold the move for the Lost modal. The picker dropdown closes so
+      // the modal isn't visually competing with it.
       setPendingKey(nextKey);
       setOpen(false);
       return;
@@ -1305,12 +1328,9 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
     void performMove(nextKey);
   }
 
-  async function confirmPin(pin) {
-    const ok = await validateUserPin(user, pin);
-    if (!ok) return false;
-    await performMove(pendingKey);
+  async function confirmLost(lost) {
+    await performMove(pendingKey, lost);
     setPendingKey(null);
-    return true;
   }
 
   // Two skins: 'badge' (compact, used on the header chip strip) and
@@ -1371,67 +1391,13 @@ function PipelineStatusPicker({ currentKey, user, jobId, onMoved, palette, label
       )}
 
       {pendingKey && (
-        <PickerPinModal
-          targetLabel={PIPELINE_STEP_LABEL[pendingKey] || pendingKey}
+        <LostMoveModal
+          user={user}
+          jobName={jobName || 'this job'}
           onCancel={() => setPendingKey(null)}
-          onSubmit={confirmPin}
+          onConfirm={confirmLost}
         />
       )}
-    </div>
-  );
-}
-
-// Inline PIN modal used by the picker when moving to a terminal phase
-// (Estimate Rejected). Same UX as the Kanban's PinConfirmModal but
-// doesn't depend on it (different file). Returns true from onSubmit
-// when the PIN was correct so the caller can proceed.
-function PickerPinModal({ targetLabel, onCancel, onSubmit }) {
-  const [pin, setPin] = useState('');
-  const [show, setShow] = useState(false);
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function handle() {
-    setErr('');
-    setBusy(true);
-    try {
-      const ok = await onSubmit(pin);
-      if (!ok) setErr('Wrong PIN. Try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !busy && onCancel()}>
-      <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="p-5 border-b border-gray-200">
-          <p className="font-bold text-omega-charcoal text-lg">Confirm move to {targetLabel}</p>
-          <p className="text-sm text-omega-stone mt-1">Type your own PIN to confirm. This is a terminal phase.</p>
-        </div>
-        <div className="p-5">
-          <label className="text-xs font-semibold text-omega-stone uppercase">Your PIN</label>
-          <div className="relative mt-1">
-            <input
-              autoFocus
-              type={show ? 'text' : 'password'}
-              value={pin}
-              onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handle(); }}
-              className="w-full px-3 py-2.5 pr-10 rounded-lg border-2 border-gray-200 focus:border-omega-orange focus:outline-none text-base font-mono tracking-[0.3em]"
-              placeholder="••••"
-            />
-            <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-omega-stone">
-              {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          {err && <p className="text-xs text-red-600 font-semibold mt-1.5">{err}</p>}
-        </div>
-        <div className="p-5 border-t border-gray-200 flex justify-end gap-2">
-          <button onClick={onCancel} disabled={busy} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold hover:bg-gray-50">Cancel</button>
-          <button onClick={handle} disabled={busy || !pin} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-            {busy ? 'Confirming…' : 'Confirm Move'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1448,7 +1414,7 @@ export function StepBadge({ n }) {
   );
 }
 
-function Field({ icon: Icon, label, value, colSpan = 1 }) {
+function Field({ icon: Icon, label, value, colSpan = 1, link = null }) {
   const span = colSpan === 3 ? 'sm:col-span-2 md:col-span-3' : colSpan === 2 ? 'sm:col-span-2' : '';
   return (
     <div className={span}>
@@ -1458,6 +1424,18 @@ function Field({ icon: Icon, label, value, colSpan = 1 }) {
       <p className={`text-base mt-1 break-words leading-snug ${value ? 'font-semibold text-omega-charcoal' : 'text-omega-fog italic'}`}>
         {value || '—'}
       </p>
+      {/* Optional outbound link under the value — { href, label } from
+          leadSourceLink(), e.g. the "Open in Google" lead link. */}
+      {link && (
+        <a
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+        >
+          <ExternalLink className="w-3.5 h-3.5" /> {link.label}
+        </a>
+      )}
     </div>
   );
 }

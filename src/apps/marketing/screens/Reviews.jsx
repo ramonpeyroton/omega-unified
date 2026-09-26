@@ -11,7 +11,13 @@ import { Star, Plus, X, Trash2, Check, Loader2, MessageSquareQuote, Pencil } fro
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../../../shared/lib/supabase';
 import { serviceBadgeLabel } from '../../../shared/data/services';
-import { LEAD_SOURCES } from '../../receptionist/lib/leadCatalog';
+import { ALL_LEAD_SOURCES } from '../../receptionist/lib/leadCatalog';
+
+// Review platforms: the usual review sites + every lead channel, current
+// and retired (Angi / HomeAdvisor reviews still come in). "Other" last.
+const REVIEW_SOURCES = [
+  ...new Set(['Google', 'Houzz', 'Referral', 'Facebook', 'Manual', ...ALL_LEAD_SOURCES.filter((s) => s !== 'Other'), 'Other']),
+];
 
 const FILTERS = [
   { id: 'all',      label: 'All' },
@@ -262,7 +268,7 @@ function ReviewModal({ review, jobs, user, onClose, onSaved }) {
             <div>
               <Label>Source</Label>
               <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:border-omega-orange outline-none text-base bg-white">
-                {['Google', 'Houzz', 'Referral', 'Facebook', 'Manual', ...LEAD_SOURCES.filter((s) => !['Google', 'Houzz', 'Referral'].includes(s))].filter((v, i, a) => a.indexOf(v) === i).map((s) => <option key={s} value={s}>{s}</option>)}
+                {REVIEW_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
