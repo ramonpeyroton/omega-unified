@@ -18,7 +18,7 @@ import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
-  PhoneCall, CalendarClock, ClipboardCheck, ExternalLink,
+  PhoneCall, CalendarClock, ClipboardCheck, ExternalLink, Ban,
 } from 'lucide-react';
 import PageHeader from './ui/PageHeader';
 import { supabase } from '../lib/supabase';
@@ -27,7 +27,7 @@ import Toast from './Toast';
 import JobFullView from './JobFullView';
 import DeleteJobModal from './DeleteJobModal';
 import LostMoveModal from './LostMoveModal';
-import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
+import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES } from '../config/phaseBreakdown';
 import { logAudit } from '../lib/audit';
 import { notify } from '../lib/notifications';
 import {
@@ -53,11 +53,11 @@ const SALES_NOTIFY_PHASES = new Set([
   'completed',
 ]);
 
-// Phases that require confirmation before moving a card into them.
-// Currently only Lost (key `estimate_rejected`): the drop opens
-// LostMoveModal, which asks for a reason + the user's own PIN so a
-// stray drop doesn't quietly archive a real lead.
-const PIN_GATED_PHASES = new Set(['estimate_rejected']);
+// Phases that require confirmation before moving a card into them: the
+// off-board stages, Disqualified and Lost (key `estimate_rejected`). The
+// drop opens LostMoveModal, which asks for a reason + the user's own PIN
+// so a stray drop doesn't quietly archive a real lead.
+const PIN_GATED_PHASES = OFF_BOARD_STAGES;
 
 // Only Owner, Operations and Admin can initiate a delete from the card.
 // The actual PIN (3333) is still required inside DeleteJobModal.
@@ -159,6 +159,7 @@ function footerIconFor(status) {
     case 'contract_signed':      return Hammer;
     case 'in_progress':          return Zap;
     case 'completed':            return CheckCircle2;
+    case 'disqualified':         return Ban;
     case 'estimate_rejected':    return XCircle;
     default:                     return MapPin;
   }
@@ -206,17 +207,25 @@ function CardCover({ url, columnHex }) {
 }
 
 // ─── Lead Central card extras ─────────────────────────────────────
-// Lost reason chip. Legacy Lost cards (reason NULL) show nothing.
+// Reason chip for off-board cards (Lost / Disqualified). Legacy Lost
+// cards (reason NULL) show nothing.
+function hasReasonChip(job) {
+  return OFF_BOARD_STAGES.has(job.pipeline_status) && !!lostReasonLabel(job.lost_reason);
+}
 function LostReasonChip({ job }) {
-  if (job.pipeline_status !== 'estimate_rejected') return null;
+  if (!hasReasonChip(job)) return null;
   const label = lostReasonLabel(job.lost_reason);
-  if (!label) return null;
+  const disq = job.pipeline_status === 'disqualified';
+  const Icon = disq ? Ban : XCircle;
+  const prefix = disq ? 'Disqualified' : 'Lost';
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-100 font-semibold text-[10px] uppercase tracking-wider"
-      title={job.lost_note ? `Lost: ${label} — ${job.lost_note}` : `Lost: ${label}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-semibold text-[10px] uppercase tracking-wider border ${
+        disq ? 'bg-zinc-100 text-zinc-700 border-zinc-200' : 'bg-red-50 text-red-700 border-red-100'
+      }`}
+      title={job.lost_note ? `${prefix}: ${label} — ${job.lost_note}` : `${prefix}: ${label}`}
     >
-      <XCircle className="w-2.5 h-2.5" /> {label}
+      <Icon className="w-2.5 h-2.5" /> {label}
     </span>
   );
 }
@@ -246,6 +255,22 @@ function resolveVisit(job, times, now) {
     };
   }
   return null;
+}
+
+// The 10 most recent cards of an off-board stage (Lost / Disqualified),
+// regardless of in_pipeline, most recent entry first (stage_entered_at,
+// migration 077 — falls back to updated_at if that isn't applied).
+async function loadRecentOffBoard(status) {
+  const query = (col) => supabase
+    .from('jobs').select('*')
+    .eq('pipeline_status', status)
+    .order(col, { ascending: false, nullsFirst: false })
+    .limit(10);
+  const res = await query('stage_entered_at');
+  if (res.error && /stage_entered_at/.test(res.error.message || '')) {
+    return (await query('updated_at')).data || [];
+  }
+  return res.data || [];
 }
 
 // ─── Service badge — colored to match the column ──────────────────
@@ -363,8 +388,8 @@ function JobCard({ job, coiWarning, hasUnread = false, onOpen, onDelete, canDele
           </div>
         )}
 
-        {/* Lost reason (Lost column only) */}
-        {job.pipeline_status === 'estimate_rejected' && lostReasonLabel(job.lost_reason) && (
+        {/* Reason (Lost / Disqualified columns only) */}
+        {hasReasonChip(job) && (
           <div className="mt-2 flex">
             <LostReasonChip job={job} />
           </div>
@@ -768,16 +793,16 @@ export default function PipelineKanban({
       //
       // Visibility model:
       //   • Active rows: in_pipeline = true.
-      //   • Estimate Rejected: trigger 038 sets in_pipeline=false on
-      //     entry, so the main query MISSES rejected. We pull the 10
-      //     most recent rejected separately and merge — that keeps the
-      //     column populated as a "recent rejections" surface without
-      //     the 200+ historical imports flooding it.
+      //   • Lost / Disqualified: triggers 038 / 079 set in_pipeline=false
+      //     on entry, so the main query MISSES them. We pull the 10 most
+      //     recent of each separately and merge — that keeps those columns
+      //     populated as a "recent" surface without the 200+ historical
+      //     imports flooding them.
       //
       // We tolerate the column being missing in a fresh env by falling
       // back to the unfiltered query — same defensive pattern used for
       // pipeline_position.
-      const [jobsResp, recentRejectedResp, { data: e }, { data: s }, { data: a }] = await Promise.all([
+      const [jobsResp, offBoardLists, { data: e }, { data: s }, { data: a }] = await Promise.all([
         positionMigrationMissing
           ? supabase.from('jobs').select('*').eq('in_pipeline', true).order('created_at', { ascending: false })
           : supabase
@@ -785,15 +810,7 @@ export default function PipelineKanban({
               .eq('in_pipeline', true)
               .order('pipeline_position', { ascending: true, nullsFirst: false })
               .order('created_at', { ascending: false }),
-        // Last 10 Lost — regardless of in_pipeline. Sorted by when they
-        // entered Lost (stage_entered_at, migration 077) so the most
-        // recently lost sit at the top of the column. Older ones live
-        // only in My Leads.
-        supabase
-          .from('jobs').select('*')
-          .eq('pipeline_status', 'estimate_rejected')
-          .order('stage_entered_at', { ascending: false, nullsFirst: false })
-          .limit(10),
+        Promise.all([...OFF_BOARD_STAGES].map(loadRecentOffBoard)),
         supabase.from('estimates').select('*'),
         supabase.from('subcontractors').select('id, coi_expiry_date'),
         supabase.from('phase_subcontractor_assignments').select('job_id, subcontractor_id'),
@@ -819,23 +836,14 @@ export default function PipelineKanban({
         throw jobsResp.error;
       }
 
-      // Merge the last-10-rejected slice in. We dedupe by id so the
-      // (rare) case of a rejected job that's also in_pipeline=true
-      // doesn't render twice. Older rejected rows live only in My
-      // Leads — they're intentionally absent from the kanban.
-      let recentRejected = recentRejectedResp?.data || [];
-      if (recentRejectedResp?.error && /stage_entered_at/.test(recentRejectedResp.error.message || '')) {
-        // Migration 077 not applied yet — keep the old ordering.
-        const fallback = await supabase
-          .from('jobs').select('*')
-          .eq('pipeline_status', 'estimate_rejected')
-          .order('updated_at', { ascending: false })
-          .limit(10);
-        recentRejected = fallback.data || [];
-      }
+      // Merge the last-10 Lost / Disqualified slices in. We dedupe by id
+      // so the (rare) case of an off-board job that's also in_pipeline=true
+      // doesn't render twice. Older ones live only in My Leads — they're
+      // intentionally absent from the kanban.
+      const recentOffBoard = offBoardLists.flat();
       const main = jobsData || [];
       const seenIds = new Set(main.map((j) => j.id));
-      const merged = main.concat(recentRejected.filter((r) => !seenIds.has(r.id)));
+      const merged = main.concat(recentOffBoard.filter((r) => !seenIds.has(r.id)));
 
       // Always sort client-side too. In legacy mode (migration 028
       // missing) Supabase ordered only by created_at, so any rows that
@@ -1137,32 +1145,35 @@ export default function PipelineKanban({
     // visual slot. The sort uses the same precedence as the Supabase
     // load query (position ASC NULLS LAST, created_at DESC).
     // A real stage change also restarts the time-in-stage clock and
-    // mirrors what the DB trigger (077) does to lost_reason / lost_note.
-    const toLost = targetCol === 'estimate_rejected';
+    // mirrors what the DB triggers (077 / 079) do to lost_reason /
+    // lost_note (only Lost defaults the reason to 'estimate_rejected').
+    const offBoard = OFF_BOARD_STAGES.has(targetCol);
     const stageChange = previous !== targetCol
       ? {
           stage_entered_at: new Date().toISOString(),
-          lost_reason: toLost ? (lost?.lost_reason ?? 'estimate_rejected') : null,
-          lost_note:   toLost ? (lost?.lost_note ?? null) : null,
-          ...(toLost ? { in_pipeline: false } : {}),
+          lost_reason: offBoard
+            ? (lost?.lost_reason ?? (targetCol === 'estimate_rejected' ? 'estimate_rejected' : null))
+            : null,
+          lost_note:   offBoard ? (lost?.lost_note ?? null) : null,
+          ...(offBoard ? { in_pipeline: false } : {}),
         }
       : {};
     setJobs((prev) =>
       sortJobsForKanban(prev.map((j) => (j.id === activeJobId
-        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition, ...(toLost ? {} : { in_pipeline: true }), ...stageChange }
+        ? { ...j, pipeline_status: targetCol, pipeline_position: newPosition, ...(offBoard ? {} : { in_pipeline: true }), ...stageChange }
         : j)))
     );
 
     // Dragging a card by definition puts it in the pipeline. Any cold
     // lead Attila drags in becomes visible to everyone else (otherwise
     // his bypass lets him see it but Brenda / Inácio still wouldn't).
-    // Lost is the exception: we leave in_pipeline alone there — the
-    // trigger from migration 038 flips it to false on a move INTO Lost,
-    // and a reorder inside the Lost column must not put a lost job back
+    // Lost / Disqualified are the exception: we leave in_pipeline alone
+    // there — the DB trigger (038 / 079) flips it to false on a move INTO
+    // them, and a reorder inside those columns must not put the job back
     // on the board.
-    // Status + Lost reason go in the SAME update.
+    // Status + reason go in the SAME update.
     const lostPatch = lost ? { lost_reason: lost.lost_reason, lost_note: lost.lost_note } : {};
-    const onBoard = toLost ? {} : { in_pipeline: true };
+    const onBoard = offBoard ? {} : { in_pipeline: true };
     const fullPatch = { pipeline_status: targetCol, pipeline_position: newPosition, ...onBoard, ...lostPatch };
     const legacyPatch = { pipeline_status: targetCol, ...onBoard, ...lostPatch };
     let { error } = await supabase
@@ -1569,6 +1580,7 @@ export default function PipelineKanban({
         <LostMoveModal
           user={user}
           jobName={pendingMove.job?.client_name || 'this job'}
+          target={pendingMove.targetCol}
           onCancel={cancelPendingMove}
           onConfirm={confirmPendingMove}
         />

@@ -15,7 +15,7 @@ import { logAudit } from '../lib/audit';
  * The job is still required (every material belongs to one) but the
  * dropdown makes it a two-tap flow.
  */
-const EXCLUDED_PIPELINE = ['completed', 'estimate_rejected'];
+const EXCLUDED_PIPELINE = ['completed', 'estimate_rejected', 'disqualified'];
 const STORES = ['Home Depot', 'Lowes', "Ring's End", 'Ferguson', 'Other'];
 
 export default function MaterialsRun({ user }) {

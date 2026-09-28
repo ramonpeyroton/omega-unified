@@ -1613,6 +1613,7 @@ const LEAD_STATUS_META = {
   contract_signed:      { label: 'Won',            cls: 'bg-emerald-100 text-emerald-800' },
   in_progress:          { label: 'In Progress',    cls: 'bg-emerald-100 text-emerald-800' },
   completed:            { label: 'Completed',      cls: 'bg-green-100 text-green-800' },
+  disqualified:         { label: 'Disqualified',   cls: 'bg-zinc-200 text-zinc-700' },
   estimate_rejected:    { label: 'Lost',           cls: 'bg-red-100 text-red-700' },
 };
 

@@ -24,7 +24,7 @@ import { logAudit } from '../../../shared/lib/audit';
  * Active Jobs list lives on the Jobs tab — kept off this screen so
  * the three actionable blocks above get room to breathe.
  */
-const EXCLUDED_PIPELINE = ['completed', 'estimate_rejected'];
+const EXCLUDED_PIPELINE = ['completed', 'estimate_rejected', 'disqualified'];
 
 export default function JobOfTheDay({ user, onNavigate, onSelectJob, onOpenFullJob }) {
   const [todayEvents, setTodayEvents] = useState([]);

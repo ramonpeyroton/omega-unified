@@ -1,17 +1,35 @@
 // LostMoveModal — confirms moving a job to Lost (pipeline key
-// `estimate_rejected`). Used by the Kanban drop, the JobFullView phase
-// picker and My Leads → Edit Lead so every manual move into Lost asks the
-// same two things: WHY (reason, plus a note when the reason is "Other")
-// and WHO (the current user's own PIN).
+// `estimate_rejected`) or to Disqualified (`target="disqualified"`). Used
+// by the Kanban drop, the JobFullView phase picker and My Leads → Edit
+// Lead so every manual move into those stages asks the same two things:
+// WHY (reason, plus a note when the reason is "Other") and WHO (the
+// current user's own PIN).
 //
 // The modal only validates. `onConfirm({ lost_reason, lost_note })` runs
 // the actual save, so the caller writes pipeline_status + lost_reason +
 // lost_note in ONE update. Cancel changes nothing.
 
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, XCircle } from 'lucide-react';
+import { Eye, EyeOff, XCircle, Ban } from 'lucide-react';
 import { validateUserPinDetailed } from '../lib/userPin';
-import { LOST_REASONS } from '../../apps/receptionist/lib/leadCatalog';
+import { LOST_REASONS, DISQUALIFY_REASONS } from '../../apps/receptionist/lib/leadCatalog';
+
+const TARGETS = {
+  estimate_rejected: {
+    title: 'Move to Lost',
+    blurb: 'leaves the active pipeline. Pick the reason and type your own PIN to confirm.',
+    reasons: LOST_REASONS,
+    confirm: 'Move to Lost',
+    Icon: XCircle,
+  },
+  disqualified: {
+    title: 'Disqualify lead',
+    blurb: "wasn't a real opportunity and leaves the active pipeline. Pick the reason and type your own PIN to confirm.",
+    reasons: DISQUALIFY_REASONS,
+    confirm: 'Disqualify',
+    Icon: Ban,
+  },
+};
 
 const PIN_REASON_MSG = {
   empty_pin:     'Type your PIN to confirm.',
@@ -22,7 +40,8 @@ const PIN_REASON_MSG = {
   query_failed:  'Network error talking to the server. Try again.',
 };
 
-export default function LostMoveModal({ user, jobName, onCancel, onConfirm }) {
+export default function LostMoveModal({ user, jobName, target = 'estimate_rejected', onCancel, onConfirm }) {
+  const cfg = TARGETS[target] || TARGETS.estimate_rejected;
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
   const [pin, setPin] = useState('');
@@ -70,12 +89,12 @@ export default function LostMoveModal({ user, jobName, onCancel, onConfirm }) {
       >
         <div className="p-5 border-b border-gray-200 flex items-start gap-3">
           <span className="w-9 h-9 rounded-lg bg-red-50 inline-flex items-center justify-center flex-shrink-0">
-            <XCircle className="w-5 h-5 text-red-600" />
+            <cfg.Icon className="w-5 h-5 text-red-600" />
           </span>
           <div>
-            <p id="lost-move-title" className="font-bold text-omega-charcoal text-lg">Move to Lost</p>
+            <p id="lost-move-title" className="font-bold text-omega-charcoal text-lg">{cfg.title}</p>
             <p className="text-sm text-omega-stone mt-0.5">
-              <strong>{jobName}</strong> leaves the active pipeline. Pick the reason and type your own PIN to confirm.
+              <strong>{jobName}</strong> {cfg.blurb}
             </p>
           </div>
         </div>
@@ -88,7 +107,7 @@ export default function LostMoveModal({ user, jobName, onCancel, onConfirm }) {
           <div>
             <p className="text-xs font-semibold text-omega-stone uppercase mb-1.5">Reason</p>
             <div className="grid grid-cols-2 gap-2">
-              {LOST_REASONS.map((r) => {
+              {cfg.reasons.map((r) => {
                 const active = reason === r.value;
                 return (
                   <button
@@ -167,7 +186,7 @@ export default function LostMoveModal({ user, jobName, onCancel, onConfirm }) {
               disabled={busy || !ready}
               className="min-h-[40px] inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold disabled:opacity-60"
             >
-              {busy ? 'Confirming…' : 'Move to Lost'}
+              {busy ? 'Confirming…' : cfg.confirm}
             </button>
           </div>
         </form>

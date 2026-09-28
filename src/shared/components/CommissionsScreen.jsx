@@ -36,6 +36,7 @@ const PIPELINE_LABEL = {
   estimate_sent:        'Estimate Sent',
   estimate_negotiating: 'Negotiating',
   estimate_approved:    'Approved',
+  disqualified:         'Disqualified',
   estimate_rejected:    'Lost',
   contract_sent:        'Contract Sent',
   contract_signed:      'Contract Signed',
@@ -585,7 +586,9 @@ function PipelinePill({ status }) {
     ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
     : status === 'estimate_rejected'
       ? 'bg-red-100 text-red-800 border-red-200'
-      : 'bg-gray-100 text-omega-slate border-gray-200';
+      : status === 'disqualified'
+        ? 'bg-zinc-200 text-zinc-700 border-zinc-300'
+        : 'bg-gray-100 text-omega-slate border-gray-200';
   return (
     <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${tone}`}>
       {label}

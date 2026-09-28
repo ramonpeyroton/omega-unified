@@ -92,7 +92,7 @@ export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user 
   }
 
   const kpis = useMemo(() => {
-    const DONE = new Set(['completed', 'on_hold']);
+    const DONE = new Set(['completed', 'on_hold', 'disqualified']);
     const activeJobs = jobs.filter((j) => {
       const ps = j.pipeline_status || 'new_lead';
       return !DONE.has(ps);

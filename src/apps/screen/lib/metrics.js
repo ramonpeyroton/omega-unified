@@ -63,14 +63,14 @@ export async function loadMonthKpi() { return kpiFor(monthRange(), prevMonthRang
 
 // ─── Pipeline value ────────────────────────────────────────────────
 // Total $ currently "in motion": sum of the latest estimate for each
-// active job. Excludes jobs marked LOST (`estimate_rejected`) or
-// already closed out (`completed`).
+// active job. Excludes jobs marked LOST (`estimate_rejected`),
+// Disqualified or already closed out (`completed`).
 export async function loadPipelineValue() {
   try {
     const { data: jobs } = await supabase
       .from('jobs')
       .select('id')
-      .not('pipeline_status', 'in', '("estimate_rejected","completed")');
+      .not('pipeline_status', 'in', '("estimate_rejected","disqualified","completed")');
     const ids = (jobs || []).map((j) => j.id);
     if (!ids.length) return 0;
 

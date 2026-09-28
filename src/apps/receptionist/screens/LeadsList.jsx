@@ -11,7 +11,7 @@ import PhoneInput from '../../../shared/components/PhoneInput';
 import { toE164 } from '../../../shared/lib/phone';
 import { validateUserPinDetailed } from '../../../shared/lib/userPin';
 import { logAudit } from '../../../shared/lib/audit';
-import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../../../shared/config/phaseBreakdown';
+import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES } from '../../../shared/config/phaseBreakdown';
 import LostMoveModal from '../../../shared/components/LostMoveModal';
 import { CITIES_BY_STATE, STATES, SERVICES, ALL_LEAD_SOURCES, leadSourceOptions, PIPELINE_STATUSES } from '../lib/leadCatalog';
 
@@ -1261,8 +1261,8 @@ function EditLeadModal({ lead, user, onClose, onSave }) {
   const prevStatus = lead.pipeline_status || 'new_lead';
 
   function handleSave() {
-    // Moving into Lost asks the same reason + PIN as the Kanban.
-    if (form.pipeline_status === 'estimate_rejected' && prevStatus !== 'estimate_rejected') {
+    // Moving into Lost / Disqualified asks the same reason + PIN as the Kanban.
+    if (OFF_BOARD_STAGES.has(form.pipeline_status) && prevStatus !== form.pipeline_status) {
       setAskLost(true);
       return;
     }
@@ -1296,11 +1296,11 @@ function EditLeadModal({ lead, user, onClose, onSave }) {
       lead_owner:          form.lead_owner || null,
     };
     // A stage change puts the lead on the board (same as dragging it on
-    // the Kanban); a move into Lost takes it off — trigger 038 would flip
-    // it anyway, writing it here keeps this list in sync. Saving without
-    // changing the stage leaves in_pipeline alone.
+    // the Kanban); a move into Lost / Disqualified takes it off — the DB
+    // trigger (038 / 079) would flip it anyway, writing it here keeps this
+    // list in sync. Saving without changing the stage leaves it alone.
     if ((form.pipeline_status || 'new_lead') !== prevStatus) {
-      patch.in_pipeline = form.pipeline_status !== 'estimate_rejected';
+      patch.in_pipeline = !OFF_BOARD_STAGES.has(form.pipeline_status);
     }
     if (lost) Object.assign(patch, lost);
     await onSave(patch);
@@ -1464,6 +1464,7 @@ function EditLeadModal({ lead, user, onClose, onSave }) {
       <LostMoveModal
         user={user}
         jobName={lead.client_name || 'this lead'}
+        target={form.pipeline_status}
         onCancel={() => setAskLost(false)}
         onConfirm={async (lost) => { setAskLost(false); await doSave(lost); }}
       />

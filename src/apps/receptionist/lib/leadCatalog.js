@@ -194,6 +194,7 @@ export const PIPELINE_STATUSES = [
   { value: 'contract_signed',      label: 'Contract — Signed' },
   { value: 'in_progress',          label: 'In Progress' },
   { value: 'completed',            label: 'Completed' },
+  { value: 'disqualified',         label: 'Disqualified' },
   { value: 'estimate_rejected',    label: 'Lost' },
 ];
 
@@ -210,8 +211,22 @@ export const LOST_REASONS = [
   { value: 'other',                label: 'Other' },
 ];
 
+// Why a lead was Disqualified (never a real opportunity). Stored in the
+// same lost_reason / lost_note columns; values match jobs_lost_reason_check
+// (079). not_a_fit / out_of_area / other are shared with LOST_REASONS.
+export const DISQUALIFY_REASONS = [
+  { value: 'out_of_area',    label: 'Out of area' },
+  { value: 'not_a_fit',      label: 'Not a fit' },
+  { value: 'budget_too_low', label: 'Budget too low' },
+  { value: 'bad_contact',    label: 'Wrong contact info' },
+  { value: 'spam',           label: 'Spam / fake lead' },
+  { value: 'duplicate',      label: 'Duplicate lead' },
+  { value: 'other',          label: 'Other' },
+];
+
+// Label for a Lost OR Disqualified reason.
 export function lostReasonLabel(v) {
-  return LOST_REASONS.find((r) => r.value === v)?.label || null;
+  return (LOST_REASONS.find((r) => r.value === v) || DISQUALIFY_REASONS.find((r) => r.value === v))?.label || null;
 }
 
 export function serviceLabel(v) {

@@ -571,8 +571,8 @@ export function progressFromPhaseData(phaseData) {
 }
 
 // Pipeline status → display label. Keep keys in sync with PIPELINE_COLORS
-// below and with the Supabase check constraint in
-// migrations/077_lead_central_pipeline.sql. `estimate_rejected` shows as
+// below and with the Supabase check constraint (latest:
+// migrations/079_disqualified_stage.sql). `estimate_rejected` shows as
 // "Lost" — only the label changed, the key is still the one in the DB.
 export const PIPELINE_STEP_LABEL = {
   new_lead:             'New Lead',
@@ -587,6 +587,7 @@ export const PIPELINE_STEP_LABEL = {
   contract_signed:      'Contract Signed',
   in_progress:          'In Progress',
   completed:            'Completed',
+  disqualified:         'Disqualified',
   estimate_rejected:    'Lost',
 };
 
@@ -605,6 +606,7 @@ export const PIPELINE_COLORS = {
   contract_signed:      { hex: '#EAB308', tailwindBg: 'bg-yellow-500',  soft: 'bg-yellow-50' },
   in_progress:          { hex: '#22C55E', tailwindBg: 'bg-green-500',   soft: 'bg-green-50' },
   completed:            { hex: '#15803D', tailwindBg: 'bg-green-700',   soft: 'bg-green-100/60' },
+  disqualified:         { hex: '#27272A', tailwindBg: 'bg-zinc-800',    soft: 'bg-zinc-50' },
   estimate_rejected:    { hex: '#EF4444', tailwindBg: 'bg-red-500',     soft: 'bg-red-50' },
 };
 
@@ -622,5 +624,11 @@ export const PIPELINE_ORDER = [
   'contract_signed',
   'in_progress',
   'completed',
+  'disqualified',
   'estimate_rejected',
 ];
+
+// Terminal stages that take a card OFF the active board (DB triggers 038 /
+// 079 set in_pipeline = false on entry). Moving into one asks for a reason
+// + the user's PIN. The Kanban shows only the 10 most recent of each.
+export const OFF_BOARD_STAGES = new Set(['disqualified', 'estimate_rejected']);

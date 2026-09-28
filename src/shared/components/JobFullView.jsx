@@ -25,16 +25,16 @@ import JobSubcontractorsSection from './JobSubcontractorsSection';
 import JobCoverPhotoUpload from './JobCoverPhotoUpload';
 import LostMoveModal from './LostMoveModal';
 import { logAudit } from '../lib/audit';
-import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER } from '../config/phaseBreakdown';
+import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
 import { SERVICES, parseJobServices, joinJobServices } from '../data/services';
 import { validateOwnerPin } from '../lib/userPin';
 import { lostReasonLabel, leadSourceLink } from '../../apps/receptionist/lib/leadCatalog';
 
 // Phases that need confirmation when picked in the status picker. Mirrors
-// the kanban's PIN_GATED_PHASES: moving to Lost opens LostMoveModal
-// (reason + the user's own PIN).
-const PICKER_PIN_GATED = new Set(['estimate_rejected']);
+// the kanban's PIN_GATED_PHASES: moving to Lost or Disqualified opens
+// LostMoveModal (reason + the user's own PIN).
+const PICKER_PIN_GATED = OFF_BOARD_STAGES;
 
 // Roles allowed to see the Financials tab (Cost Projection + Job Costing + Actual Costs).
 const FINANCIAL_ROLES = new Set(['owner', 'operations', 'admin', 'sales', 'salesperson']);
@@ -1121,10 +1121,10 @@ function DetailsTab({
             <Field icon={Globe}     label="Source"          value={job.lead_source} link={leadSourceLink(job.lead_source_url)} />
             <Field icon={Calendar}  label="Created"         value={job.created_at ? new Date(job.created_at).toLocaleDateString() : null} />
             <Field icon={Clock}     label="Last Contact"    value={job.last_touch_at ? new Date(job.last_touch_at).toLocaleDateString() : null} />
-            {job.pipeline_status === 'estimate_rejected' && lostReasonLabel(job.lost_reason) && (
+            {OFF_BOARD_STAGES.has(job.pipeline_status) && lostReasonLabel(job.lost_reason) && (
               <Field
                 icon={XCircle}
-                label="Lost Reason"
+                label={job.pipeline_status === 'disqualified' ? 'Disqualified Reason' : 'Lost Reason'}
                 value={[lostReasonLabel(job.lost_reason), job.lost_note].filter(Boolean).join(' — ')}
                 colSpan={job.lost_note ? 2 : 1}
               />
@@ -1296,9 +1296,9 @@ function PipelineStatusPicker({ currentKey, user, jobId, jobName, onMoved, palet
     try {
       // Picking a phase puts the job on the board, same as dragging it on
       // the Kanban — otherwise a job taken out of Lost here stayed
-      // in_pipeline=false and vanished. Moving INTO Lost leaves the flag
-      // to trigger 038, which flips it to false.
-      const onBoard = nextKey === 'estimate_rejected' ? {} : { in_pipeline: true };
+      // in_pipeline=false and vanished. Moving INTO Lost / Disqualified
+      // leaves the flag to the DB trigger (038 / 079), which sets false.
+      const onBoard = OFF_BOARD_STAGES.has(nextKey) ? {} : { in_pipeline: true };
       const { data, error } = await supabase
         .from('jobs')
         .update({ pipeline_status: nextKey, ...onBoard, ...(lost || {}) })
@@ -1398,6 +1398,7 @@ function PipelineStatusPicker({ currentKey, user, jobId, jobName, onMoved, palet
         <LostMoveModal
           user={user}
           jobName={jobName || 'this job'}
+          target={pendingKey}
           onCancel={() => setPendingKey(null)}
           onConfirm={confirmLost}
         />
