@@ -1068,8 +1068,10 @@ function DetailsTab({
       )}
 
       {/* ─── Client & Job Info card ─────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 sm:px-6 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+      {/* No overflow-hidden here: it clipped the "Move Phase" dropdown at
+          the card's bottom edge. The header rounds its own top corners. */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="px-4 sm:px-6 py-3.5 bg-gray-100 border-b border-gray-200 rounded-t-[11px] flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-sm font-bold text-omega-charcoal inline-flex items-center gap-2">
             <UserIcon className="w-4 h-4 text-omega-orange" /> Client &amp; Job Info
           </h2>
@@ -1358,11 +1360,13 @@ function PipelineStatusPicker({ currentKey, user, jobId, jobName, onMoved, palet
         <>
           {/* Click-outside catcher — covers the screen below the menu. */}
           <div className="fixed inset-0 z-[43]" onClick={() => setOpen(false)} />
-          <div className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-[44] w-56 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden`}>
+          <div className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-[44] w-60 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden`}>
             <div className="px-3 py-2 border-b border-gray-100">
               <p className="text-[10px] font-bold text-omega-stone uppercase tracking-wider">Move to phase</p>
             </div>
-            <ul className="max-h-72 overflow-y-auto py-1">
+            {/* Tall enough for all 13 phases on a normal screen; scrolls
+                inside only on short viewports. */}
+            <ul className="max-h-[min(28rem,65vh)] overflow-y-auto py-1">
               {PIPELINE_ORDER.map((key) => {
                 const isActive = key === currentKey;
                 const c = PIPELINE_COLORS[key];
