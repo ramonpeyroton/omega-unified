@@ -72,6 +72,13 @@ const READ_ONLY_BASIC_ROLES = new Set(['receptionist', 'manager']);
 // not the office.
 const READ_ONLY_EDIT_BLOCKED = new Set(['manager']);
 
+// Roles that must never see a job's money or contract on this card —
+// Ramon's rule for the field manager: "no money, no contracts". The
+// Estimate / Contract summary on Details is hidden and not even loaded.
+// (The Kanban's HIDE_MONEY_ROLES also covers marketing / screen; those
+// get aligned here later.)
+const NO_MONEY_ROLES = new Set(['manager']);
+
 function pipelinePaletteFor(key) {
   const c = PIPELINE_COLORS[key];
   return { bg: c?.tailwindBg || 'bg-gray-400', text: 'text-white' };
@@ -197,7 +204,7 @@ export default function JobFullView({
   }, [initialJob?.id]);
 
   async function loadRelated() {
-    if (!initialJob?.id) return;
+    if (!initialJob?.id || NO_MONEY_ROLES.has(user?.role)) return;
     try {
       const [{ data: e }, { data: c }] = await Promise.all([
         supabase.from('estimates').select('*').eq('job_id', initialJob.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
@@ -1165,6 +1172,8 @@ function DetailsTab({
       </div>
 
       {/* ─── Estimate + Contract summary (2 cols) ───────────────── */}
+      {/* Hidden for money-free roles (field manager): no values, no contracts. */}
+      {!NO_MONEY_ROLES.has(user?.role) && (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <SummaryCard
           icon={FileText}
@@ -1194,6 +1203,7 @@ function DetailsTab({
           emptyTag="Not Created Yet"
         />
       </div>
+      )}
 
       {/* ─── Notes + Activity (2 cols) ──────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
