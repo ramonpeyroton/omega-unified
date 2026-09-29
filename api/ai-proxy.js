@@ -1,6 +1,6 @@
-// Vercel Function: unified AI proxy (Anthropic Claude + Groq).
+// Vercel Function: unified AI proxy (Anthropic Claude + Groq) + storage presign.
 //
-// Consolidates two providers into ONE function to stay within Vercel
+// Consolidates multiple providers into ONE function to stay within Vercel
 // Hobby's 12-function limit. The `provider` field in the body routes
 // the request to the right backend.
 //
@@ -9,18 +9,28 @@
 //   { provider: 'groq', model, messages, tools?, tool_choice?, temperature?, max_tokens? }
 //   { provider: 'higgsfield', action: 'generate', prompt, width?, height?, model? }
 //   { provider: 'higgsfield', action: 'status', id }
+//   { provider: 'r2-presign', filename, contentType, jobId }
 //
 // Higgsfield image generation is folded in here (not its own function)
 // to stay under Vercel Hobby's 12-function cap. It's async: 'generate'
 // submits a job and returns { id }; 'status' polls until { done, url }.
 //
+// r2-presign issues a temporary PUT URL so the browser uploads videos
+// directly to Cloudflare R2 (bypassing Vercel's 4.5 MB body limit).
+//
 // Required env vars (server-side — no VITE_ prefix):
-//   ANTHROPIC_KEY        Claude API key  (previously VITE_ANTHROPIC_KEY)
-//   GROQ_API_KEY         Groq API key    (previously VITE_GROQ_API_KEY)
-//   HIGGSFIELD_API_KEY   Higgsfield Cloud API key (Bearer) — image gen
-//   HIGGSFIELD_API_BASE  optional, default https://api.higgsfield.ai
-//   OMEGA_API_SECRET     shared secret verified by requireSecret
+//   ANTHROPIC_KEY                  Claude API key  (previously VITE_ANTHROPIC_KEY)
+//   GROQ_API_KEY                   Groq API key    (previously VITE_GROQ_API_KEY)
+//   HIGGSFIELD_API_KEY             Higgsfield Cloud API key (Bearer) — image gen
+//   HIGGSFIELD_API_BASE            optional, default https://api.higgsfield.ai
+//   CLOUDFLARE_R2_ACCOUNT_ID       R2 account (hash before .r2.cloudflarestorage.com)
+//   CLOUDFLARE_R2_ACCESS_KEY_ID    R2 S3 API key
+//   CLOUDFLARE_R2_SECRET_ACCESS_KEY R2 S3 API secret
+//   CLOUDFLARE_R2_BUCKET           R2 bucket name (e.g. "omega-videos")
+//   CLOUDFLARE_R2_PUBLIC_URL       R2 pub-<hash>.r2.dev base URL for reads
+//   OMEGA_API_SECRET               shared secret verified by requireSecret
 
+import { AwsClient } from 'aws4fetch';
 import { requireSecret } from './_lib/requireSecret.js';
 import { json, readJson } from './_lib/http.js';
 
@@ -44,8 +54,82 @@ export default async function handler(req, res) {
   if (provider === 'claude')     return handleClaude(res, body);
   if (provider === 'groq')       return handleGroq(res, body);
   if (provider === 'higgsfield') return handleHiggsfield(res, body);
+  if (provider === 'r2-presign') return handleR2Presign(res, body);
 
-  return json(res, 400, { error: 'Missing or unknown "provider". Use "claude", "groq" or "higgsfield".' });
+  return json(res, 400, { error: 'Missing or unknown "provider". Use "claude", "groq", "higgsfield" or "r2-presign".' });
+}
+
+// ─── Cloudflare R2 presigned PUT URL ─────────────────────────────
+// Generates a short-lived PUT URL so the browser uploads videos direct
+// to R2 without going through Vercel (whose Hobby body cap is 4.5 MB —
+// too small for video). The token/secret never leave the server: only
+// the signed URL travels to the client, and it works for a single PUT
+// to a single key for a limited time.
+
+async function handleR2Presign(res, body) {
+  const ACCOUNT_ID = (process.env.CLOUDFLARE_R2_ACCOUNT_ID     || '').trim();
+  const ACCESS_KEY = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID  || '').trim();
+  const SECRET_KEY = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '').trim();
+  const BUCKET     = (process.env.CLOUDFLARE_R2_BUCKET         || '').trim();
+  const PUBLIC_URL = (process.env.CLOUDFLARE_R2_PUBLIC_URL     || '').trim().replace(/\/$/, '');
+
+  if (!ACCOUNT_ID || !ACCESS_KEY || !SECRET_KEY || !BUCKET || !PUBLIC_URL) {
+    return json(res, 500, {
+      error: 'Cloudflare R2 not configured on the server. Missing one of CLOUDFLARE_R2_ACCOUNT_ID, ACCESS_KEY_ID, SECRET_ACCESS_KEY, BUCKET, PUBLIC_URL.',
+    });
+  }
+
+  const filename    = String(body?.filename    || '').trim();
+  const contentType = String(body?.contentType || '').trim();
+  const jobId       = String(body?.jobId       || '').trim();
+
+  if (!filename || !contentType || !jobId) {
+    return json(res, 400, { error: 'Missing "filename", "contentType" or "jobId".' });
+  }
+  // Only video uploads route through R2 today. Photos/PDFs stay on Supabase.
+  if (!contentType.startsWith('video/')) {
+    return json(res, 400, { error: 'Only video/* uploads are allowed on this endpoint.' });
+  }
+  // Reject anything that looks like a path or an odd job id — keeps the
+  // key inside chat/<jobId>/ and prevents accidental writes elsewhere.
+  if (!/^[A-Za-z0-9._-]{8,64}$/.test(jobId)) {
+    return json(res, 400, { error: 'Invalid jobId.' });
+  }
+
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+  const key = `chat/${jobId}/${Date.now()}-${safeName}`;
+  const endpoint = `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  // The path segments in the URL — key must not be URL-encoded through '/'.
+  const objectUrl = `${endpoint}/${BUCKET}/${key.split('/').map(encodeURIComponent).join('/')}`;
+
+  try {
+    const aws = new AwsClient({
+      accessKeyId:     ACCESS_KEY,
+      secretAccessKey: SECRET_KEY,
+      service:         's3',
+      region:          'auto', // R2's magic region
+    });
+
+    // signQuery: true moves the SigV4 signature into the URL, so the
+    // browser can PUT with a plain fetch — no auth header needed.
+    // The URL expires after ~5 minutes by default.
+    const req = new Request(objectUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+    });
+    const signed = await aws.sign(req, { aws: { signQuery: true } });
+
+    return json(res, 200, {
+      uploadUrl: signed.url,
+      publicUrl: `${PUBLIC_URL}/${key.split('/').map(encodeURIComponent).join('/')}`,
+      key,
+      // Client MUST send this exact Content-Type on the PUT — it's in the
+      // signature, so a mismatch = 403 SignatureDoesNotMatch from R2.
+      contentType,
+    });
+  } catch (err) {
+    return json(res, 500, { error: err?.message || 'R2 presign failed' });
+  }
 }
 
 // ─── Higgsfield image generation ─────────────────────────────────

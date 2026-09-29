@@ -35,11 +35,11 @@ import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import Avatar, { colorFromName } from './ui/Avatar';
 
-const MAX_FILE_BYTES  = 4 * 1024 * 1024;   // images (post-compression) / PDFs
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // videos upload direct to Storage, so the
-                                           // Vercel body limit doesn't apply — the real
-                                           // ceiling is the Supabase bucket file-size limit
-                                           // (default 50 MB; raise it there for bigger clips).
+const MAX_FILE_BYTES  = 4 * 1024 * 1024;    // images (post-compression) / PDFs → Supabase
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // videos → Cloudflare R2 via presigned PUT
+                                            // (bypasses Vercel's 4.5 MB body cap). 200 MB
+                                            // is a safety net; iPhone clips compressed to
+                                            // 1080p CRF 24 usually land under 60 MB.
 const COMPRESS_OPTS  = {
   maxSizeMB: 2,
   maxWidthOrHeight: 2400,
@@ -379,6 +379,45 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   }
 
   async function uploadFile(file) {
+    // Videos go to Cloudflare R2 via a presigned PUT — Supabase Free
+    // caps at 1 GB total storage AND Vercel Hobby caps request bodies
+    // at 4.5 MB, so we can't proxy the video through our API. The
+    // server signs a short-lived URL, the browser PUTs straight to R2,
+    // and the public URL comes back for the chat message.
+    if ((file.type || '').startsWith('video/')) {
+      const presignRes = await apiFetch('/api/ai-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider:    'r2-presign',
+          filename:    file.name,
+          contentType: file.type,
+          jobId:       job.id,
+        }),
+      });
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok || !presignData.uploadUrl) {
+        throw new Error(presignData?.error || `Failed to get R2 upload URL (${presignRes.status})`);
+      }
+
+      const put = await fetch(presignData.uploadUrl, {
+        method:  'PUT',
+        // Must match the Content-Type the server signed, or R2 returns
+        // SignatureDoesNotMatch. The presign response echoes it back so
+        // we're never guessing.
+        headers: { 'Content-Type': presignData.contentType || file.type },
+        body:    file,
+      });
+      if (!put.ok) {
+        const detail = await put.text().catch(() => '');
+        throw new Error(`R2 upload failed (${put.status}): ${detail.slice(0, 200)}`);
+      }
+      return presignData.publicUrl || null;
+    }
+
+    // Images and PDFs stay on Supabase Storage as before — they're
+    // small (post-compression ≤ 4 MB) and already work with the
+    // job-documents bucket + its public URL pattern.
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_');
     const path = `chat/${job.id}/${Date.now()}-${safeName}`;
     const upload = await supabase.storage

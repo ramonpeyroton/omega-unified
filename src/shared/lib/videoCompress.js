@@ -24,11 +24,13 @@ const CDN = {
   coreWasm: `https://unpkg.com/@ffmpeg/core@${VER.core}/dist/umd/ffmpeg-core.wasm`,
 };
 
-// Encoder knobs — kept here so we can tune them after the iPhone test.
-// CRF 27 + 1080p is a good "proof of work" balance (clearly readable,
-// big size cut). Lower CRF = better quality + bigger file.
+// Encoder knobs — tuned for construction-site chat where readable
+// detail (labels, cracks, wood grain) matters more than tiny file size.
+// Storage is Cloudflare R2 (cheap, pay-per-GB) so we favor quality:
+// 1080p + CRF 24 = ~4-6 MB per 30 s clip, visually near-lossless.
+// Lower CRF = better quality + bigger file (18 lossless, 28 muddy).
 const SCALE = "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease";
-const CRF   = '27';
+const CRF   = '24';
 const PRESET = 'veryfast';
 
 let _ffmpeg = null;

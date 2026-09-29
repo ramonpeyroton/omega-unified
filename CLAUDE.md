@@ -576,6 +576,55 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-09-29 (Vídeo no Daily Logs → Cloudflare R2)** — Ramon + Claude (Opus 4.7).
+
+Fix pro bug "vídeo no chat dá 'too large (max 50 MB for video)'": a origem era
+o hardcap client + o bucket Supabase (Free = 1 GB total). Solução escolhida
+com Ramon: **Cloudflare R2 como storage separado só pra vídeo**, mantendo
+imagem e PDF no Supabase. R2 dá 10 GB grátis, depois $0.015/GB — muito mais
+barato que subir pro Supabase Pro ($25/mês) só pra caber vídeo.
+
+**Arquitetura:**
+- Vídeo (`video/*`) → **R2** via presigned PUT URL (browser sobe direto,
+  bypass do cap 4.5 MB da Vercel Function e do 1 GB do Supabase Free).
+- Imagem / PDF → **Supabase Storage** (`job-documents`) como sempre.
+- Endpoint que assina a URL: `api/ai-proxy.js` provider `'r2-presign'`
+  (bundlado dentro do ai-proxy pra ficar dentro do limite de 12 functions
+  do Vercel Hobby). Usa `aws4fetch` (~5 KB) pra assinatura SigV4.
+- Public URL do R2 (`pub-<hash>.r2.dev`) fica em `chat_messages.attachments[].url`
+  igual as fotos hoje. Player inline (`<video>`) já existia no NativeProjectChat.
+
+**Config no Cloudflare (feita pelo Ramon, uma vez só):**
+- Bucket: `omega-videos` (ENAM region)
+- Public Development URL: **habilitada** (necessário pro `<video>` tocar)
+- CORS: origins `https://omega-unified.vercel.app` + `http://localhost:5174`,
+  methods `GET/PUT/POST/HEAD`, headers `*`
+- Account API Token: Object Read & Write só em `omega-videos`, TTL Forever
+
+**Env vars pendentes no Vercel (Ramon precisa setar antes do deploy funcionar):**
+- `CLOUDFLARE_R2_ACCOUNT_ID`
+- `CLOUDFLARE_R2_ACCESS_KEY_ID`
+- `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
+- `CLOUDFLARE_R2_BUCKET` = `omega-videos`
+- `CLOUDFLARE_R2_PUBLIC_URL` = `https://pub-<hash>.r2.dev` (do bucket)
+
+**Outros ajustes junto:**
+- `MAX_VIDEO_BYTES` no [NativeProjectChat.jsx](src/shared/components/NativeProjectChat.jsx)
+  subiu de 50 MB → **200 MB** (safety net; iPhone comprimido raramente passa de 60 MB).
+- CRF do ffmpeg.wasm em [videoCompress.js](src/shared/lib/videoCompress.js)
+  caiu de 27 → **24** (qualidade "quase lossless" a 1080p, ~4-6 MB/30s).
+- Preset `veryfast` mantido (era esse já).
+
+**Se algum dia precisar rotacionar credenciais R2:** dash.cloudflare.com →
+R2 → Manage API Tokens → delete o `omega-unified-video-upload` → cria novo
+igual → atualiza env vars no Vercel → redeploy. Vídeos já enviados continuam
+funcionando (public URL é imutável).
+
+**Custo real esperado:** $0/mês nos primeiros ~6 meses (10 GB free), depois
+$1-3/mês. Vs $25/mês do Supabase Pro que resolveria a mesma coisa.
+
+---
+
 **2026-06-06 (Mobile QA audit completo + redesign Marketing + features Manager)** — Ramon + Claude (Opus 4.6/4.7).
 
 Sessão focada em polir o mobile. 10 commits, 40+ arquivos tocados. Resumo por tema:
