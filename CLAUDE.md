@@ -636,6 +636,17 @@ Today we have: 2 sales visits, 2 job starts and 1 inspection.
 **Se algum dia quiser voltar ao formato antigo** (por assignee, lista de
 eventos individuais): revert do commit — é 1 arquivo só, ~120 linhas.
 
+**⚠️ Nota histórica (importante pra próximo Claude):** o commit
+[37d74f3](https://github.com/ramonpeyroton/omega-unified/commit/37d74f3)
+acidentalmente varreu junto ~600 linhas do **Lead Alerts + resumo 19h** (que
+[o memory diz](.claude/projects/*/memory/project_lead_alerts.md) que está em
+STANDBY até Ramon aprovar Twilio/WhatsApp). Fizemos um segundo commit que
+removeu SÓ o Lead Alerts, mantendo o push notifications + o TV dashboard.
+`api/daily-owner-update.js` deve estar em ~479 linhas — se ver algo em torno
+de 1100 linhas ali com `sendLeadAlert`, `whatsappRecipients`, `?task=lead-
+alert`, `?task=daily-summary`, `computeDailySummary`, é porque o Lead Alerts
+voltou. Só reintroduzir quando Ramon avisar explicitamente.
+
 ---
 
 **2026-09-29 (Vídeo no Daily Logs → Cloudflare R2)** — Ramon + Claude (Opus 4.7).
