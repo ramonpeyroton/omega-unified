@@ -576,6 +576,68 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-09-30 (Push notifications: resumo matinal por categoria + lembretes pra time inteiro)** — Ramon + Claude (Opus 4.7).
+
+Redesign das notificações push do time. Antes chegavam feias/confusas
+("Today: 2 events from Omega Unified", 2 eventos comprimidos em 1 linha
+com `·`) e só pra assignees. Agora todo mundo do time (Ramon, Joel,
+Inácio, Attila, Rafaela) recebe TUDO — visibilidade coletiva pro time se
+ajudar. Regra travada.
+
+**Mudanças:**
+
+- **Cron do resumo matinal:** `0 13 * * *` → `0 12 * * *` UTC em
+  [vercel.json](vercel.json). Chega às **8h EDT (verão) / 7h EST (inverno)**.
+  Efeito colateral: as notificações "Daily update needed" (lembretes pra
+  vendedores atualizarem daily logs) também passam a chegar 1h mais cedo —
+  ok, é lembrete de manhã cedo mesmo.
+
+- **[api/daily-owner-update.js](api/daily-owner-update.js) `sendDailySummaries()`
+  reescrita:** agora agrega eventos do dia por `calendar_events.kind` e monta
+  frase em inglês estilo "*Today we have: 2 sales visits, 2 job starts and 1
+  inspection.*". **Sem eventos hoje → não manda push** (silêncio = dia leve).
+  Envia UMA mensagem idêntica pra todos os users ativos.
+
+- **[api/daily-owner-update.js](api/daily-owner-update.js) `sendEventReminders()`
+  atualizada:** mantém a janela `[now+105min, now+120min)` com dedupe via
+  `reminder_sent_at`, mas agora manda pra **todos os users ativos** (não só
+  assignees) e usa formato mais limpo: título `⏰ In 2h · HVAC Start at Megan
+  Flores`, body `10:00 AM · Norwalk`.
+
+- **Novo helper `fetchActiveUserNames()`:** busca `users.active=true`
+  excluindo roles `admin` (hardcoded, nunca em `users` mesmo) e `screen`
+  (kiosk). É a fonte única de "quem recebe push" agora.
+
+- **`KIND_LABELS` + `KIND_ORDER` + `joinWithAnd()`:** helpers de formatação
+  no topo do arquivo. Ordem canônica: sales_visit → job_start → service_day
+  → inspection → meeting → media_visit. Se um evento vier sem `kind`
+  (legado), conta como `sales_visit` (mesma regra do
+  [normalizeCategoryKey](src/shared/lib/eventCategories.js)).
+
+**Push preview (o que chega no iPhone):**
+```
+☀️ Good morning
+Today we have: 2 sales visits, 2 job starts and 1 inspection.
+```
+```
+⏰ In 2h · HVAC Start at Megan Flores
+10:00 AM · Norwalk
+```
+
+**Testes que dá pra rodar em prod depois do deploy:**
+- `GET /api/daily-owner-update?task=daily-summary&dry=1` — retorna texto do
+  resumo do dono sem enviar (não é o mesmo do morning briefing, mas útil).
+- **Aguardar 8h EDT amanhã** — o cron principal dispara e `sendDailySummaries`
+  roda dentro dele. Se der ruim, checar logs em Vercel → Functions →
+  daily-owner-update.
+- **Lembrete 2h antes** dispara automático — marca um evento no calendar às
+  10h da manhã, às 8h chega o push.
+
+**Se algum dia quiser voltar ao formato antigo** (por assignee, lista de
+eventos individuais): revert do commit — é 1 arquivo só, ~120 linhas.
+
+---
+
 **2026-09-29 (Vídeo no Daily Logs → Cloudflare R2)** — Ramon + Claude (Opus 4.7).
 
 Fix pro bug "vídeo no chat dá 'too large (max 50 MB for video)'": a origem era
