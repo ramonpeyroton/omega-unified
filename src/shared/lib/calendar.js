@@ -20,6 +20,11 @@ export const EVENT_KIND_META = {
   // can book one too. The job site stays visible on the calendar so
   // sales/manager know media is coming and don't surprise the crew.
   media_visit: { label: 'Media Visit',  color: '#EC4899' }, // pink
+  // Deliveries to the job site (migration 080). Cabinets get their own
+  // kind — they're the big, scheduled drop (Fabuwood etc.) the crew has
+  // to be there for; everything else is a Material Delivery.
+  material_delivery: { label: 'Material Delivery', color: '#0D9488' }, // teal
+  cabinet_delivery:  { label: 'Cabinet Delivery',  color: '#8B5A2B' }, // wood brown
 };
 
 export const EVENT_KIND_OPTIONS = Object.entries(EVENT_KIND_META).map(
@@ -244,7 +249,7 @@ export function canEditKind(role, kind) {
   if (EDIT_ALL.has(role)) return true;
   if (role === 'receptionist') return kind === 'sales_visit';
   if (role === 'sales')        return kind === 'sales_visit';
-  if (role === 'manager')      return ['job_start', 'service_day', 'inspection', 'meeting'].includes(kind);
+  if (role === 'manager')      return ['job_start', 'service_day', 'inspection', 'meeting', 'material_delivery', 'cabinet_delivery'].includes(kind);
   // Marketing books media visits (Ramon's photo/video runs) — that's
   // the kind he owns end-to-end. He can also see the rest of the
   // calendar but only edits his own kind.

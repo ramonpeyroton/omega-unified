@@ -10,7 +10,7 @@
 // the DB value through `normalizeCategoryKey()` so colors stay stable
 // even if the DB uses 'sales-visit' / 'salesVisit' / etc.
 
-import { Briefcase, Hammer, Wrench, Search, Users } from 'lucide-react';
+import { Briefcase, Hammer, Wrench, Search, Users, Camera, Truck, Package } from 'lucide-react';
 
 export const EVENT_CATEGORIES = {
   sales_visit: {
@@ -53,6 +53,31 @@ export const EVENT_CATEGORIES = {
     text: 'text-omega-event-meeting',
     bullet: 'bg-omega-event-meeting',
   },
+  media_visit: {
+    key: 'media_visit',
+    label: 'Media Visit',
+    icon: Camera,
+    bg: 'bg-pink-100',
+    text: 'text-pink-500',
+    bullet: 'bg-pink-500',
+  },
+  // Colors mirror EVENT_KIND_META in calendar.js (migration 080).
+  material_delivery: {
+    key: 'material_delivery',
+    label: 'Material Delivery',
+    icon: Truck,
+    bg: 'bg-[#CCFBF1]',
+    text: 'text-[#0D9488]',
+    bullet: 'bg-[#0D9488]',
+  },
+  cabinet_delivery: {
+    key: 'cabinet_delivery',
+    label: 'Cabinet Delivery',
+    icon: Package,
+    bg: 'bg-[#F3E8DC]',
+    text: 'text-[#8B5A2B]',
+    bullet: 'bg-[#8B5A2B]',
+  },
 };
 
 // Order used in legends and category pickers.
@@ -62,6 +87,9 @@ export const CATEGORY_ORDER = [
   'service_day',
   'inspection',
   'meeting',
+  'media_visit',
+  'material_delivery',
+  'cabinet_delivery',
 ];
 
 // Normalize a DB-side value (sales-visit, salesVisit, "Sales Visit") into
