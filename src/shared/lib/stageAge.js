@@ -91,6 +91,14 @@ export function nyDateKey(ms) {
   return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
 }
 
+// Instant of 00:00 in New York on the NY calendar day `key` ('YYYY-MM-DD').
+// Uses that day's daytime offset, so it's an hour off on the two DST-switch
+// days — fine for "today / this week / this month" counts.
+export function nyMidnightMs(key) {
+  const [y, m, d] = key.slice(0, 10).split('-').map(Number);
+  return Date.UTC(y, m - 1, d) - dayOffsetMs(y, m, d);
+}
+
 function daysBetweenKeys(fromKey, toKey) {
   return Math.round((Date.parse(`${toKey}T00:00:00Z`) - Date.parse(`${fromKey}T00:00:00Z`)) / DAY_MS);
 }
@@ -146,9 +154,27 @@ function fmtBizSpan(minutes) {
   return h && d < 7 ? `${d}d ${h}h` : `${d}d`;
 }
 
+// Visit used by the Visit Scheduled label: the next upcoming sales_visit
+// on the calendar, else the most recent past one, else the lead's
+// preferred_visit_date. `times` = that job's non-cancelled visit instants,
+// ascending.
+export function resolveVisit(job, times, now) {
+  if (times?.length) {
+    const at = times.find((t) => t >= now) ?? times[times.length - 1];
+    return { dateKey: nyDateKey(at), timeLabel: formatNyTime(at), source: 'calendar' };
+  }
+  if (job.preferred_visit_date) {
+    return {
+      dateKey: String(job.preferred_visit_date).slice(0, 10),
+      timeLabel: formatClockTime(job.preferred_visit_time),
+      source: 'lead',
+    };
+  }
+  return null;
+}
+
 // `visit` (Visit Scheduled only): { dateKey: 'YYYY-MM-DD', timeLabel?, source }
-// — the caller resolves it from calendar_events, falling back to
-// jobs.preferred_visit_date.
+// — the caller resolves it with resolveVisit().
 export function stageAge(job, { now = Date.now(), visit = null } = {}) {
   if (!job) return null;
   const status = job.pipeline_status || 'new_lead';

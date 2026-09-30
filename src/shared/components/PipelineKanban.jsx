@@ -31,7 +31,7 @@ import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES 
 import { logAudit } from '../lib/audit';
 import { notify } from '../lib/notifications';
 import {
-  stageAge, STAGE_TONE, useNow, nyDateKey, formatDateKey, formatClockTime, formatNyTime,
+  stageAge, STAGE_TONE, useNow, formatDateKey, formatClockTime, resolveVisit,
 } from '../lib/stageAge';
 import { lostReasonLabel, leadSourceLink } from '../../apps/receptionist/lib/leadCatalog';
 
@@ -236,25 +236,6 @@ function websiteBookingText(job) {
   if (job.created_by !== 'Website' || job.pipeline_status !== 'new_lead' || !job.preferred_visit_date) return null;
   const when = [formatDateKey(job.preferred_visit_date), formatClockTime(job.preferred_visit_time)].filter(Boolean).join(' · ');
   return when ? `Visit booked by client: ${when}` : null;
-}
-
-// Visit used by the Visit Scheduled label: the next upcoming sales_visit
-// on the calendar, else the most recent past one, else the lead's
-// preferred_visit_date. `times` = that job's non-cancelled visit instants,
-// ascending.
-function resolveVisit(job, times, now) {
-  if (times?.length) {
-    const at = times.find((t) => t >= now) ?? times[times.length - 1];
-    return { dateKey: nyDateKey(at), timeLabel: formatNyTime(at), source: 'calendar' };
-  }
-  if (job.preferred_visit_date) {
-    return {
-      dateKey: String(job.preferred_visit_date).slice(0, 10),
-      timeLabel: formatClockTime(job.preferred_visit_time),
-      source: 'lead',
-    };
-  }
-  return null;
 }
 
 // The 10 most recent cards of an off-board stage (Lost / Disqualified),

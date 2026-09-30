@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images, BarChart3, Sparkles, MessageSquareQuote, Calendar } from 'lucide-react';
+import { LogOut, Megaphone, GitBranch, ClipboardList, MessageCircle, ChevronDown, ChevronRight, MoreHorizontal, Images, BarChart3, Sparkles, MessageSquareQuote, Calendar, Tv } from 'lucide-react';
 
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import LeadsList from '../receptionist/screens/LeadsList';
@@ -17,6 +17,7 @@ import Portfolio from './screens/Portfolio';
 import MarketingDashboard from './screens/MarketingDashboard';
 import ContentStudio from './screens/ContentStudio';
 import Reviews from './screens/Reviews';
+import PipelineTV from './screens/PipelineTV';
 import { useJobById } from '../../shared/hooks/useJobById';
 
 // Screens that live in the desktop sidebar + the mobile "More" sheet.
@@ -101,6 +102,7 @@ function MarketingShell({ user, onLogout }) {
           <SidebarBtn active={screen === 'insights'}  onClick={() => navigate('/insights')}  icon={BarChart3}     label="Insights" />
           <SidebarBtn active={screen === 'studio'}    onClick={() => navigate('/studio')}    icon={Sparkles}      label="Content" />
           <SidebarBtn active={screen === 'reviews'}   onClick={() => navigate('/reviews')}   icon={MessageSquareQuote} label="Reviews" />
+          <SidebarBtn active={false}                  onClick={() => navigate('/tv')}        icon={Tv}            label="TV Dashboard" />
 
           <button
             onClick={() => setDailyLogsOpen((o) => !o)}
@@ -245,6 +247,8 @@ export default function MarketingApp({ user, onLogout }) {
           <Route path="/daily-logs"  element={<MobileDailyLogs user={user} />} />
           <Route path="/jobs/:id"    element={<JobFullViewRoute user={user} />} />
         </Route>
+        {/* Full-screen office TV view — outside the shell (no sidebar). */}
+        <Route path="/tv" element={<PipelineTV />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
