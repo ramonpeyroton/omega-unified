@@ -364,7 +364,7 @@ async function buildSmsSummary(nowMs = Date.now()) {
     const k = (j.lead_source || '').trim() || 'Sem origem';
     bySource[k] = (bySource[k] || 0) + 1;
   }
-  const sources = Object.entries(bySource).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
+  const sources = Object.entries(bySource).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(' · ');
 
   const visitsToday = new Set((visitsRes.data || []).map((e) => e.job_id)).size;
   const waiting = waitingRes.data || [];
@@ -372,39 +372,52 @@ async function buildSmsSummary(nowMs = Date.now()) {
   const visited = waiting.filter((j) => j.pipeline_status === 'visited');
   const oldestOf = (rows) => rows.map((j) => j.stage_entered_at).filter(Boolean).sort()[0];
 
-  const lines = [`Omega · Resumo de hoje (${today.label})`, ''];
-  lines.push(`Leads novos: ${leads.length}${sources ? ` (${sources})` : ''}`);
-  lines.push(`Visitas feitas: ${visitsToday}`);
-  const oldDraft = oldestOf(drafts);
-  lines.push(`Esperando preço: ${drafts.length} ${drafts.length === 1 ? 'estimate' : 'estimates'}${oldDraft ? ` (mais antigo ${ageText(oldDraft, nowMs)})` : ''}`);
-  const oldVisited = oldestOf(visited);
-  lines.push(`Visitados esperando o Attila fazer o estimate: ${visited.length}${oldVisited ? ` (mais antigo ${ageText(oldVisited, nowMs)})` : ''}`);
+  // Phone-first layout: one emoji + CAPS header per section, the number in
+  // the header, one item per line, blank line between sections.
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const oldest = (rows) => {
+    const t = oldestOf(rows);
+    return t ? ` (mais antigo ${ageText(t, nowMs)})` : '';
+  };
 
+  const lines = ['OMEGA · RESUMO DO DIA', cap(today.label), ''];
+
+  lines.push(`📥 LEADS NOVOS: ${leads.length}`);
+  if (sources) lines.push(sources);
   lines.push('');
+
+  lines.push(`🏠 VISITAS FEITAS: ${visitsToday}`);
+  lines.push('');
+
+  lines.push('✍️ ESTIMATES');
+  lines.push(`• ${drafts.length} esperando preço${oldest(drafts)}`);
+  lines.push(`• ${visited.length} ${visited.length === 1 ? 'visitado esperando' : 'visitados esperando'} o Attila${oldest(visited)}`);
+  lines.push('');
+
   const overdue = overdueRes.data || [];
   const dueTomorrow = dueTomorrowRes.data || [];
   if (!overdue.length && !dueTomorrow.length) {
-    lines.push('Contas: nada atrasado nem vencendo amanhã.');
+    lines.push('💵 CONTAS: tudo em dia ✅');
   } else {
-    lines.push('Contas:');
-    overdue.slice(0, 3).forEach((b) => lines.push(`- Atrasada: ${b.label} ${usd(b.amount)} (venceu ${shortDateKey(b.due_date)})`));
-    if (overdue.length > 3) lines.push(`- + ${overdue.length - 3} outras atrasadas`);
-    dueTomorrow.slice(0, 3).forEach((b) => lines.push(`- Vence amanhã: ${b.label} ${usd(b.amount)}`));
-    if (dueTomorrow.length > 3) lines.push(`- + ${dueTomorrow.length - 3} outras vencendo amanhã`);
+    lines.push('💵 CONTAS');
+    overdue.slice(0, 3).forEach((b) => lines.push(`🔴 ${b.label} · ${usd(b.amount)} · venceu ${shortDateKey(b.due_date)}`));
+    if (overdue.length > 3) lines.push(`🔴 + ${overdue.length - 3} outras atrasadas`);
+    dueTomorrow.slice(0, 3).forEach((b) => lines.push(`🟡 ${b.label} · ${usd(b.amount)} · vence amanhã`));
+    if (dueTomorrow.length > 3) lines.push(`🟡 + ${dueTomorrow.length - 3} outras vencendo amanhã`);
   }
-
   lines.push('');
+
   const agenda = (agendaRes.data || []).filter((e) => e.visit_status !== 'cancelled');
   if (!agenda.length) {
-    lines.push(`Agenda de amanhã (${tomorrow.label}): nada marcado.`);
+    lines.push(`📅 AMANHÃ (${cap(tomorrow.label)}): nada marcado`);
   } else {
-    lines.push(`Agenda de amanhã (${tomorrow.label}):`);
+    lines.push(`📅 AMANHÃ · ${cap(tomorrow.label)}`);
     agenda.slice(0, 8).forEach((e) => {
       const kind = KIND_PT[e.kind] || 'Evento';
       const title = cleanEventTitle(e.title, e.kind);
-      lines.push(`- ${etTime(e.starts_at)} ${kind}${title ? ` · ${title}` : ''}`);
+      lines.push(`• ${etTime(e.starts_at)} · ${title || kind}${title ? ` (${kind})` : ''}`);
     });
-    if (agenda.length > 8) lines.push(`- + ${agenda.length - 8} outros`);
+    if (agenda.length > 8) lines.push(`• + ${agenda.length - 8} outros`);
   }
 
   return { dayKey: today.key, hour: p.hh, text: lines.join('\n') };
