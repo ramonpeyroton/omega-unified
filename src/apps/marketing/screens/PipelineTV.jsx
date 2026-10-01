@@ -3,8 +3,8 @@
 // tile per column with its card count, what those cards are waiting on,
 // and an on-time/late health bar (same time-in-stage rules as the Kanban
 // cards, see stageAge.js). Below: 3 KPIs (visit → approval conversion +
-// average time, oldest card). Right: Snapshot with today's incoming leads
-// and the total cards in Disqualified / Lost, each with a small trend. Layout
+// average time, oldest card). Right: Snapshot with the total cards in
+// Disqualified / Lost (each with a small trend), then Bills to pay. Layout
 // follows Ramon's mockup (Sep/26). Lives in Ramon's Marketing app at /tv
 // for the office TV. No money on purpose (Ramon dropped the $ KPI).
 // Refreshes every minute + on any jobs change.
@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Maximize2, ChevronRight, UserPlus, PhoneCall, CalendarDays, BadgeCheck,
-  FileText, Send, Handshake, FileCheck2, Bell, X, BarChart3, Clock, HelpCircle,
+  FileText, Send, Handshake, FileCheck2, X, BarChart3, Clock, HelpCircle,
   Building2, Zap, ShieldCheck, Cpu, Car, Megaphone, Landmark, Briefcase, Package,
   Plus, ArrowRight,
 } from 'lucide-react';
@@ -114,14 +114,7 @@ function toMs(v) {
   return Number.isFinite(t) ? t : null;
 }
 
-// Calendar math on 'YYYY-MM-DD' keys (noon UTC keeps DST out of it).
-function addDaysKey(key, n) {
-  return new Date(Date.parse(`${key}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
-}
-function mondayKey(key) {
-  const wd = new Date(`${key}T12:00:00Z`).getUTCDay(); // 0 = Sunday
-  return addDaysKey(key, -((wd + 6) % 7));
-}
+// First day of the month `back` months before the month of `key` ('YYYY-MM-DD').
 function monthKey(key, back = 0) {
   const [y, m] = key.split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 - back, 1));
@@ -154,10 +147,8 @@ async function selectIn(table, columns, column, ids, build = (q) => q) {
 // Only the board query is required; everything else degrades to "—".
 async function loadTvData() {
   const now = Date.now();
-  const todayKey = nyDateKey(now);
-  const createdFrom = [mondayKey(todayKey), addDaysKey(todayKey, -6)].sort()[0];
 
-  const [boardRes, offRes, newRes] = await Promise.all([
+  const [boardRes, offRes] = await Promise.all([
     supabase
       .from('jobs')
       .select('id, pipeline_status, stage_entered_at, last_touch_at, preferred_visit_date, preferred_visit_time')
@@ -166,10 +157,6 @@ async function loadTvData() {
       .from('jobs')
       .select('pipeline_status, lost_reason, stage_entered_at')
       .in('pipeline_status', [...OFF_BOARD_STAGES]),
-    supabase
-      .from('jobs')
-      .select('created_at')
-      .gte('created_at', new Date(nyMidnightMs(createdFrom)).toISOString()),
   ]);
   if (boardRes.error) throw boardRes.error;
   const board = boardRes.data || [];
@@ -193,7 +180,6 @@ async function loadTvData() {
     board,
     visitTimes,
     offBoard: offRes.error ? null : offRes.data || [],
-    created: newRes.error ? null : newRes.data || [],
     funnel,
     loadedAt: now,
   };
@@ -296,8 +282,6 @@ function stageHealth(status, jobs, { now, todayKey, visitTimes }) {
 
 function buildView(data, now) {
   const todayKey = nyDateKey(now);
-  const todayStartMs = nyMidnightMs(todayKey);
-  const weekStartMs = nyMidnightMs(mondayKey(todayKey));
 
   const byStage = Object.fromEntries(BOARD_STAGES.map((s) => [s, []]));
   (data?.board || []).forEach((j) => {
@@ -333,17 +317,8 @@ function buildView(data, now) {
     return { ...section, tiles, open: data ? open : null, late };
   });
 
-  // Snapshot — counts + small trend bars (oldest → newest).
-  const created = data?.created;
-  const createdMs = created ? created.map((r) => toMs(r.created_at) ?? 0) : null;
-  const incomingTrend = createdMs
-    ? Array.from({ length: 7 }, (_, i) => {
-      const from = nyMidnightMs(addDaysKey(todayKey, i - 6));
-      const to = i === 6 ? Infinity : nyMidnightMs(addDaysKey(todayKey, i - 5));
-      return createdMs.filter((t) => t >= from && t < to).length;
-    })
-    : null;
-
+  // Snapshot — Disqualified + Lost totals with small monthly trend bars
+  // (oldest → newest).
   const offBoard = data?.offBoard;
   const offTile = (status, text, icon) => {
     const rows = offBoard ? offBoard.filter((r) => r.pipeline_status === status) : null;
@@ -373,20 +348,7 @@ function buildView(data, now) {
     };
   };
 
-  const todayCount = createdMs ? createdMs.filter((t) => t >= todayStartMs).length : null;
   const side = [
-    {
-      key: 'incoming',
-      label: 'Incoming',
-      icon: Bell,
-      iconBg: ORANGE,
-      tag: 'Today',
-      hex: ORANGE,
-      count: todayCount,
-      text: todayCount == null ? '' : `${todayCount === 1 ? 'lead' : 'leads'} came in today`,
-      trend: incomingTrend,
-      chips: createdMs ? [{ tone: 'muted', dot: true, text: `${createdMs.filter((t) => t >= weekStartMs).length} this week` }] : [],
-    },
     offTile('disqualified', 'disqualified', X),
     offTile('estimate_rejected', 'lost', X),
   ];
