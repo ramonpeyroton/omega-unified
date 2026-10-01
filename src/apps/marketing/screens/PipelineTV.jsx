@@ -596,26 +596,24 @@ function Flow({ section }) {
 function BillsPanel({ bills, onNavigate }) {
   const nowMs = Date.now();
   // Show overdue + upcoming — the ones that actually need attention.
-  const visible = bills.slice(0, 8);
+  // Rows are sized for reading from across the room, so fewer fit.
+  const visible = bills.slice(0, 7);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[clamp(16px,1.9vh,22px)] font-bold tracking-wide uppercase text-omega-charcoal flex items-center gap-2">
-          <span className="inline-block w-1 h-4 rounded-full bg-omega-orange" />
-          Bills to pay
-        </h2>
+      {/* Same header as Snapshot / Leads so the three columns read as one board. */}
+      <SectionTitle title="Bills to pay">
         <button
           onClick={onNavigate}
-          className="text-[clamp(11px,1.3vh,14px)] font-semibold text-omega-stone hover:text-omega-orange inline-flex items-center gap-1"
+          className="font-semibold text-omega-stone hover:text-omega-orange inline-flex items-center gap-1 text-[clamp(12px,1.6vh,17px)]"
         >
-          View all <ArrowRight className="w-3.5 h-3.5" />
+          View all <ArrowRight className="w-[1em] h-[1em]" />
         </button>
-      </div>
+      </SectionTitle>
 
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-2">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(8px,1.1vh,14px)]">
         {visible.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-omega-stone text-sm">
+          <div className="flex-1 flex items-center justify-center text-omega-stone font-medium text-[clamp(14px,2vh,22px)]">
             All bills are paid.
           </div>
         ) : (
@@ -624,27 +622,31 @@ function BillsPanel({ bills, onNavigate }) {
             const days = daysUntilDue(bill, nowMs);
             const chip = dueChip(days);
             return (
-              <div key={bill.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-black/[0.06]">
-                <div className="w-9 h-9 rounded-xl bg-omega-cloud flex items-center justify-center flex-shrink-0 text-omega-stone">
-                  <Icon className="w-4 h-4" />
+              <div key={bill.id} className="flex items-center gap-4 px-5 py-[clamp(10px,1.5vh,18px)] rounded-2xl bg-white shadow-card border border-black/[0.05]">
+                <div className="w-[clamp(36px,5vh,54px)] h-[clamp(36px,5vh,54px)] rounded-xl bg-omega-cloud flex items-center justify-center flex-shrink-0 text-omega-stone">
+                  <Icon className="w-1/2 h-1/2" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[9px] font-bold uppercase tracking-wider text-omega-stone truncate">
+                  <p className="font-bold uppercase tracking-wider text-omega-stone truncate text-[clamp(10px,1.3vh,14px)]">
                     {categoryLabel(bill.category)}
-                  </div>
-                  <div className="text-[13px] font-bold text-omega-charcoal truncate leading-tight">
+                  </p>
+                  {/* Same size as the stage-card titles (New Lead, Contacted…). */}
+                  <p className="font-extrabold text-[#111] truncate leading-tight text-[clamp(14px,2vh,22px)]">
                     {bill.label}
-                  </div>
+                  </p>
+                  <p className="text-omega-slate font-medium whitespace-nowrap text-[clamp(12px,1.6vh,17px)]">
+                    {billDueLabel(bill.due_date)}
+                  </p>
                 </div>
-                <div className="text-[11px] text-omega-stone whitespace-nowrap">
-                  {billDueLabel(bill.due_date)}
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                  {/* Readable but deliberately not the loudest thing on the row. */}
+                  <p className="font-semibold text-omega-slate tabular-nums whitespace-nowrap text-[clamp(13px,1.8vh,20px)]">
+                    {billAmountLabel(bill.amount)}
+                  </p>
+                  <span className={`font-bold px-2.5 py-1 rounded-lg whitespace-nowrap text-[clamp(11px,1.4vh,15px)] ${chip.tone}`}>
+                    {chip.label}
+                  </span>
                 </div>
-                <div className="text-[14px] font-bold text-omega-charcoal tabular-nums whitespace-nowrap">
-                  {billAmountLabel(bill.amount)}
-                </div>
-                <span className={`text-[10px] font-bold px-2 py-1 rounded-md whitespace-nowrap ${chip.tone}`}>
-                  {chip.label}
-                </span>
               </div>
             );
           })
@@ -653,7 +655,7 @@ function BillsPanel({ bills, onNavigate }) {
 
       <button
         onClick={onNavigate}
-        className="mt-3 w-full py-3 rounded-xl border-2 border-dashed border-black/[0.12] text-omega-stone hover:text-omega-orange hover:border-omega-orange inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors flex-shrink-0"
+        className="mt-3 w-full py-3 rounded-xl border-2 border-dashed border-black/[0.12] text-omega-stone hover:text-omega-orange hover:border-omega-orange inline-flex items-center justify-center gap-2 font-semibold transition-colors flex-shrink-0 text-[clamp(13px,1.7vh,18px)]"
       >
         <Plus className="w-4 h-4" /> Add bill
       </button>
