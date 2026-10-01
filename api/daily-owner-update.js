@@ -453,7 +453,7 @@ async function maybeSendSmsSummary(nowMs = Date.now()) {
     .from('audit_log')
     .select('details')
     .eq('action', 'sms_summary.sent')
-    .gte('created_at', new Date(today.startMs).toISOString());
+    .gte('timestamp', new Date(today.startMs).toISOString());
   if (sentErr) throw sentErr;
   const alreadySent = new Set((sentRows || []).map((r) => r.details?.to).filter(Boolean));
   const pending = recipients.filter((n) => !alreadySent.has(n));
