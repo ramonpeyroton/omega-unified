@@ -21,6 +21,7 @@ import {
   billEffectiveStatus, daysUntilDue,
   materializeTemplate, materializeAllActiveTemplates,
   markBillPaid, unmarkBillPaid, skipBill, setBillAmount, deleteBill,
+  deleteTemplateAndFutureBills,
   loadVendors,
 } from '../../lib/bills';
 
@@ -152,13 +153,63 @@ export default function BillsTab({ user }) {
   // ─── Actions ──────────────────────────────────────────────────────
 
   async function handleDelete(bill) {
-    if (!confirm(`Delete this bill?\n\n${bill.label} — ${money(bill.amount)} due ${shortDate(bill.due_date)}`)) return;
+    const isRecurring = bill.template_id != null;
+
+    // One-time bill — straightforward delete.
+    if (!isRecurring) {
+      if (!confirm(`Delete this bill?\n\n${bill.label} — ${money(bill.amount)} due ${shortDate(bill.due_date)}`)) return;
+      try {
+        await deleteBill(bill.id);
+        await logAudit({
+          user_name: user?.name, user_role: user?.role,
+          action: 'bill.delete', entity_type: 'bill', entity_id: bill.id,
+          details: { label: bill.label, amount: bill.amount, due_date: bill.due_date },
+        }).catch(() => {});
+        loadAll();
+      } catch (err) {
+        alert(err?.message || 'Delete failed.');
+      }
+      return;
+    }
+
+    // Recurring bill — a plain delete would be instantly re-materialized
+    // from the still-active template. Make the intent explicit: either
+    // kill the whole series (template + every unpaid occurrence), or
+    // bail. "Skip just this period" has its own button.
+    const msg =
+      `"${bill.label}" is a RECURRING bill.\n\n` +
+      `OK will DELETE the entire series:\n` +
+      `  • this bill\n` +
+      `  • every future occurrence\n` +
+      `  • the recurring template itself\n\n` +
+      `Already-paid periods stay in history.\n\n` +
+      `(To skip just this one period, click Skip instead.)`;
+    if (!confirm(msg)) return;
     try {
-      await deleteBill(bill.id);
+      await deleteTemplateAndFutureBills(bill.template_id);
       await logAudit({
         user_name: user?.name, user_role: user?.role,
-        action: 'bill.delete', entity_type: 'bill', entity_id: bill.id,
-        details: { label: bill.label, amount: bill.amount, due_date: bill.due_date },
+        action: 'bill_template.delete', entity_type: 'bill_template', entity_id: bill.template_id,
+        details: { label: bill.label, triggered_from_bill: bill.id },
+      }).catch(() => {});
+      loadAll();
+    } catch (err) {
+      alert(err?.message || 'Delete failed.');
+    }
+  }
+
+  async function handleDeleteTemplate(tpl) {
+    const msg =
+      `Delete the recurring bill "${tpl.label}"?\n\n` +
+      `This removes the template AND every future occurrence that is not yet paid.\n` +
+      `Already-paid periods stay in history.`;
+    if (!confirm(msg)) return;
+    try {
+      await deleteTemplateAndFutureBills(tpl.id);
+      await logAudit({
+        user_name: user?.name, user_role: user?.role,
+        action: 'bill_template.delete', entity_type: 'bill_template', entity_id: tpl.id,
+        details: { label: tpl.label },
       }).catch(() => {});
       loadAll();
     } catch (err) {
@@ -361,9 +412,16 @@ export default function BillsTab({ user }) {
                           await supabase.from('bill_templates').update({ active: !t.active }).eq('id', t.id);
                           loadAll();
                         }}
-                        className="text-xs text-omega-stone hover:text-omega-orange font-semibold"
+                        className="text-xs text-omega-stone hover:text-omega-orange font-semibold mr-3"
                       >
                         {t.active ? 'Pause' : 'Resume'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTemplate(t)}
+                        className="text-omega-stone hover:text-red-600 align-middle"
+                        title="Delete recurring bill"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>

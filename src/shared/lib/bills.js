@@ -241,6 +241,25 @@ export async function deleteBill(billId) {
   if (error) throw error;
 }
 
+// Delete a whole recurring series — the template + every bill from it
+// that is NOT paid. Already-paid bills stay in history (their
+// template_id becomes null via on-delete-set-null). Prevents the bug
+// where deleting a single recurring bill was re-materialized on the
+// next load.
+export async function deleteTemplateAndFutureBills(templateId) {
+  const { error: billsErr } = await supabase
+    .from('bills')
+    .delete()
+    .eq('template_id', templateId)
+    .neq('status', 'paid');
+  if (billsErr) throw billsErr;
+  const { error: tplErr } = await supabase
+    .from('bill_templates')
+    .delete()
+    .eq('id', templateId);
+  if (tplErr) throw tplErr;
+}
+
 // ─── Queries ────────────────────────────────────────────────────────
 
 // Totals for the Company tab KPIs.
