@@ -161,8 +161,8 @@ export default function BillsTab({ user }) {
       try {
         await deleteBill(bill.id);
         await logAudit({
-          user_name: user?.name, user_role: user?.role,
-          action: 'bill.delete', entity_type: 'bill', entity_id: bill.id,
+          user,
+          action: 'bill.delete', entityType: 'bill', entityId: bill.id,
           details: { label: bill.label, amount: bill.amount, due_date: bill.due_date },
         }).catch(() => {});
         loadAll();
@@ -188,8 +188,8 @@ export default function BillsTab({ user }) {
     try {
       await deleteTemplateAndFutureBills(bill.template_id);
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill_template.delete', entity_type: 'bill_template', entity_id: bill.template_id,
+        user,
+        action: 'bill_template.delete', entityType: 'bill_template', entityId: bill.template_id,
         details: { label: bill.label, triggered_from_bill: bill.id },
       }).catch(() => {});
       loadAll();
@@ -207,8 +207,8 @@ export default function BillsTab({ user }) {
     try {
       await deleteTemplateAndFutureBills(tpl.id);
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill_template.delete', entity_type: 'bill_template', entity_id: tpl.id,
+        user,
+        action: 'bill_template.delete', entityType: 'bill_template', entityId: tpl.id,
         details: { label: tpl.label },
       }).catch(() => {});
       loadAll();
@@ -222,8 +222,8 @@ export default function BillsTab({ user }) {
     try {
       await skipBill(bill.id);
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill.skip', entity_type: 'bill', entity_id: bill.id,
+        user,
+        action: 'bill.skip', entityType: 'bill', entityId: bill.id,
       }).catch(() => {});
       loadAll();
     } catch (err) {
@@ -236,8 +236,8 @@ export default function BillsTab({ user }) {
     try {
       await unmarkBillPaid(bill.id);
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill.unpay', entity_type: 'bill', entity_id: bill.id,
+        user,
+        action: 'bill.unpay', entityType: 'bill', entityId: bill.id,
       }).catch(() => {});
       loadAll();
     } catch (err) {
@@ -701,8 +701,8 @@ function BillFormModal({ user, bill, oneTime, vendors, onClose, onSaved, onVendo
           if (error) throw error;
           templateId = data.id;
           await logAudit({
-            user_name: user?.name, user_role: user?.role,
-            action: 'bill_template.create', entity_type: 'bill_template', entity_id: templateId,
+            user,
+            action: 'bill_template.create', entityType: 'bill_template', entityId: templateId,
             details: payload,
           }).catch(() => {});
         } else {
@@ -710,8 +710,8 @@ function BillFormModal({ user, bill, oneTime, vendors, onClose, onSaved, onVendo
           const { error } = await supabase.from('bill_templates').update(payload).eq('id', templateId);
           if (error) throw error;
           await logAudit({
-            user_name: user?.name, user_role: user?.role,
-            action: 'bill_template.update', entity_type: 'bill_template', entity_id: templateId,
+            user,
+            action: 'bill_template.update', entityType: 'bill_template', entityId: templateId,
             details: payload,
           }).catch(() => {});
         }
@@ -734,16 +734,16 @@ function BillFormModal({ user, bill, oneTime, vendors, onClose, onSaved, onVendo
             .select('id').single();
           if (error) throw error;
           await logAudit({
-            user_name: user?.name, user_role: user?.role,
-            action: 'bill.create', entity_type: 'bill', entity_id: data.id,
+            user,
+            action: 'bill.create', entityType: 'bill', entityId: data.id,
             details: payload,
           }).catch(() => {});
         } else {
           const { error } = await supabase.from('bills').update(payload).eq('id', bill.id);
           if (error) throw error;
           await logAudit({
-            user_name: user?.name, user_role: user?.role,
-            action: 'bill.update', entity_type: 'bill', entity_id: bill.id,
+            user,
+            action: 'bill.update', entityType: 'bill', entityId: bill.id,
             details: payload,
           }).catch(() => {});
         }
@@ -919,8 +919,8 @@ function PayBillModal({ bill, user, onClose, onSaved }) {
       if (Number.isNaN(amt) || amt <= 0) throw new Error('Amount is required.');
       await markBillPaid(bill.id, { paidAmount: amt, paymentMethod: method || null });
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill.pay', entity_type: 'bill', entity_id: bill.id,
+        user,
+        action: 'bill.pay', entityType: 'bill', entityId: bill.id,
         details: { amount: amt, method: method || null },
       }).catch(() => {});
       onSaved();
@@ -979,8 +979,8 @@ function EnterAmountModal({ bill, user, onClose, onSaved }) {
       if (Number.isNaN(amt) || amt <= 0) throw new Error('Amount is required.');
       await setBillAmount(bill.id, amt);
       await logAudit({
-        user_name: user?.name, user_role: user?.role,
-        action: 'bill.set_amount', entity_type: 'bill', entity_id: bill.id,
+        user,
+        action: 'bill.set_amount', entityType: 'bill', entityId: bill.id,
         details: { amount: amt },
       }).catch(() => {});
       onSaved();

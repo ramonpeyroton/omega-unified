@@ -576,6 +576,29 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-01 (Resumo diário por SMS às 17h — temporário até 04/10)** — Ramon + Claude (Opus 5.5).
+
+Ramon ativou SÓ o resumo diário por SMS (o resto do Lead Alerts/WhatsApp
+continua em standby). Código novo em `api/daily-owner-update.js`
+(`buildSmsSummary`, `sendSms`, `maybeSendSmsSummary`), chamado do
+`?task=reminders` (GitHub cron, 15 min). Manda às **17h NY, todo dia
+inclusive fim de semana**, até `SMS_SUMMARY_LAST_DAY = '2026-10-04'`
+(constante no código — depois disso para sozinho; Ramon decide o próximo
+passo). Conteúdo em PT: leads novos do dia (por origem), visitas feitas,
+estimates em Draft ("esperando preço"), visitados esperando o Attila fazer
+estimate, contas atrasadas / vencendo amanhã, agenda de amanhã.
+- Remetente: `TWILIO_PHONE_NUMBER` (toll-free). Destinatários:
+  `DAILY_SUMMARY_SMS_TO` (lista separada por vírgula — números NÃO vão no
+  código, repo é público).
+- Dedupe por destinatário por dia via `audit_log` (`action =
+  'sms_summary.sent'`). Número adicionado no meio do dia recebe no próximo
+  tick; ninguém recebe 2x. Falha na API do Twilio não marca → tenta de novo.
+- Também corrigido: `BillsTab.jsx` chamava `logAudit` no formato errado
+  (gravava user "unknown"); agora passa `{ user, action, entityType,
+  entityId, details }`.
+
+---
+
 **2026-10-01 (Bills — nova aba de contas operacionais no Finance)** — Ramon + Claude (Opus 4.7).
 
 Brenda ganhou um lugar pra cadastrar e marcar como paga toda conta operacional
@@ -706,10 +729,11 @@ acidentalmente varreu junto ~600 linhas do **Lead Alerts + resumo 19h** (que
 [o memory diz](.claude/projects/*/memory/project_lead_alerts.md) que está em
 STANDBY até Ramon aprovar Twilio/WhatsApp). Fizemos um segundo commit que
 removeu SÓ o Lead Alerts, mantendo o push notifications + o TV dashboard.
-`api/daily-owner-update.js` deve estar em ~479 linhas — se ver algo em torno
-de 1100 linhas ali com `sendLeadAlert`, `whatsappRecipients`, `?task=lead-
-alert`, `?task=daily-summary`, `computeDailySummary`, é porque o Lead Alerts
-voltou. Só reintroduzir quando Ramon avisar explicitamente.
+Se aparecer em `api/daily-owner-update.js` `sendLeadAlert`,
+`whatsappRecipients`, `?task=lead-alert`, `?task=daily-summary` ou
+`computeDailySummary`, é porque o Lead Alerts voltou. Só reintroduzir
+quando Ramon avisar explicitamente. (O arquivo tem ~780 linhas por causa
+do Bills e do resumo por SMS — isso é legítimo.)
 
 ---
 

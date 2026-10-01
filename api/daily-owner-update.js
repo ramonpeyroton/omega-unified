@@ -245,6 +245,235 @@ async function sendBillAlerts() {
   return { due_soon: dueSoon, overdue };
 }
 
+// ═══ 5pm SMS summary (owner + Ramon) ═════════════════════════════════
+// Temporary, by Ramon's call: one SMS a day at 17:00 NY (weekends too)
+// from the Twilio toll-free number, until SMS_SUMMARY_LAST_DAY. The lead
+// alerts / WhatsApp track stays on standby.
+//
+// Runs from ?task=reminders (GitHub cron, every 15 min). Dedupe is per
+// recipient per day through audit_log rows (action 'sms_summary.sent'), so
+// a number added to DAILY_SUMMARY_SMS_TO later in the day still gets that
+// day's summary on the next tick, and nobody gets it twice.
+//
+// Env: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER (the
+// toll-free sender), DAILY_SUMMARY_SMS_TO (comma-separated US numbers).
+
+const NY_TZ = 'America/New_York';
+const SMS_SUMMARY_HOUR = 17;
+const SMS_SUMMARY_LAST_DAY = '2026-10-04'; // inclusive — Ramon decides what's next
+const BULK_IMPORT_CREATORS = new Set(['import', 'legacy_import']);
+const PT_WEEKDAY = { Sun: 'dom', Mon: 'seg', Tue: 'ter', Wed: 'qua', Thu: 'qui', Fri: 'sex', Sat: 'sáb' };
+const KIND_PT = {
+  sales_visit: 'Visita', job_start: 'Início de obra', service_day: 'Dia de serviço',
+  inspection: 'Inspeção', meeting: 'Reunião', media_visit: 'Mídia',
+  material_delivery: 'Entrega de material', cabinet_delivery: 'Entrega de armários',
+};
+const KIND_EN = {
+  sales_visit: 'Sales Visit', job_start: 'Job Start', service_day: 'Service Day',
+  inspection: 'Inspection', meeting: 'Meeting', media_visit: 'Media Visit',
+  material_delivery: 'Material Delivery', cabinet_delivery: 'Cabinet Delivery',
+};
+
+function nyParts(ms) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: NY_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hourCycle: 'h23', weekday: 'short',
+  }).formatToParts(new Date(ms));
+  const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
+  return { y: +p.year, m: +p.month, d: +p.day, hh: +p.hour, wd: p.weekday };
+}
+
+// One NY calendar day: its 'YYYY-MM-DD' key, midnight (UTC ms) and labels.
+// Offset is read at noon, so it's an hour off only on the two DST-switch
+// days — harmless for a daily summary.
+function nyDay(y, m, d) {
+  const noon = Date.UTC(y, m - 1, d, 12);
+  const p = nyParts(noon);
+  return {
+    key: `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`,
+    startMs: Date.UTC(p.y, p.m - 1, p.d) + (12 - p.hh) * 3_600_000,
+    label: `${PT_WEEKDAY[p.wd] || p.wd} ${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}`,
+    y: p.y, m: p.m, d: p.d,
+  };
+}
+
+function toE164(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return null;
+}
+
+function usd(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+}
+
+function shortDateKey(key) {
+  const [, m, d] = key.split('-');
+  return `${d}/${m}`;
+}
+
+function ageText(iso, nowMs) {
+  const days = Math.floor((nowMs - new Date(iso).getTime()) / 86_400_000);
+  return days <= 0 ? 'de hoje' : days === 1 ? 'há 1 dia' : `há ${days} dias`;
+}
+
+// "Megan Flores — HVAC Start" style titles: drop the kind (shown separately).
+function cleanEventTitle(title, kind) {
+  let t = (title || '').trim();
+  const en = KIND_EN[kind];
+  if (en) {
+    const suffix = ` — ${en}`.toLowerCase();
+    const prefix = `${en} — `.toLowerCase();
+    if (t.toLowerCase().endsWith(suffix)) t = t.slice(0, -suffix.length);
+    else if (t.toLowerCase().startsWith(prefix)) t = t.slice(prefix.length);
+  }
+  return t.replace(/^visit:\s*/i, '');
+}
+
+async function buildSmsSummary(nowMs = Date.now()) {
+  const p = nyParts(nowMs);
+  const today = nyDay(p.y, p.m, p.d);
+  const tomorrow = nyDay(p.y, p.m, p.d + 1);
+  const dayAfter = nyDay(p.y, p.m, p.d + 2);
+  const todayIso = new Date(today.startMs).toISOString();
+
+  const [leadsRes, visitsRes, waitingRes, overdueRes, dueTomorrowRes, agendaRes] = await Promise.all([
+    supabase.from('jobs').select('lead_source, created_by').gte('created_at', todayIso),
+    supabase.from('job_stage_events').select('job_id').eq('to_status', 'visited').gte('changed_at', todayIso),
+    supabase.from('jobs').select('pipeline_status, stage_entered_at')
+      .eq('in_pipeline', true).in('pipeline_status', ['estimate_draft', 'visited']),
+    supabase.from('bills').select('label, amount, due_date')
+      .eq('status', 'pending').lt('due_date', today.key).order('due_date', { ascending: true }),
+    supabase.from('bills').select('label, amount, due_date')
+      .eq('status', 'pending').eq('due_date', tomorrow.key),
+    supabase.from('calendar_events').select('title, starts_at, kind, visit_status')
+      .gte('starts_at', new Date(tomorrow.startMs).toISOString())
+      .lt('starts_at', new Date(dayAfter.startMs).toISOString())
+      .order('starts_at', { ascending: true }),
+  ]);
+  for (const r of [leadsRes, visitsRes, waitingRes, overdueRes, dueTomorrowRes, agendaRes]) {
+    if (r.error) throw r.error;
+  }
+
+  const leads = (leadsRes.data || []).filter((j) => !BULK_IMPORT_CREATORS.has((j.created_by || '').trim()));
+  const bySource = {};
+  for (const j of leads) {
+    const k = (j.lead_source || '').trim() || 'Sem origem';
+    bySource[k] = (bySource[k] || 0) + 1;
+  }
+  const sources = Object.entries(bySource).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
+
+  const visitsToday = new Set((visitsRes.data || []).map((e) => e.job_id)).size;
+  const waiting = waitingRes.data || [];
+  const drafts = waiting.filter((j) => j.pipeline_status === 'estimate_draft');
+  const visited = waiting.filter((j) => j.pipeline_status === 'visited');
+  const oldestOf = (rows) => rows.map((j) => j.stage_entered_at).filter(Boolean).sort()[0];
+
+  const lines = [`Omega · Resumo de hoje (${today.label})`, ''];
+  lines.push(`Leads novos: ${leads.length}${sources ? ` (${sources})` : ''}`);
+  lines.push(`Visitas feitas: ${visitsToday}`);
+  const oldDraft = oldestOf(drafts);
+  lines.push(`Esperando preço: ${drafts.length} ${drafts.length === 1 ? 'estimate' : 'estimates'}${oldDraft ? ` (mais antigo ${ageText(oldDraft, nowMs)})` : ''}`);
+  const oldVisited = oldestOf(visited);
+  lines.push(`Visitados esperando o Attila fazer o estimate: ${visited.length}${oldVisited ? ` (mais antigo ${ageText(oldVisited, nowMs)})` : ''}`);
+
+  lines.push('');
+  const overdue = overdueRes.data || [];
+  const dueTomorrow = dueTomorrowRes.data || [];
+  if (!overdue.length && !dueTomorrow.length) {
+    lines.push('Contas: nada atrasado nem vencendo amanhã.');
+  } else {
+    lines.push('Contas:');
+    overdue.slice(0, 3).forEach((b) => lines.push(`- Atrasada: ${b.label} ${usd(b.amount)} (venceu ${shortDateKey(b.due_date)})`));
+    if (overdue.length > 3) lines.push(`- + ${overdue.length - 3} outras atrasadas`);
+    dueTomorrow.slice(0, 3).forEach((b) => lines.push(`- Vence amanhã: ${b.label} ${usd(b.amount)}`));
+    if (dueTomorrow.length > 3) lines.push(`- + ${dueTomorrow.length - 3} outras vencendo amanhã`);
+  }
+
+  lines.push('');
+  const agenda = (agendaRes.data || []).filter((e) => e.visit_status !== 'cancelled');
+  if (!agenda.length) {
+    lines.push(`Agenda de amanhã (${tomorrow.label}): nada marcado.`);
+  } else {
+    lines.push(`Agenda de amanhã (${tomorrow.label}):`);
+    agenda.slice(0, 8).forEach((e) => {
+      const kind = KIND_PT[e.kind] || 'Evento';
+      const title = cleanEventTitle(e.title, e.kind);
+      lines.push(`- ${etTime(e.starts_at)} ${kind}${title ? ` · ${title}` : ''}`);
+    });
+    if (agenda.length > 8) lines.push(`- + ${agenda.length - 8} outros`);
+  }
+
+  return { dayKey: today.key, hour: p.hh, text: lines.join('\n') };
+}
+
+async function sendSms(to, body) {
+  const sid = (process.env.TWILIO_ACCOUNT_SID || '').trim();
+  const token = (process.env.TWILIO_AUTH_TOKEN || '').trim();
+  const from = (process.env.TWILIO_PHONE_NUMBER || '').trim();
+  if (!sid || !token || !from) return { ok: false, error: 'Twilio SMS not configured' };
+  const form = new URLSearchParams({ From: from, To: to, Body: body });
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: data?.message || `Twilio ${r.status}`, code: data?.code };
+    return { ok: true, sid: data.sid, status: data.status };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Twilio request failed' };
+  }
+}
+
+async function maybeSendSmsSummary(nowMs = Date.now()) {
+  if (!supabase) return { status: 'skipped' };
+  const recipients = [...new Set(
+    (process.env.DAILY_SUMMARY_SMS_TO || '').split(',').map(toE164).filter(Boolean),
+  )];
+  if (!recipients.length) return { status: 'no_recipients' };
+
+  const p = nyParts(nowMs);
+  const today = nyDay(p.y, p.m, p.d);
+  if (today.key > SMS_SUMMARY_LAST_DAY) return { status: 'ended' };
+  if (p.hh < SMS_SUMMARY_HOUR) return { status: 'not_yet' };
+
+  const { data: sentRows, error: sentErr } = await supabase
+    .from('audit_log')
+    .select('details')
+    .eq('action', 'sms_summary.sent')
+    .gte('created_at', new Date(today.startMs).toISOString());
+  if (sentErr) throw sentErr;
+  const alreadySent = new Set((sentRows || []).map((r) => r.details?.to).filter(Boolean));
+  const pending = recipients.filter((n) => !alreadySent.has(n));
+  if (!pending.length) return { status: 'already_sent' };
+
+  const { text } = await buildSmsSummary(nowMs);
+  const results = [];
+  for (const to of pending) {
+    const r = await sendSms(to, text);
+    results.push({ to: `…${to.slice(-4)}`, ...r });
+    // Mark sent only on success, so a failed send retries on the next tick.
+    if (r.ok) {
+      await supabase.from('audit_log').insert([{
+        user_name: 'system', user_role: 'system', action: 'sms_summary.sent',
+        entity_type: 'sms', entity_id: null,
+        details: { to, day: today.key, twilio_sid: r.sid },
+      }]);
+    } else {
+      console.error('[sms-summary] send failed', to.slice(-4), r.error, r.code);
+    }
+  }
+  return { status: 'sent', results };
+}
+
 // Start-of-day summary: ONE push, same text, to every active teammate.
 // Body aggregates events by kind ("2 sales visits and 1 job start") so
 // the team scans the day in a single glance. No events for today →
@@ -402,7 +631,8 @@ export default async function handler(req, res) {
       // Two independent tracks — a failure in one must not block the other.
       const evt = await sendEventReminders().catch((e) => ({ error: e?.message || 'event reminders failed' }));
       const bills = await sendBillAlerts().catch((e) => ({ error: e?.message || 'bill alerts failed' }));
-      return json(res, 200, { ok: true, events: evt, bills });
+      const sms = await maybeSendSmsSummary().catch((e) => ({ error: e?.message || 'sms summary failed' }));
+      return json(res, 200, { ok: true, events: evt, bills, sms });
     } catch (err) {
       return json(res, 200, { ok: false, error: err?.message || 'reminders failed' });
     }
