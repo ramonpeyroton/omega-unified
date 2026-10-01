@@ -4,7 +4,7 @@
 // and an on-time/late health bar (same time-in-stage rules as the Kanban
 // cards, see stageAge.js). Below: 3 KPIs (visit → approval conversion +
 // average time, oldest card). Right: Snapshot with today's incoming leads
-// and this month's Disqualified / Lost, each with a small trend. Layout
+// and the total cards in Disqualified / Lost, each with a small trend. Layout
 // follows Ramon's mockup (Sep/26). Lives in Ramon's Marketing app at /tv
 // for the office TV. No money on purpose (Ramon dropped the $ KPI).
 // Refreshes every minute + on any jobs change.
@@ -156,7 +156,6 @@ async function loadTvData() {
   const now = Date.now();
   const todayKey = nyDateKey(now);
   const createdFrom = [mondayKey(todayKey), addDaysKey(todayKey, -6)].sort()[0];
-  const offBoardFrom = new Date(nyMidnightMs(monthKey(todayKey, 5))).toISOString();
 
   const [boardRes, offRes, newRes] = await Promise.all([
     supabase
@@ -166,8 +165,7 @@ async function loadTvData() {
     supabase
       .from('jobs')
       .select('pipeline_status, lost_reason, stage_entered_at')
-      .in('pipeline_status', [...OFF_BOARD_STAGES])
-      .gte('stage_entered_at', offBoardFrom),
+      .in('pipeline_status', [...OFF_BOARD_STAGES]),
     supabase
       .from('jobs')
       .select('created_at')
@@ -356,8 +354,9 @@ function buildView(data, now) {
         return rows.filter((r) => { const t = toMs(r.stage_entered_at) ?? 0; return t >= from && t < to; });
       })
       : null;
-    const month = byMonth ? byMonth[5] : null;
-    const reason = month ? topReason(month) : null;
+    // The big number is every card sitting in that column, all-time.
+    // The trend bars still show when cards landed there (last 6 months).
+    const reason = rows ? topReason(rows) : null;
     const hex = PIPELINE_COLORS[status]?.hex;
     return {
       key: status,
@@ -365,10 +364,10 @@ function buildView(data, now) {
       labelColor: status === 'estimate_rejected' ? hex : null,
       icon,
       iconBg: hex,
-      tag: 'This month',
+      tag: 'Total',
       hex,
-      count: month ? month.length : null,
-      text: month ? `${month.length === 1 ? 'lead' : 'leads'} ${text}` : '',
+      count: rows ? rows.length : null,
+      text: rows ? `${rows.length === 1 ? 'lead' : 'leads'} ${text}` : '',
       trend: byMonth ? byMonth.map((m) => m.length) : null,
       chips: reason ? [{ tone: 'muted', text: `Top reason: ${reason}` }] : [],
     };
@@ -388,8 +387,8 @@ function buildView(data, now) {
       trend: incomingTrend,
       chips: createdMs ? [{ tone: 'muted', dot: true, text: `${createdMs.filter((t) => t >= weekStartMs).length} this week` }] : [],
     },
-    offTile('disqualified', 'disqualified this month', X),
-    offTile('estimate_rejected', 'lost this month', X),
+    offTile('disqualified', 'disqualified', X),
+    offTile('estimate_rejected', 'lost', X),
   ];
 
   // Bottom KPIs.
