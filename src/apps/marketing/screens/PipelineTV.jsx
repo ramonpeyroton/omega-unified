@@ -3,8 +3,9 @@
 // tile per column with its card count, what those cards are waiting on,
 // and an on-time/late health bar (same time-in-stage rules as the Kanban
 // cards, see stageAge.js). Below: 3 KPIs (visit → approval conversion +
-// average time, oldest card). Right: Snapshot with the total cards in
-// Disqualified / Lost (each with a small trend), then Bills to pay. Layout
+// average time, oldest card). Right: a compact Snapshot (total cards in
+// Disqualified / Lost, each with a small trend) over today's Agenda, then
+// Bills to pay. Layout
 // follows Ramon's mockup (Sep/26). Lives in Ramon's Marketing app at /tv
 // for the office TV. No money on purpose (Ramon dropped the $ KPI).
 // Refreshes every minute + on any jobs change.
@@ -23,6 +24,7 @@ import { PIPELINE_COLORS, PIPELINE_STEP_LABEL, OFF_BOARD_STAGES } from '../../..
 import { stageAge, resolveVisit, useNow, nyDateKey, nyMidnightMs, formatNyTime } from '../../../shared/lib/stageAge';
 import { lostReasonLabel } from '../../receptionist/lib/leadCatalog';
 import { loadUpcomingBills, categoryLabel, daysUntilDue } from '../../../shared/lib/bills';
+import { EVENT_KIND_META } from '../../../shared/lib/calendar';
 
 // Icon per bill category — mirrors BILL_CATEGORIES in src/shared/lib/bills.js.
 const BILL_CATEGORY_ICON = {
@@ -144,6 +146,30 @@ async function selectIn(table, columns, column, ids, build = (q) => q) {
 }
 
 // ─── Data ───────────────────────────────────────────────────────────
+
+const HOUR_MS = 3_600_000;
+
+// NY calendar day after `key` ('YYYY-MM-DD'). Jumping 30h from midnight
+// lands safely inside the next day even across a DST switch.
+function nextDayKey(key) {
+  return nyDateKey(nyMidnightMs(key) + 30 * HOUR_MS);
+}
+
+// Calendar events for today + tomorrow (NY), for the Agenda column.
+async function loadAgenda(now) {
+  const todayKey = nyDateKey(now);
+  const from = nyMidnightMs(todayKey);
+  const to = nyMidnightMs(nextDayKey(nextDayKey(todayKey)));
+  const { data, error } = await supabase
+    .from('calendar_events')
+    .select('id, title, starts_at, kind, visit_status, location')
+    .gte('starts_at', new Date(from).toISOString())
+    .lt('starts_at', new Date(to).toISOString())
+    .order('starts_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
 // Only the board query is required; everything else degrades to "—".
 async function loadTvData() {
   const now = Date.now();
@@ -464,9 +490,11 @@ function TrendBars({ values, hex }) {
   );
 }
 
-function SideTile({ label, labelColor, icon: Icon, iconBg, tag, hex, count, text, trend, chips }) {
+// `compact` = shorter tile with no chips, so Snapshot only takes the top of
+// its column and the Agenda gets the rest.
+function SideTile({ label, labelColor, icon: Icon, iconBg, tag, hex, count, text, trend, chips, compact = false }) {
   return (
-    <div className="flex-1 min-h-0 rounded-3xl bg-white shadow-card border border-black/[0.05] px-7 py-5 flex flex-col justify-center">
+    <div className={`rounded-3xl bg-white shadow-card border border-black/[0.05] flex flex-col justify-center ${compact ? 'flex-shrink-0 px-6 py-4' : 'flex-1 min-h-0 px-7 py-5'}`}>
       <div className="flex items-center gap-3">
         <span className="w-[clamp(26px,3.6vh,38px)] h-[clamp(26px,3.6vh,38px)] rounded-full flex items-center justify-center flex-shrink-0" style={{ background: iconBg }}>
           <Icon className="w-3/5 h-3/5 text-white" strokeWidth={3} />
@@ -476,14 +504,14 @@ function SideTile({ label, labelColor, icon: Icon, iconBg, tag, hex, count, text
           {tag}
         </span>
       </div>
-      <div className="flex items-end gap-4 mt-3">
-        <p className={`font-black tabular-nums leading-none tracking-tight text-[clamp(40px,8vh,88px)] ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
+      <div className={`flex items-end gap-4 ${compact ? 'mt-2' : 'mt-3'}`}>
+        <p className={`font-black tabular-nums leading-none tracking-tight ${compact ? 'text-[clamp(34px,5.8vh,64px)]' : 'text-[clamp(40px,8vh,88px)]'} ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
           {count ?? '—'}
         </p>
         <p className="flex-1 min-w-0 pb-2 text-omega-slate font-medium leading-snug line-clamp-2 text-[clamp(12px,1.9vh,20px)]">{text}</p>
         <TrendBars values={trend} hex={hex} />
       </div>
-      {chips.length > 0 && (
+      {!compact && chips.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {chips.map((c) => <Chip key={c.text} {...c} />)}
         </div>
@@ -547,6 +575,121 @@ function Flow({ section }) {
         ))}
       </div>
     </section>
+  );
+}
+
+// ─── Agenda (under Snapshot) ─────────────────────────────────────────
+// What's happening in the field today: visits, job starts, inspections,
+// deliveries — big enough to read from across the office. Events that
+// started over an hour ago drop off; once today runs out, tomorrow's
+// events fill the column under a "Tomorrow" divider.
+
+const AGENDA_MAX = 4;
+
+// Event titles are auto-built as "Client — Kind" (EventForm). The kind
+// already shows in color under the name, so strip it from the title.
+function agendaTitle(title, kindLabel) {
+  let t = (title || '').trim();
+  if (kindLabel) {
+    const suffix = ` — ${kindLabel}`.toLowerCase();
+    const prefix = `${kindLabel} — `.toLowerCase();
+    if (t.toLowerCase().endsWith(suffix)) t = t.slice(0, -suffix.length);
+    else if (t.toLowerCase().startsWith(prefix)) t = t.slice(prefix.length);
+  }
+  t = t.replace(/^visit:\s*/i, '');
+  return t || kindLabel || 'Event';
+}
+
+// "Now" / "In 25 min" / "In 1h 30m" — only for the next couple of hours.
+function agendaTag(startMs, now) {
+  const mins = Math.round((startMs - now) / 60_000);
+  if (mins <= 0) return { text: 'Now', tone: 'bg-omega-orange text-white' };
+  if (mins < 60) return { text: `In ${mins} min`, tone: 'bg-amber-100 text-amber-700' };
+  if (mins < 120) {
+    const m = mins - 60;
+    return { text: m ? `In 1h ${m}m` : 'In 1h', tone: 'bg-amber-100 text-amber-700' };
+  }
+  return null;
+}
+
+function AgendaRow({ ev, now, showTag }) {
+  const meta = EVENT_KIND_META[ev.kind] || { label: 'Event', color: '#6B7280' };
+  const tag = showTag ? agendaTag(ev._ms, now) : null;
+  return (
+    <div className={`flex items-stretch rounded-2xl bg-white shadow-card overflow-hidden flex-shrink-0 ${tag?.text === 'Now' ? 'border-2 border-omega-orange' : 'border border-black/[0.05]'}`}>
+      <span className="w-2 flex-shrink-0" style={{ background: meta.color }} />
+      <div className="flex-1 min-w-0 pl-4 pr-5 py-[clamp(10px,1.5vh,18px)]">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-black tabular-nums text-[#111] leading-tight whitespace-nowrap text-[clamp(20px,2.8vh,30px)]">
+            {formatNyTime(ev._ms)}
+          </p>
+          {tag && (
+            <span className={`font-bold px-3 py-1 rounded-lg whitespace-nowrap text-[clamp(13px,1.7vh,18px)] ${tag.tone}`}>
+              {tag.text}
+            </span>
+          )}
+        </div>
+        <p className="font-extrabold text-[#111] truncate leading-tight text-[clamp(18px,2.6vh,28px)]">
+          {agendaTitle(ev.title, meta.label)}
+        </p>
+        <p className="font-bold truncate text-[clamp(14px,1.9vh,20px)]" style={{ color: meta.color }}>
+          {meta.label}
+          {ev.location && <span className="text-omega-slate font-medium"> · {ev.location}</span>}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AgendaPanel({ events, now }) {
+  const todayKey = nyDateKey(now);
+  const tomorrowStart = nyMidnightMs(nextDayKey(todayKey));
+
+  const live = (events || [])
+    .filter((e) => e.visit_status !== 'cancelled')
+    .map((e) => ({ ...e, _ms: toMs(e.starts_at) }))
+    .filter((e) => e._ms != null);
+  const todayAll = live.filter((e) => e._ms < tomorrowStart);
+  const todayLeft = todayAll.filter((e) => e._ms >= now - HOUR_MS);
+  const tomorrow = live.filter((e) => e._ms >= tomorrowStart);
+
+  const shownToday = todayLeft.slice(0, AGENDA_MAX);
+  const shownTomorrow = tomorrow.slice(0, Math.max(0, AGENDA_MAX - shownToday.length));
+  const moreToday = todayLeft.length - shownToday.length;
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <SectionTitle title="Agenda">
+        <span className="font-semibold text-omega-stone whitespace-nowrap text-[clamp(14px,2vh,22px)]">
+          {todayAll.length} today
+        </span>
+      </SectionTitle>
+
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(8px,1.2vh,14px)]">
+        {shownToday.map((ev) => <AgendaRow key={ev.id} ev={ev} now={now} showTag />)}
+
+        {moreToday > 0 && (
+          <p className="text-center font-semibold text-omega-stone flex-shrink-0 text-[clamp(14px,1.9vh,20px)]">
+            + {moreToday} more today
+          </p>
+        )}
+
+        {shownToday.length === 0 && (
+          <p className="font-semibold text-omega-stone flex-shrink-0 text-[clamp(16px,2.2vh,24px)]">
+            {todayAll.length ? 'Nothing else today.' : 'Nothing on the calendar today.'}
+          </p>
+        )}
+
+        {shownTomorrow.length > 0 && (
+          <>
+            <p className="mt-1 font-black uppercase tracking-wide text-omega-slate flex-shrink-0 text-[clamp(13px,1.8vh,19px)]">
+              Tomorrow
+            </p>
+            {shownTomorrow.map((ev) => <AgendaRow key={ev.id} ev={ev} now={now} showTag={false} />)}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -628,47 +771,48 @@ export default function PipelineTV() {
   const now = useNow(15_000);
   const [data, setData] = useState(null);
   const [bills, setBills] = useState([]);
+  const [agenda, setAgenda] = useState([]);
   const [error, setError] = useState(false);
   const [idle, setIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
 
-  // Load now, every minute, and a beat after any change to jobs or bills.
+  // Load now, every minute, and a beat after any change to jobs, bills or
+  // the calendar.
   useEffect(() => {
     let alive = true;
     let debounce;
     async function load() {
       try {
-        const [d, bl] = await Promise.all([
+        const [d, bl, ag] = await Promise.all([
           loadTvData(),
           loadUpcomingBills({ limit: 12 }).catch(() => []),
+          loadAgenda(Date.now()).catch(() => null),
         ]);
-        if (alive) { setData(d); setBills(bl); setError(false); }
+        if (alive) {
+          setData(d);
+          setBills(bl);
+          if (ag) setAgenda(ag); // keep the last good agenda on a hiccup
+          setError(false);
+        }
       } catch {
         if (alive) setError(true);
       }
     }
+    const reloadSoon = () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(load, 2000);
+    };
     load();
     const iv = setInterval(load, REFRESH_MS);
-    const jobsChan = supabase
-      .channel('marketing-tv-jobs')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
-        clearTimeout(debounce);
-        debounce = setTimeout(load, 2000);
-      })
-      .subscribe();
-    const billsChan = supabase
-      .channel('marketing-tv-bills')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, () => {
-        clearTimeout(debounce);
-        debounce = setTimeout(load, 2000);
-      })
-      .subscribe();
+    const chans = ['jobs', 'bills', 'calendar_events'].map((table) => supabase
+      .channel(`marketing-tv-${table}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, reloadSoon)
+      .subscribe());
     return () => {
       alive = false;
       clearInterval(iv);
       clearTimeout(debounce);
-      supabase.removeChannel(jobsChan);
-      supabase.removeChannel(billsChan);
+      chans.forEach((c) => supabase.removeChannel(c));
     };
   }, []);
 
@@ -767,10 +911,13 @@ export default function PipelineTV() {
           </div>
         </div>
 
-        <aside className="w-[16%] flex-shrink-0 flex flex-col">
+        <aside className="w-[19%] flex-shrink-0 flex flex-col min-h-0">
           <SectionTitle title="Snapshot" />
-          <div className="flex-1 min-h-0 flex flex-col gap-5">
-            {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} />)}
+          <div className="flex-shrink-0 flex flex-col gap-4">
+            {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} compact />)}
+          </div>
+          <div className="mt-5 flex-1 min-h-0 flex flex-col">
+            <AgendaPanel events={agenda} now={now} />
           </div>
         </aside>
 
