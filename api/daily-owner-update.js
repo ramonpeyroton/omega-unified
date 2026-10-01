@@ -176,6 +176,75 @@ async function sendEventReminders() {
   return { reminded };
 }
 
+// Bill alerts — notify Operations (Brenda) when bills need attention.
+// Two triggers, deduped so Brenda doesn't get spammed:
+//   • Due soon  → 2 days before due_date, fires ONCE per bill
+//   • Overdue   → fires once per 20h window while still overdue
+//
+// Runs from the ?task=reminders cadence (every 15 min via GitHub Actions
+// — see .github/workflows/push-cron.yml). Only `operations` role users
+// receive these; owner / admin / others don't get spammed by day-to-day
+// bill chatter.
+async function sendBillAlerts() {
+  if (!vapidReady || !supabase) return { due_soon: 0, overdue: 0 };
+
+  // Who gets the alerts — operations only.
+  const { data: ops } = await supabase
+    .from('users')
+    .select('name, role, active')
+    .eq('active', true)
+    .eq('role', 'operations');
+  const opsNames = (ops || []).map((u) => u.name).filter(Boolean);
+  if (opsNames.length === 0) return { due_soon: 0, overdue: 0 };
+
+  const today = new Date();
+  const todayISO = today.toISOString().slice(0, 10);
+  const in2Days  = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const overdueCutoff = new Date(today.getTime() - 20 * 60 * 60 * 1000).toISOString();
+
+  const { data: bills } = await supabase
+    .from('bills')
+    .select('id, label, due_date, amount, status, overdue_notified_at, due_soon_notified_at')
+    .eq('status', 'pending')
+    .lte('due_date', in2Days);
+  if (!bills || bills.length === 0) return { due_soon: 0, overdue: 0 };
+
+  let dueSoon = 0, overdue = 0;
+  for (const bill of bills) {
+    const isOverdue = bill.due_date < todayISO;
+    if (isOverdue) {
+      // Dedupe: only alert if we haven't sent one in the last 20h.
+      if (bill.overdue_notified_at && bill.overdue_notified_at > overdueCutoff) continue;
+      const amountText = bill.amount != null ? ` · $${Number(bill.amount).toFixed(2)}` : '';
+      await sendPushToUsers(opsNames, {
+        title: `🔴 Overdue bill · ${bill.label}`,
+        body:  `Was due ${bill.due_date}${amountText}`,
+        url:   '/finance',
+        tag:   `bill-overdue-${bill.id}`,
+      });
+      await supabase.from('bills')
+        .update({ overdue_notified_at: new Date().toISOString() })
+        .eq('id', bill.id);
+      overdue++;
+    } else {
+      // Due within next 2 days (today, tomorrow, or day after).
+      if (bill.due_soon_notified_at) continue; // one-shot
+      const amountText = bill.amount != null ? ` · $${Number(bill.amount).toFixed(2)}` : '';
+      await sendPushToUsers(opsNames, {
+        title: `⏳ Bill due soon · ${bill.label}`,
+        body:  `Due ${bill.due_date}${amountText}`,
+        url:   '/finance',
+        tag:   `bill-due-${bill.id}`,
+      });
+      await supabase.from('bills')
+        .update({ due_soon_notified_at: new Date().toISOString() })
+        .eq('id', bill.id);
+      dueSoon++;
+    }
+  }
+  return { due_soon: dueSoon, overdue };
+}
+
 // Start-of-day summary: ONE push, same text, to every active teammate.
 // Body aggregates events by kind ("2 sales visits and 1 job start") so
 // the team scans the day in a single glance. No events for today →
@@ -330,8 +399,10 @@ export default async function handler(req, res) {
   if (task === 'reminders') {
     if (!supabase) return json(res, 200, { ok: false, error: 'Supabase not configured' });
     try {
-      const result = await sendEventReminders();
-      return json(res, 200, { ok: true, ...result });
+      // Two independent tracks — a failure in one must not block the other.
+      const evt = await sendEventReminders().catch((e) => ({ error: e?.message || 'event reminders failed' }));
+      const bills = await sendBillAlerts().catch((e) => ({ error: e?.message || 'bill alerts failed' }));
+      return json(res, 200, { ok: true, events: evt, bills });
     } catch (err) {
       return json(res, 200, { ok: false, error: err?.message || 'reminders failed' });
     }

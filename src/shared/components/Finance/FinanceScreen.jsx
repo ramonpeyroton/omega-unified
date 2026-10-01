@@ -23,14 +23,18 @@ import {
   loadFinanceTotals,
 } from '../../lib/finance';
 import { logAudit } from '../../lib/audit';
+import { loadBillsTotals } from '../../lib/bills';
 import GhostAccountTab from './GhostAccountTab';
+import BillsTab from './BillsTab';
 
 const GHOST_TAB_ROLES = new Set(['owner', 'operations', 'admin']);
+const BILLS_TAB_ROLES = new Set(['owner', 'operations', 'admin']);
 
 const ALL_TABS = [
   { id: 'company', label: 'Company',       icon: Building2     },
   { id: 'clients', label: 'Clients',       icon: Users         },
   { id: 'subs',    label: 'Subs',          icon: ArrowUpCircle },
+  { id: 'bills',   label: 'Bills',         icon: FileText, billsOnly: true },
   { id: 'ghost',   label: 'Ghost Account', icon: Receipt, ghostOnly: true },
 ];
 
@@ -64,7 +68,11 @@ export default function FinanceScreen({ user, onBack }) {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const TABS = useMemo(
-    () => ALL_TABS.filter((t) => !t.ghostOnly || GHOST_TAB_ROLES.has(user?.role)),
+    () => ALL_TABS.filter((t) => {
+      if (t.ghostOnly && !GHOST_TAB_ROLES.has(user?.role)) return false;
+      if (t.billsOnly && !BILLS_TAB_ROLES.has(user?.role)) return false;
+      return true;
+    }),
     [user?.role],
   );
 
@@ -141,6 +149,7 @@ export default function FinanceScreen({ user, onBack }) {
         {tab === 'company' && <CompanyTab key={`co-${refreshNonce}`} user={user} />}
         {tab === 'clients' && <ClientsTab key={`cl-${refreshNonce}`} user={user} accounts={accounts} />}
         {tab === 'subs'    && <SubsTab    key={`sb-${refreshNonce}`} user={user} accounts={accounts} />}
+        {tab === 'bills'   && BILLS_TAB_ROLES.has(user?.role) && <BillsTab        key={`bl-${refreshNonce}`} user={user} />}
         {tab === 'ghost'   && GHOST_TAB_ROLES.has(user?.role) && <GhostAccountTab key={`gh-${refreshNonce}`} user={user} />}
       </div>
 
@@ -165,6 +174,7 @@ function CompanyTab({ user }) {
   const [totals, setTotals] = useState(null);
   const [jobCosts, setJobCosts] = useState([]);
   const [ghostTotal, setGhostTotal] = useState(0);
+  const [billsTotals, setBillsTotals] = useState({ bills_due_30d: 0, bills_paid_mtd: 0 });
   const [printing, setPrinting] = useState(false);
 
   useEffect(() => { load(); }, []);
@@ -175,15 +185,17 @@ function CompanyTab({ user }) {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [t, { data: costs }, { data: ghost }] = await Promise.all([
+      const [t, { data: costs }, { data: ghost }, bt] = await Promise.all([
         loadFinanceTotals(),
         supabase.from('job_costs').select('estimated_revenue, material_cost, labor_cost, sub_cost, other_costs, amount_received, gross_margin_percent, job_id'),
         supabase.from('ghost_payments').select('amount, paid_at').is('deleted_at', null).gte('paid_at', monthStart.slice(0, 10)),
+        loadBillsTotals().catch(() => ({ bills_due_30d: 0, bills_paid_mtd: 0 })),
       ]);
 
       setTotals(t);
       setJobCosts(costs || []);
       setGhostTotal((ghost || []).reduce((s, g) => s + Number(g.amount || 0), 0));
+      setBillsTotals(bt || { bills_due_30d: 0, bills_paid_mtd: 0 });
     } finally {
       setLoading(false);
     }
@@ -226,8 +238,8 @@ function CompanyTab({ user }) {
 
   return (
     <div className="space-y-6">
-      {/* Summary row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* Summary row — 7 KPIs, wraps on small screens */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         <SummaryCard icon={ArrowDownCircle} tone="green"
           label="Receivable (30d)" value={money(totals.receivableNext30)}
           sub={`Overdue: ${money(totals.receivableOverdue)}`}
@@ -239,12 +251,19 @@ function CompanyTab({ user }) {
           label="Owed to Subs (30d)" value={money(totals.payableNext30)}
           sub={`Paid MTD: ${money(totals.paidThisMonth)}`}
         />
+        <SummaryCard icon={FileText} tone="orange"
+          label="Bills Due (30d)" value={money(billsTotals.bills_due_30d)}
+        />
+        <SummaryCard icon={FileText} tone="charcoal"
+          label="Bills Paid MTD" value={money(billsTotals.bills_paid_mtd)}
+        />
         <SummaryCard icon={Receipt} tone="charcoal"
           label="Ghost Checks MTD" value={money(ghostTotal)}
         />
         <SummaryCard icon={DollarSign} tone="green"
           label="Net Cash MTD"
-          value={money(totals.receivedThisMonth - totals.paidThisMonth - ghostTotal)}
+          value={money(totals.receivedThisMonth - totals.paidThisMonth - ghostTotal - billsTotals.bills_paid_mtd)}
+          sub="Received − Subs − Ghost − Bills"
         />
       </div>
 

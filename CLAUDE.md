@@ -576,6 +576,70 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-01 (Bills — nova aba de contas operacionais no Finance)** — Ramon + Claude (Opus 4.7).
+
+Brenda ganhou um lugar pra cadastrar e marcar como paga toda conta operacional
+da empresa (aluguel, luz, software, seguro, impostos, etc.). Suporta:
+- **One-time bills** — compra única (ex: conserto de impressora)
+- **Recurring bills** — template + occurrences materializadas (weekly, bi-weekly,
+  monthly, quarterly, annual)
+- **Fixed OR variable amount** — fixo pré-preenche cada mês; variável mostra
+  chip "Enter amount →" até Operations preencher
+- **Vendors reutilizáveis** — "Eversource", "QuickBooks" etc. criados 1x
+- **Alertas push** pra role `operations`: 2 dias antes de vencer (1x) + diário
+  se em atraso (dedupe de 20h)
+
+**Arquivos novos:**
+- [migrations/081_bills.sql](migrations/081_bills.sql) — 3 tabelas: `vendors`,
+  `bill_templates`, `bills`. RLS permissiva (padrão). **PENDENTE RODAR**.
+- [src/shared/lib/bills.js](src/shared/lib/bills.js) — helpers compartilhados
+  (materialization, mark paid, loadBillsTotals, loadUpcomingBills).
+  `loadUpcomingBills` / `loadRecentlyPaidBills` são a API pronta pra TV
+  dashboard reutilizar.
+- [src/shared/components/Finance/BillsTab.jsx](src/shared/components/Finance/BillsTab.jsx)
+  — tab + 4 modais (BillForm, PayBill, EnterAmount, Vendors). Padrão igual
+  Ghost/Clients/Subs.
+
+**Arquivos modificados:**
+- [FinanceScreen.jsx](src/shared/components/Finance/FinanceScreen.jsx) — nova
+  tab `'bills'` em `ALL_TABS`, `BILLS_TAB_ROLES = {operations, owner, admin}`,
+  CompanyTab ganhou 2 KPIs novos (Bills Due 30d + Bills Paid MTD) e Net Cash
+  MTD agora subtrai bills: `Received − Subs − Ghost − Bills`.
+- [api/daily-owner-update.js](api/daily-owner-update.js) — nova função
+  `sendBillAlerts()` chamada do `?task=reminders` (todo 15 min). Usa colunas
+  `due_soon_notified_at` + `overdue_notified_at` em `bills` pra dedupe.
+  Push só pra role `operations`.
+
+**Pendências pro Ramon:**
+- **Rodar migration 081** no Supabase SQL Editor. Sem ela a tab Bills mostra
+  erro "relation does not exist" e KPIs Company ficam em $0.00. Instruções +
+  SQL foram passados em chat.
+- (Futuro — não urgente) Plug no app `screen/` (TV dashboard) consumindo
+  `loadUpcomingBills` + `loadRecentlyPaidBills` pra Inácio acompanhar as
+  próximas contas do mês visualmente no escritório.
+
+**Modelo de dados (resumo):**
+- `vendors` — lista reutilizável de payees. Unique index por nome lowercase.
+- `bill_templates` — regras de recorrência. `amount_mode in ('fixed','variable')`,
+  `recurrence in ('weekly','biweekly','monthly','quarterly','annual')`,
+  `due_day` (dia do mês/semana), `start_date`, `end_date`, `active`.
+- `bills` — occurrences. `template_id` NULL = one-time. Unique
+  `(template_id, due_date)` previne duplicatas. `status in
+  ('pending','paid','skipped')`. `overdue_notified_at` + `due_soon_notified_at`
+  pra dedupe de push.
+
+**Materialization:** `materializeAllActiveTemplates()` roda no load da tab
+Bills (até 6 meses à frente). Idempotente — unique index protege contra
+race conditions. Se preferir rodar via cron, dá pra adicionar em
+`daily-owner-update.js` default handler mas não é necessário por enquanto.
+
+**Diferença crucial vs `company_expenses` (migration 071):**
+- `company_expenses` = receipts ad-hoc do Gabriel do campo (Office/Personal)
+- `bills` = contas estruturadas da Brenda com recorrência e due dates
+- NÃO fundir. São features complementares pra pessoas diferentes.
+
+---
+
 **2026-09-30 (Push notifications: resumo matinal por categoria + lembretes pra time inteiro)** — Ramon + Claude (Opus 4.7).
 
 Redesign das notificações push do time. Antes chegavam feias/confusas
