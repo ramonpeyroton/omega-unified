@@ -10,7 +10,7 @@
 // for the office TV. No money on purpose (Ramon dropped the $ KPI).
 // Refreshes every minute + on any jobs change.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Maximize2, ChevronRight, UserPlus, PhoneCall, CalendarDays, BadgeCheck,
@@ -693,6 +693,30 @@ function AgendaPanel({ events, now }) {
   );
 }
 
+// Hides every child of a fixed-height list that wouldn't fit whole, so the
+// list fills its column without a half-cut card at the bottom. The list
+// must be `relative` (children measure offsetTop against it). Re-runs when
+// the box resizes or `deps` change.
+function useFitChildren(deps) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return undefined;
+    const fit = () => {
+      const limit = box.clientHeight + 1;
+      for (const el of box.children) {
+        el.style.visibility = el.offsetTop + el.offsetHeight <= limit ? '' : 'hidden';
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return ref;
+}
+
 // ─── Bills to pay (right-most column on the TV) ──────────────────────
 // Reads the same pending bills Operations sees in Finance → Bills, in
 // due-date order. Read-only on the TV; the header link and the "+ Add
@@ -700,8 +724,9 @@ function AgendaPanel({ events, now }) {
 function BillsPanel({ bills, onNavigate }) {
   const nowMs = Date.now();
   // Show overdue + upcoming — the ones that actually need attention.
-  // Rows are sized for reading from across the room, so only 5 fit.
-  const visible = bills.slice(0, 5);
+  // Show as many bills as fit whole in the column (see useFitChildren).
+  const visible = bills;
+  const listRef = useFitChildren([visible]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -715,7 +740,7 @@ function BillsPanel({ bills, onNavigate }) {
         </button>
       </SectionTitle>
 
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(10px,1.4vh,18px)]">
+      <div ref={listRef} className="relative flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(10px,1.4vh,18px)]">
         {visible.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-omega-stone font-medium text-[clamp(21px,3vh,33px)]">
             All bills are paid.
@@ -916,7 +941,7 @@ export default function PipelineTV() {
           <div className="flex-shrink-0 flex flex-col gap-4">
             {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} compact />)}
           </div>
-          <div className="mt-5 flex-1 min-h-0 flex flex-col">
+          <div className="mt-[clamp(28px,4.5vh,52px)] flex-1 min-h-0 flex flex-col">
             <AgendaPanel events={agenda} now={now} />
           </div>
         </aside>
