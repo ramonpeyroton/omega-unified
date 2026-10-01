@@ -14,12 +14,48 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Maximize2, ChevronRight, UserPlus, PhoneCall, CalendarDays, BadgeCheck,
   FileText, Send, Handshake, FileCheck2, Bell, X, BarChart3, Clock, HelpCircle,
+  Building2, Zap, ShieldCheck, Cpu, Car, Megaphone, Landmark, Briefcase, Package,
+  Plus, ArrowRight,
 } from 'lucide-react';
 import logoImg from '../../../assets/logo.png';
 import { supabase } from '../../../shared/lib/supabase';
 import { PIPELINE_COLORS, PIPELINE_STEP_LABEL, OFF_BOARD_STAGES } from '../../../shared/config/phaseBreakdown';
 import { stageAge, resolveVisit, useNow, nyDateKey, nyMidnightMs, formatNyTime } from '../../../shared/lib/stageAge';
 import { lostReasonLabel } from '../../receptionist/lib/leadCatalog';
+import { loadUpcomingBills, categoryLabel, daysUntilDue } from '../../../shared/lib/bills';
+
+// Icon per bill category — mirrors BILL_CATEGORIES in src/shared/lib/bills.js.
+const BILL_CATEGORY_ICON = {
+  rent:         Building2,
+  utilities:    Zap,
+  insurance:    ShieldCheck,
+  software:     Cpu,
+  vehicle:      Car,
+  marketing:    Megaphone,
+  taxes:        Landmark,
+  professional: Briefcase,
+  supplies:     Package,
+  other:        FileText,
+};
+
+function dueChip(days) {
+  if (days < 0)       return { label: `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} late`, tone: 'bg-red-100 text-red-700' };
+  if (days === 0)     return { label: 'due today',                                                    tone: 'bg-red-100 text-red-700' };
+  if (days <= 7)      return { label: `${days} day${days === 1 ? '' : 's'} left`,                     tone: 'bg-amber-100 text-amber-700' };
+  if (days <= 30)     return { label: `${days} days left`,                                            tone: 'bg-emerald-100 text-emerald-700' };
+  return { label: `${days} days left`, tone: 'bg-gray-100 text-gray-600' };
+}
+
+function billDueLabel(dueDateISO) {
+  const d = new Date(dueDateISO + 'T12:00:00');
+  return 'Due ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function billAmountLabel(amount) {
+  if (amount == null) return '—';
+  const n = Number(amount);
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 });
+}
 
 const REFRESH_MS = 60_000;
 const DAY_MS = 86_400_000;
@@ -553,31 +589,114 @@ function Flow({ section }) {
   );
 }
 
+// ─── Bills to pay (right-most column on the TV) ──────────────────────
+// Reads the same pending bills Operations sees in Finance → Bills, in
+// due-date order. Read-only on the TV; the header link and the "+ Add
+// bill" button bounce to /finance where Brenda does the actual CRUD.
+function BillsPanel({ bills, onNavigate }) {
+  const nowMs = Date.now();
+  // Show overdue + upcoming — the ones that actually need attention.
+  const visible = bills.slice(0, 8);
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[clamp(16px,1.9vh,22px)] font-bold tracking-wide uppercase text-omega-charcoal flex items-center gap-2">
+          <span className="inline-block w-1 h-4 rounded-full bg-omega-orange" />
+          Bills to pay
+        </h2>
+        <button
+          onClick={onNavigate}
+          className="text-[clamp(11px,1.3vh,14px)] font-semibold text-omega-stone hover:text-omega-orange inline-flex items-center gap-1"
+        >
+          View all <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-2">
+        {visible.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-omega-stone text-sm">
+            All bills are paid.
+          </div>
+        ) : (
+          visible.map((bill) => {
+            const Icon = BILL_CATEGORY_ICON[bill.category] || FileText;
+            const days = daysUntilDue(bill, nowMs);
+            const chip = dueChip(days);
+            return (
+              <div key={bill.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-black/[0.06]">
+                <div className="w-9 h-9 rounded-xl bg-omega-cloud flex items-center justify-center flex-shrink-0 text-omega-stone">
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-omega-stone truncate">
+                    {categoryLabel(bill.category)}
+                  </div>
+                  <div className="text-[13px] font-bold text-omega-charcoal truncate leading-tight">
+                    {bill.label}
+                  </div>
+                </div>
+                <div className="text-[11px] text-omega-stone whitespace-nowrap">
+                  {billDueLabel(bill.due_date)}
+                </div>
+                <div className="text-[14px] font-bold text-omega-charcoal tabular-nums whitespace-nowrap">
+                  {billAmountLabel(bill.amount)}
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-md whitespace-nowrap ${chip.tone}`}>
+                  {chip.label}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <button
+        onClick={onNavigate}
+        className="mt-3 w-full py-3 rounded-xl border-2 border-dashed border-black/[0.12] text-omega-stone hover:text-omega-orange hover:border-omega-orange inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors flex-shrink-0"
+      >
+        <Plus className="w-4 h-4" /> Add bill
+      </button>
+    </div>
+  );
+}
+
 export default function PipelineTV() {
   const navigate = useNavigate();
   const now = useNow(15_000);
   const [data, setData] = useState(null);
+  const [bills, setBills] = useState([]);
   const [error, setError] = useState(false);
   const [idle, setIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
 
-  // Load now, every minute, and a beat after any change to jobs.
+  // Load now, every minute, and a beat after any change to jobs or bills.
   useEffect(() => {
     let alive = true;
     let debounce;
     async function load() {
       try {
-        const d = await loadTvData();
-        if (alive) { setData(d); setError(false); }
+        const [d, bl] = await Promise.all([
+          loadTvData(),
+          loadUpcomingBills({ limit: 12 }).catch(() => []),
+        ]);
+        if (alive) { setData(d); setBills(bl); setError(false); }
       } catch {
         if (alive) setError(true);
       }
     }
     load();
     const iv = setInterval(load, REFRESH_MS);
-    const chan = supabase
+    const jobsChan = supabase
       .channel('marketing-tv-jobs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(load, 2000);
+      })
+      .subscribe();
+    const billsChan = supabase
+      .channel('marketing-tv-bills')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, () => {
         clearTimeout(debounce);
         debounce = setTimeout(load, 2000);
       })
@@ -586,7 +705,8 @@ export default function PipelineTV() {
       alive = false;
       clearInterval(iv);
       clearTimeout(debounce);
-      supabase.removeChannel(chan);
+      supabase.removeChannel(jobsChan);
+      supabase.removeChannel(billsChan);
     };
   }, []);
 
@@ -677,7 +797,7 @@ export default function PipelineTV() {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 px-8 pt-5 pb-6 flex gap-8">
+      <main className="flex-1 min-h-0 px-8 pt-5 pb-6 flex gap-6">
         <div className="flex-1 min-w-0 flex flex-col gap-5">
           {sections.map((s) => <Flow key={s.key} section={s} />)}
           <div className="flex gap-4 flex-shrink-0 h-[clamp(84px,12.5vh,136px)]">
@@ -685,11 +805,15 @@ export default function PipelineTV() {
           </div>
         </div>
 
-        <aside className="w-[22%] flex-shrink-0 flex flex-col">
+        <aside className="w-[16%] flex-shrink-0 flex flex-col">
           <SectionTitle title="Snapshot" />
           <div className="flex-1 min-h-0 flex flex-col gap-5">
             {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} />)}
           </div>
+        </aside>
+
+        <aside className="w-[22%] flex-shrink-0 flex flex-col min-h-0">
+          <BillsPanel bills={bills} onNavigate={() => navigate('/finance')} />
         </aside>
       </main>
 
