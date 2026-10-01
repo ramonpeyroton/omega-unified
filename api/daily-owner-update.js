@@ -435,10 +435,14 @@ async function sendSms(to, body) {
 
 async function maybeSendSmsSummary(nowMs = Date.now()) {
   if (!supabase) return { status: 'skipped' };
-  const recipients = [...new Set(
-    (process.env.DAILY_SUMMARY_SMS_TO || '').split(',').map(toE164).filter(Boolean),
-  )];
-  if (!recipients.length) return { status: 'no_recipients' };
+  const raw = (process.env.DAILY_SUMMARY_SMS_TO || '').trim();
+  if (!raw) return { status: 'no_recipients' };
+  const recipients = [...new Set(raw.split(',').map(toE164).filter(Boolean))];
+  // Set but unparseable (e.g. numbers separated by spaces, non-US). The
+  // endpoint is public, so report the shape problem — never the numbers.
+  if (!recipients.length) {
+    return { status: 'invalid_recipients', hint: '10-digit US numbers separated by commas' };
+  }
 
   const p = nyParts(nowMs);
   const today = nyDay(p.y, p.m, p.d);
