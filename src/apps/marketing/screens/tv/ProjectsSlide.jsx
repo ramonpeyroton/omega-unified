@@ -29,18 +29,21 @@ export const meta = {
 };
 
 const EASE = [0.22, 1, 0.36, 1];
+const PHOTO_H = 30; // photo strip height, % of the card
 const STALE_DAYS = 7; // no check-off and no photo for this long → "needs an update"
 const IMAGE_RE = /\.(jpe?g|png|webp|gif|heic|heif)(\?|$)/i;
 
-// Cards are CSS size containers: everything inside is sized in cqmin (1% of
-// the card's shorter side), so the content grows with the card.
+// Cards are CSS size containers. They're landscape (thin photo strip on top,
+// three rows of cards), so the text follows the card's width (cqw) and the
+// photo strip takes whatever height is left.
 const CQ = {
-  name:    'font-black leading-[1.1] tracking-tight text-[clamp(14px,7.5cqmin,72px)]',
-  chip:    'text-[clamp(11px,4.2cqmin,34px)]',
-  pct:     'font-black tabular-nums leading-none text-[clamp(12px,7cqmin,64px)]',
-  eyebrow: 'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(10px,3.6cqmin,30px)]',
-  phase:   'font-extrabold leading-[1.12] text-[#111] text-[clamp(13px,6cqmin,52px)]',
-  meta:    'font-semibold leading-tight text-[clamp(11px,4.2cqmin,34px)]',
+  name:    'font-black leading-[1.1] tracking-tight text-[clamp(14px,5.8cqw,56px)]',
+  chip:    'text-[clamp(11px,3.2cqw,28px)]',
+  // Inside the ring, which is its own size container.
+  pct:     'font-black tabular-nums leading-none text-[26cqmin]',
+  eyebrow: 'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(10px,2.8cqw,24px)]',
+  phase:   'font-extrabold leading-[1.12] text-[#111] text-[clamp(13px,4.6cqw,40px)]',
+  meta:    'font-semibold leading-tight text-[clamp(11px,3.2cqw,28px)]',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -161,10 +164,11 @@ export async function load(now = Date.now()) {
 
 // ─── View model ──────────────────────────────────────────────────────
 
+// Thin cards: up to three rows, at least 4 per row, so many jobs fit.
 function gridFor(n) {
   if (n <= 4) return { rows: 1, cols: n, capacity: n };
-  if (n <= 10) return { rows: 2, cols: Math.ceil(n / 2), capacity: n };
-  const cols = Math.min(6, Math.ceil(n / 3));
+  if (n <= 8) return { rows: 2, cols: 4, capacity: 8 };
+  const cols = Math.min(6, Math.max(4, Math.ceil(n / 3)));
   return { rows: 3, cols, capacity: cols * 3 };
 }
 
@@ -198,13 +202,18 @@ function buildView(data, now) {
 
 // ─── Pieces ──────────────────────────────────────────────────────────
 
+// Progress ring on a white disc, on the right, sitting on the bottom edge of
+// the photo strip (half on the photo, half on the card).
 function Ring({ pct, delay, reduce }) {
   const R = 50;
   const SW = 12;
   const v = Math.max(0, Math.min(pct ?? 0, 1));
   const color = v >= 1 ? TONE.good.hex : ORANGE;
   return (
-    <div className="relative flex-shrink-0 aspect-square" style={{ width: '24cqmin' }}>
+    <div
+      className="absolute z-10 right-[5cqw] -translate-y-1/2 aspect-square rounded-full bg-white shadow-lg p-[3%] [container-type:size]"
+      style={{ top: `${PHOTO_H}%`, height: '46cqh' }}
+    >
       <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
         <circle cx="60" cy="60" r={R} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={SW} />
         {pct != null && v > 0 && (
@@ -229,7 +238,7 @@ function Ring({ pct, delay, reduce }) {
 // progress, with a small stub so it shows even at 0), ahead = grey.
 function PhaseSteps({ phases, current, delay, reduce }) {
   return (
-    <div className="flex gap-[1.2cqmin] h-[clamp(5px,2.2cqmin,16px)]">
+    <div className="flex gap-[1cqw] h-[clamp(5px,1.6cqw,14px)]">
       {phases.map((p, i) => {
         const complete = p.total > 0 && p.done >= p.total;
         const fill = complete ? 1 : i === current ? Math.max(p.total ? p.done / p.total : 0, 0.12) : 0;
@@ -252,13 +261,26 @@ function PhaseSteps({ phases, current, delay, reduce }) {
   );
 }
 
+// Cover photo as a light orange-and-white duotone: the photo goes grey and
+// a little washed out, then an orange layer in "screen" mode turns its
+// darks orange while the lights stay white — every card matches the brand.
 function PhotoBox({ photo }) {
   const [ok, setOk] = useState(true);
   const has = photo?.url && ok;
   return (
-    <div className="relative flex-1 min-h-[30%] overflow-hidden">
+    <div className="relative flex-shrink-0 overflow-hidden" style={{ height: `${PHOTO_H}%` }}>
       {has ? (
-        <img src={photo.url} alt="" onError={() => setOk(false)} className="absolute inset-0 w-full h-full object-cover" />
+        <>
+          <img
+            src={photo.url}
+            alt=""
+            onError={() => setOk(false)}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ filter: 'grayscale(1) contrast(1.05) brightness(1.08)' }}
+          />
+          <div className="absolute inset-0" style={{ background: ORANGE, mixBlendMode: 'screen' }} />
+          <div className="absolute inset-0 bg-white/25" />
+        </>
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-omega-charcoal via-[#4A3426] to-omega-orange">
           <HardHat className="absolute -right-[4%] -top-[10%] h-[120%] w-auto text-white/10" strokeWidth={1.5} />
@@ -280,13 +302,15 @@ function JobCard({ job, index, now, reduce }) {
       transition={{ duration: 0.45, delay, ease: EASE }}
     >
       <PhotoBox photo={job.photo} />
+      <Ring pct={job.pct} delay={delay} reduce={reduce} />
 
-      <div className="flex-shrink-0 flex flex-col gap-[2.6cqmin] px-[5cqmin] pt-[3.5cqmin] pb-[4cqmin]">
-        <div className="min-w-0">
+      <div className="flex-1 min-h-0 flex flex-col justify-between gap-[1.2cqw] px-[4cqw] pt-[2.2cqw] pb-[2.6cqw]">
+        {/* Right padding keeps the name clear of the ring. */}
+        <div className="min-w-0 pr-[30cqw]">
           <p className={`truncate text-[#111] ${CQ.name}`}>{job.name}</p>
-          <div className="mt-[1.2cqmin] flex items-center gap-[2.4cqmin] min-w-0">
+          <div className="mt-[0.8cqw] flex items-center gap-[2cqw] min-w-0">
             {job.service && (
-              <span className={`inline-flex min-w-0 max-w-[70%] flex-shrink-0 items-center px-[2.8cqmin] py-[0.8cqmin] rounded-full font-bold leading-tight ${CQ.chip} ${CHIP_TONE.muted}`}>
+              <span className={`inline-flex min-w-0 max-w-[70%] flex-shrink-0 items-center px-[2.2cqw] py-[0.5cqw] rounded-full font-bold leading-tight ${CQ.chip} ${CHIP_TONE.muted}`}>
                 <span className="truncate">{job.service}</span>
               </span>
             )}
@@ -294,21 +318,18 @@ function JobCard({ job, index, now, reduce }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-[4cqmin] min-w-0">
-          <Ring pct={job.pct} delay={delay} reduce={reduce} />
-          <div className="flex-1 min-w-0">
-            {hasPhases ? (
-              <>
-                <p className={CQ.eyebrow}>Phase {job.current + 1} of {job.phases.length}</p>
-                <p className={`${CQ.phase} line-clamp-2`}>{currentPhase?.name}</p>
-              </>
-            ) : (
-              <>
-                <p className={CQ.eyebrow}>Phases</p>
-                <p className={`${CQ.phase} !text-omega-fog`}>No checklist yet</p>
-              </>
-            )}
-          </div>
+        <div className="min-w-0">
+          {hasPhases ? (
+            <>
+              <p className={CQ.eyebrow}>Phase {job.current + 1} of {job.phases.length}</p>
+              <p className={`${CQ.phase} truncate`}>{currentPhase?.name}</p>
+            </>
+          ) : (
+            <>
+              <p className={CQ.eyebrow}>Phases</p>
+              <p className={`${CQ.phase} !text-omega-fog`}>No checklist yet</p>
+            </>
+          )}
         </div>
 
         {hasPhases && <PhaseSteps phases={job.phases} current={job.current} delay={delay} reduce={reduce} />}
