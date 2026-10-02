@@ -988,7 +988,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                     <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
                       <th className="text-left py-2 px-2">Job / Client</th>
                       <th className="text-left py-2 px-2">Type</th>
-                      <th className="text-left py-2 px-2 w-[160px]">Progress</th>
+                      <th className="text-left py-2 px-2 w-[96px]">Progress</th>
                       <th className="text-right py-2 px-2">Spent</th>
                       <th className="text-right py-2 px-2">Margin</th>
                       <th className="w-6"></th>
@@ -1023,12 +1023,10 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                               </span>
                             )}
                           </td>
-                          <td className="py-2.5 px-2">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                                <div className="h-full bg-omega-orange" style={{ width: `${j.progress}%` }} />
-                              </div>
-                              <span className="text-xs font-bold text-omega-charcoal tabular-nums w-9 text-right">{j.progress}%</span>
+                          {/* Bar only — a % here read like the margin column. */}
+                          <td className="py-2.5 px-2" title={`${j.progress}% of phase items done`}>
+                            <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full bg-omega-orange" style={{ width: `${j.progress}%` }} />
                             </div>
                           </td>
                           {/* Spent = every logged expense + manual costs (same
