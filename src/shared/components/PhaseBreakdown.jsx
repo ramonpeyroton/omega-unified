@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { templateForJob, progressFromPhaseData } from '../config/phaseBreakdown';
 import { generatePhasesFromEstimate } from '../lib/phaseGenerator';
+import { planRows, blankPlanRow, withPlanRows } from '../lib/phasePlan';
 import PhasePhotos from './PhasePhotos';
 import ContactMessageModal from './ContactMessageModal';
 import { subConfirmTemplate, waDeepLink } from '../lib/twilio';
@@ -124,12 +125,16 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   }, [canSchedule, canContact]);
 
   // Who to call about a phase: legacy job_subs rows (keyed by phase name)
-  // plus the sub picked on the phase itself, when we have a phone for it.
+  // plus every sub planned on the phase itself, when we have a phone.
   function assignmentsFor(ph) {
     const list = [...(subsByPhase[ph.name] || subsByPhase[ph.id] || [])];
-    const sub = ph.sub_id ? subs.find((s) => s.id === ph.sub_id) : null;
-    if (sub?.phone && !list.some((a) => a.sub_phone === sub.phone)) {
-      list.unshift({ id: sub.id, sub_name: subInlineLabel(sub), sub_phone: sub.phone });
+    const planned = planRows(ph)
+      .map((r) => (r.sub_id ? subs.find((s) => s.id === r.sub_id) : null))
+      .filter((s) => s?.phone);
+    for (const sub of planned.reverse()) {
+      if (!list.some((a) => a.sub_phone === sub.phone)) {
+        list.unshift({ id: sub.id, sub_name: subInlineLabel(sub), sub_phone: sub.phone });
+      }
     }
     return list;
   }
@@ -351,40 +356,65 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     });
   }
 
-  // ─── Phase plan: who does it + when ──────────────────────────────
-  // Stored on the phase inside phase_data: sub_id + sub_name (the name is
-  // kept so the TV can label the bar without a lookup), start_date and
-  // end_date as 'YYYY-MM-DD'. An end before the start is pulled up to it.
-  function setSchedule(phaseIdx, patch) {
+  // ─── Phase plan: who does it + when (shared/lib/phasePlan.js) ────
+  // One row per sub, each with its own dates; a phase with nothing planned
+  // shows one blank row. sub_name is kept so the TV can label the bar
+  // without a lookup. An end before the start is pulled up to it.
+  const shownRows = (phase) => {
+    const rows = planRows(phase);
+    return rows.length ? rows : [blankPlanRow(phase, `${phase.id}_r0`)];
+  };
+
+  function savePlan(phaseIdx, rows, details) {
     const phase = phaseData.phases[phaseIdx];
     if (!phase) return;
-    const merged = { ...phase, ...patch };
-    for (const k of ['start_date', 'end_date']) if (merged[k] === '') merged[k] = null;
-    if (merged.start_date && merged.end_date && merged.end_date < merged.start_date) {
-      merged.end_date = merged.start_date;
-    }
+    const updated = withPlanRows(phase, rows);
     setPhaseData((prev) => {
-      const next = { ...prev, phases: prev.phases.map((p, pi) => (pi === phaseIdx ? merged : p)) };
+      const next = { ...prev, phases: prev.phases.map((p, pi) => (pi === phaseIdx ? updated : p)) };
       scheduleSave(next);
       return next;
     });
     logAudit({
       user, action: 'phase.schedule', entityType: 'job', entityId: job.id,
-      details: {
-        phase: phase.name,
-        start_date: merged.start_date || null,
-        end_date: merged.end_date || null,
-        sub: merged.sub_name || null,
-      },
+      details: { phase: phase.name, ...details },
     });
   }
 
-  function pickSub(phaseIdx, subId) {
+  function setPlanRow(phaseIdx, rowIdx, patch) {
+    const phase = phaseData.phases[phaseIdx];
+    if (!phase) return;
+    const rows = shownRows(phase).map((r, i) => {
+      if (i !== rowIdx) return r;
+      const merged = { ...r, ...patch };
+      for (const k of ['start_date', 'end_date']) if (merged[k] === '') merged[k] = null;
+      if (merged.start_date && merged.end_date && merged.end_date < merged.start_date) {
+        merged.end_date = merged.start_date;
+      }
+      return merged;
+    });
+    const row = rows[rowIdx];
+    savePlan(phaseIdx, rows, { sub: row.sub_name || null, start_date: row.start_date || null, end_date: row.end_date || null });
+  }
+
+  function pickSub(phaseIdx, rowIdx, subId) {
     const sub = subs.find((s) => s.id === subId);
-    setSchedule(phaseIdx, {
+    setPlanRow(phaseIdx, rowIdx, {
       sub_id: sub?.id || null,
       sub_name: sub ? subDisplayNames(sub).primary : null,
     });
+  }
+
+  function addPlanRow(phaseIdx) {
+    const phase = phaseData.phases[phaseIdx];
+    if (!phase) return;
+    savePlan(phaseIdx, [...shownRows(phase), blankPlanRow(phase)], { added: 'sub row' });
+  }
+
+  function removePlanRow(phaseIdx, rowIdx) {
+    const phase = phaseData.phases[phaseIdx];
+    if (!phase) return;
+    const removed = shownRows(phase)[rowIdx];
+    savePlan(phaseIdx, shownRows(phase).filter((_, i) => i !== rowIdx), { removed: removed?.sub_name || 'sub row' });
   }
 
   // Empty breakdown → build it from the estimate (AI). Only offered while
@@ -555,10 +585,13 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
 
               <PhasePlan
                 phase={ph}
+                rows={canSchedule ? shownRows(ph) : planRows(ph)}
                 subs={subs}
                 canSchedule={canSchedule}
-                onPickSub={(id) => pickSub(phaseIdx, id)}
-                onDates={(patch) => setSchedule(phaseIdx, patch)}
+                onPickSub={(rowIdx, id) => pickSub(phaseIdx, rowIdx, id)}
+                onDates={(rowIdx, patch) => setPlanRow(phaseIdx, rowIdx, patch)}
+                onAddRow={() => addPlanRow(phaseIdx)}
+                onRemoveRow={(rowIdx) => removePlanRow(phaseIdx, rowIdx)}
               />
 
               {open && (
@@ -676,72 +709,100 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   );
 }
 
-// ─── Phase plan: sub + start → end, under each phase header ─────
+// ─── Phase plan: one "sub + start → end" row per sub, under each header ─
 const PLAN_INPUT = 'h-10 sm:h-9 px-2.5 rounded-lg border border-gray-200 bg-white text-base sm:text-sm text-omega-charcoal focus:border-omega-orange focus:outline-none';
 
-function PhasePlan({ phase, subs, canSchedule, onPickSub, onDates }) {
-  const start = phase.start_date || '';
-  const end = phase.end_date || '';
-
+function PhasePlan({ phase, rows, subs, canSchedule, onPickSub, onDates, onAddRow, onRemoveRow }) {
   if (!canSchedule) {
-    if (!start && !end && !phase.sub_name) return null;
+    const filled = rows.filter((r) => r.start_date || r.end_date || r.sub_name);
+    if (!filled.length) return null;
     return (
-      <div className="px-3 sm:pl-[3.1rem] pb-2.5 -mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-omega-stone">
-        {(start || end) && (
-          <span className="inline-flex items-center gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5" /> {start ? shortDay(start) : '—'} → {end ? shortDay(end) : '—'}
-          </span>
-        )}
-        {phase.sub_name && (
-          <span className="inline-flex items-center gap-1.5">
-            <HardHat className="w-3.5 h-3.5" /> {phase.sub_name}
-          </span>
-        )}
+      <div className="px-3 sm:pl-[3.1rem] pb-2.5 -mt-1 space-y-1 text-xs text-omega-stone">
+        {filled.map((r) => (
+          <div key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {(r.start_date || r.end_date) && (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="w-3.5 h-3.5" /> {r.start_date ? shortDay(r.start_date) : '—'} → {r.end_date ? shortDay(r.end_date) : '—'}
+              </span>
+            )}
+            {r.sub_name && (
+              <span className="inline-flex items-center gap-1.5">
+                <HardHat className="w-3.5 h-3.5" /> {r.sub_name}
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     );
   }
 
-  // A sub that was removed from the list stays selectable under its saved
-  // name, so the dropdown never blanks out on its own.
-  const known = !phase.sub_id || subs.some((s) => s.id === phase.sub_id);
+  const many = rows.length > 1;
   return (
-    <div className="px-3 sm:pl-[3.1rem] pb-3 -mt-0.5 flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-2 flex-1 min-w-[220px]">
-        <HardHat className="w-4 h-4 text-omega-stone flex-shrink-0" />
-        <span className="sr-only">Subcontractor for {phase.name}</span>
-        <select
-          value={phase.sub_id || ''}
-          onChange={(e) => onPickSub(e.target.value || null)}
-          className={`${PLAN_INPUT} flex-1 min-w-0`}
-        >
-          <option value="">No sub assigned</option>
-          {!known && <option value={phase.sub_id}>{phase.sub_name || 'Removed sub'}</option>}
-          {subs.map((s) => (
-            <option key={s.id} value={s.id}>
-              {subInlineLabel(s)}{s.trade ? ` · ${s.trade}` : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="flex items-center gap-2">
-        <CalendarDays className="w-4 h-4 text-omega-stone flex-shrink-0" />
-        <input
-          type="date"
-          aria-label={`${phase.name} start date`}
-          value={start}
-          onChange={(e) => onDates({ start_date: e.target.value })}
-          className={PLAN_INPUT}
-        />
-        <span className="text-sm text-omega-stone">→</span>
-        <input
-          type="date"
-          aria-label={`${phase.name} end date`}
-          value={end}
-          min={start || undefined}
-          onChange={(e) => onDates({ end_date: e.target.value })}
-          className={PLAN_INPUT}
-        />
-      </div>
+    <div className="px-3 sm:pl-[3.1rem] pb-3 -mt-0.5 space-y-2">
+      {rows.map((r, i) => {
+        const tag = many ? ` (${i + 1})` : '';
+        // A sub that was removed from the list stays selectable under its
+        // saved name, so the dropdown never blanks out on its own.
+        const known = !r.sub_id || subs.some((s) => s.id === r.sub_id);
+        return (
+          <div key={r.id} className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 flex-1 min-w-[220px]">
+              <HardHat className="w-4 h-4 text-omega-stone flex-shrink-0" />
+              <span className="sr-only">Subcontractor for {phase.name}{tag}</span>
+              <select
+                value={r.sub_id || ''}
+                onChange={(e) => onPickSub(i, e.target.value || null)}
+                className={`${PLAN_INPUT} flex-1 min-w-0`}
+              >
+                <option value="">No sub assigned</option>
+                {!known && <option value={r.sub_id}>{r.sub_name || 'Removed sub'}</option>}
+                {subs.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {subInlineLabel(s)}{s.trade ? ` · ${s.trade}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-omega-stone flex-shrink-0" />
+              <input
+                type="date"
+                aria-label={`${phase.name} start date${tag}`}
+                value={r.start_date || ''}
+                onChange={(e) => onDates(i, { start_date: e.target.value })}
+                className={PLAN_INPUT}
+              />
+              <span className="text-sm text-omega-stone">→</span>
+              <input
+                type="date"
+                aria-label={`${phase.name} end date${tag}`}
+                value={r.end_date || ''}
+                min={r.start_date || undefined}
+                onChange={(e) => onDates(i, { end_date: e.target.value })}
+                className={PLAN_INPUT}
+              />
+              {many && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveRow(i)}
+                  className="p-2 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600 transition"
+                  title="Remove this sub from the phase"
+                  aria-label={`Remove sub${tag} from ${phase.name}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onAddRow}
+        className="inline-flex items-center gap-1.5 px-1 py-1 text-xs font-semibold text-omega-stone hover:text-omega-orange transition"
+      >
+        <Plus className="w-3.5 h-3.5" /> Add another sub
+      </button>
     </div>
   );
 }

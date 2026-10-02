@@ -581,11 +581,16 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 Pedido: ver quais obras estão ativas no tempo (rodam 8–15 ao mesmo tempo).
 Ramon aprovou por prints antes de codar.
 
-- **Aba Phases (`PhaseBreakdown.jsx`)**: cada etapa ganhou **sub** (dropdown
-  da tabela `subcontractors`) + **início → término**. Fica dentro de
-  `jobs.phase_data.phases[i]` (`sub_id`, `sub_name`, `start_date`,
-  `end_date` como 'YYYY-MM-DD') — **sem migration**. Término antes do início
-  é puxado pro início. Editam: marketing (Ramon), sales (Attila), owner
+- **Aba Phases (`PhaseBreakdown.jsx`)**: cada etapa ganhou **um ou mais
+  subs, cada um com seu início → término** (dropdown da tabela
+  `subcontractors`; "+ Add another sub" — ex.: escavação e fundação com
+  empresas diferentes, ou elétrica + hidráulica juntas). Fica em
+  `jobs.phase_data.phases[i].schedule = [{ id, sub_id, sub_name,
+  start_date, end_date }]` ('YYYY-MM-DD') — **sem migration**; a etapa
+  também guarda `start_date`/`end_date`/`sub_id`/`sub_name` como resumo.
+  Ler sempre via `planRows()` de `src/shared/lib/phasePlan.js` (entende o
+  formato antigo de 1 sub). Término antes do início é puxado pro início.
+  Editam: marketing (Ramon), sales (Attila), owner
   (Inácio), receptionist (Rafaela), operations, admin (`CAN_SCHEDULE`);
   manager (Gabriel) vê só leitura. Rafaela ganhou a aba Phases no
   `JobFullView`. Ramon e Rafaela também entraram em `CAN_EDIT_PHASES`
@@ -603,7 +608,9 @@ Ramon aprovou por prints antes de codar.
 - **TV — tela 5/5 `tv/JobsCalendarSlide.jsx` ("Jobs Calendar")**: dia a dia,
   janela móvel de 28 dias com **hoje sempre na 7ª coluna**; uma linha por
   obra `contract_signed`/`in_progress` com etapa datada; barra dividida
-  por etapa (cinza ✓ feita · verde forte agora · verde claro próximas ·
+  por etapa e, dentro dela, por sub (subs ao mesmo tempo empilham em
+  faixas; etapa com vários subs mostra o nome da empresa primeiro)
+  (cinza ✓ feita · verde forte agora · verde claro próximas ·
   rosa etapa atrasada · listrado amarelo não começou · hachura vermelha =
   obra passou do término). Obras sem datas aparecem no rodapé. O
   Calendar dos roles (`shared/components/Calendar/`) **não mudou**.

@@ -2,8 +2,9 @@
 // clock: today is always the 7th column, so the board shows the last six
 // days and the next three weeks (Ramon, 02/10). One line per job with a
 // signed contract or work in progress; its bar is split into the job's
-// phases, drawn from the start / end dates (and the sub) planned on each
-// phase in the job card → Phases tab (stored in jobs.phase_data). Read-only.
+// phases — and a phase shared by several subs into one piece per sub —
+// drawn from the subs and dates planned in the job card → Phases tab
+// (stored in jobs.phase_data, see shared/lib/phasePlan.js). Read-only.
 //
 // Phase colors: all checklist items done = grey ✓; under way (items being
 // checked, or today falls in its dates) = solid green "Tile · 2/10"; still
@@ -17,6 +18,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { CalendarRange, CalendarX, Flag } from 'lucide-react';
 import { supabase } from '../../../../shared/lib/supabase';
 import { nyDateKey } from '../../../../shared/lib/stageAge';
+import { planRows } from '../../../../shared/lib/phasePlan';
 import { CARD, DAY_MS, SlideLoading, EmptyState } from './tvKit';
 
 export const meta = {
@@ -128,35 +130,61 @@ function buildView({ jobs }, now) {
   const undated = [];
   for (const job of jobs) {
     const name = (job.client_name || '').trim() || 'Unnamed job';
-    const phases = (job.phase_data?.phases || []).filter((p) => isKey(p.start_date) && isKey(p.end_date));
-    if (!phases.length) { undated.push(name); continue; }
 
-    const segs = phases.map((p) => {
-      const s = dayNum(p.start_date);
-      const e = Math.max(dayNum(p.end_date), s) + 1; // exclusive
+    // One segment per sub planned on a phase (shared/lib/phasePlan.js), each
+    // on its own dates; the phase's checklist colors all of them.
+    const segs = [];
+    for (const p of job.phase_data?.phases || []) {
+      const rows = planRows(p)
+        .filter((r) => isKey(r.start_date) && isKey(r.end_date))
+        .sort((a, b) => a.start_date.localeCompare(b.start_date));
+      if (!rows.length) continue;
+      const span = rows.map((r) => {
+        const s = dayNum(r.start_date);
+        return { r, s, e: Math.max(dayNum(r.end_date), s) + 1 }; // exclusive
+      });
+      const start = Math.min(...span.map((x) => x.s));
+      const end = Math.max(...span.map((x) => x.e));
       const items = p.items || [];
       const done = items.filter((it) => it.done).length;
       const complete = items.length > 0 && done === items.length;
       // "Now" = work has begun on it, or its dates include today.
       const status = complete ? 'done'
-        : e <= T0 ? 'late'
-        : done > 0 || s <= T0 ? 'active'
+        : end <= T0 ? 'late'
+        : done > 0 || start <= T0 ? 'active'
         : 'todo';
-      return {
-        id: p.id, s, e, status, done, total: items.length,
+      span.forEach(({ r, s, e }, i) => segs.push({
+        id: r.id || `${p.id}_${i}`, s, e, status, done, total: items.length,
         name: p.name ? shortName(p.name) : 'Phase',
-        sub: (p.sub_name || '').trim(),
-      };
-    }).sort((a, b) => a.s - b.s);
-
-    // Phases that overlap in time get their own lane inside the row.
-    const laneEnds = [];
-    for (const seg of segs) {
-      let lane = laneEnds.findIndex((end) => end <= seg.s);
-      if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
-      laneEnds[lane] = seg.e;
-      seg.lane = lane;
+        sub: (r.sub_name || '').trim(),
+        multi: span.length > 1,
+        first: i === 0,
+      }));
     }
+    if (!segs.length) { undated.push(name); continue; }
+    segs.sort((a, b) => a.s - b.s);
+
+    // Pieces that overlap in time (two subs at once) stack in lanes; only
+    // the overlapping run is split — everything else keeps the full height.
+    let cluster = [];
+    let clusterEnd = -Infinity;
+    const closeCluster = () => {
+      const laneEnds = [];
+      for (const seg of cluster) {
+        let lane = laneEnds.findIndex((end) => end <= seg.s);
+        if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+        laneEnds[lane] = seg.e;
+        seg.lane = lane;
+      }
+      for (const seg of cluster) seg.lanes = laneEnds.length;
+      cluster = [];
+    };
+    for (const seg of segs) {
+      if (cluster.length && seg.s >= clusterEnd) closeCluster();
+      cluster.push(seg);
+      clusterEnd = cluster.length === 1 ? seg.e : Math.max(clusterEnd, seg.e);
+    }
+    closeCluster();
 
     const signed = job.pipeline_status === 'contract_signed';
     const finish = Math.max(...segs.map((x) => x.e));
@@ -167,7 +195,6 @@ function buildView({ jobs }, now) {
 
     rows.push({
       id: job.id, name, signed, segs, late,
-      lanes: laneEnds.length,
       first: segs[0].s,
       finish,
       finishKey: keyOf(finish - 1),
@@ -284,8 +311,8 @@ function DayColumns({ days }) {
 function JobRow({ row, index, view }) {
   const reduce = useReducedMotion();
   const { pct, M0, M1, T0, todayKey } = view;
-  const laneTop = (lane) => `calc(14% + ${lane} * (72% / ${row.lanes}))`;
-  const laneHeight = `calc(72% / ${row.lanes} - ${row.lanes > 1 ? 3 : 0}px)`;
+  const laneTop = (seg) => `calc(14% + ${seg.lane} * (72% / ${seg.lanes}))`;
+  const laneHeight = (seg) => `calc(72% / ${seg.lanes} - ${seg.lanes > 1 ? 3 : 0}px)`;
 
   // The finish date: a flag after the bar, a chip inside it when the bar
   // ends at the right edge, an arrow chip when it ends past the window
@@ -296,7 +323,7 @@ function JobRow({ row, index, view }) {
     const to = pct(T0 + 1);
     finish = (
       <>
-        <div className="absolute rounded-r-lg" style={{ left: `${from}%`, width: `${to - from}%`, top: laneTop(0), height: laneHeight, backgroundImage: LATE_HATCH }} />
+        <div className="absolute rounded-r-lg" style={{ left: `${from}%`, width: `${to - from}%`, top: '14%', height: '72%', backgroundImage: LATE_HATCH }} />
         <span
           className="absolute top-1/2 -translate-y-1/2 pl-3 font-black text-rose-600 whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
           style={{ left: `${to}%` }}
@@ -346,7 +373,7 @@ function JobRow({ row, index, view }) {
       </div>
       <div className="relative flex-1 min-w-0 mr-6">
         {row.segs.filter((x) => x.e > M0 && x.s < M1).map((seg) => (
-          <Segment key={seg.id} seg={seg} row={row} view={view} top={laneTop(seg.lane)} height={laneHeight} />
+          <Segment key={seg.id} seg={seg} row={row} view={view} top={laneTop(seg)} height={laneHeight(seg)} />
         ))}
         {finish}
       </div>
@@ -366,7 +393,11 @@ function Segment({ seg, row, view, top, height }) {
     : { background: c.bg, color: c.fg };
   // Leave room for the "→ date" chip on the phase that runs off the edge.
   const chipRoom = cutR && !row.late && row.finish > M1 && width >= 22;
-  const progress = !row.signed && (seg.status === 'active' || seg.status === 'late') && seg.total ? ` · ${seg.done}/${seg.total}` : '';
+  const progress = seg.first && !row.signed && (seg.status === 'active' || seg.status === 'late') && seg.total ? ` · ${seg.done}/${seg.total}` : '';
+  // Phase split between subs → lead with the company, phase after it.
+  const phaseText = `${seg.name}${progress}`;
+  const lead = seg.multi && seg.sub ? seg.sub : phaseText;
+  const trail = seg.multi && seg.sub ? phaseText : seg.sub;
   return (
     <div
       className={`absolute flex items-center overflow-hidden ${cutL ? '' : 'rounded-l-lg'} ${cutR ? '' : 'rounded-r-lg'} ${
@@ -380,9 +411,9 @@ function Segment({ seg, row, view, top, height }) {
     >
       <span className={`pl-2.5 pr-1.5 whitespace-nowrap truncate text-[clamp(12px,1.8vh,19px)] ${chipRoom ? 'pr-[9em]' : ''}`}>
         <span className="font-extrabold">
-          {cutL ? '‹ ' : ''}{!row.signed && seg.status === 'done' ? '✓ ' : ''}{seg.name}{progress}
+          {cutL ? '‹ ' : ''}{!row.signed && seg.status === 'done' ? '✓ ' : ''}{lead}
         </span>
-        {seg.sub && <span className="font-semibold opacity-80"> · {seg.sub}</span>}
+        {trail && <span className="font-semibold opacity-80"> · {trail}</span>}
       </span>
     </div>
   );
