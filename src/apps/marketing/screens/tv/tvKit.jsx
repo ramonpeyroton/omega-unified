@@ -1,6 +1,6 @@
 // Shared building blocks for the office TV slideshow (src/apps/marketing/
 // screens/PipelineTV.jsx). Every slide imports its type scale, cards, chips
-// and helpers from here so the five screens read as ONE board: same Inter
+// and helpers from here so every screen reads as ONE board: same Inter
 // type ramp, same white rounded cards on the cloud background, same orange
 // section bars. Sized for a 1920×1080 TV (vh-based clamps), readable from
 // across the room.

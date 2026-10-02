@@ -1,21 +1,24 @@
 // Office TV (1920×1080) — a slideshow, one area of the company per slide,
 // 40 s each: Sales pipeline → This month's calendar → Projects (cost vs
-// contract) → Receivables → Bills to pay. Lives in Ramon's Marketing app at
-// /tv. Only the office team sees this screen, so money is shown.
+// contract) → Bills to pay. Lives in Ramon's Marketing app at /tv. Only the
+// office team sees this screen, so money is shown — except receivables:
+// Inácio asked (02/10) that client payments / amounts due never show here,
+// so the Receivables slide (./tv/ReceivablesSlide.jsx) and the "payment
+// received" toast are off.
 //
 // The slides live in ./tv/ and share one look through ./tv/tvKit.jsx. This
 // file is just the shell: header (logo, slide title, dots, clock), the 40 s
 // progress bar, keyboard control, data refresh for every slide (each minute
 // + realtime), and live toasts when something good happens (new lead,
-// estimate approved, payment received, bill paid).
+// estimate approved, job started, bill paid).
 //
-// Keys: → / ← next / previous · Space or Enter pause · 1-5 jump to a slide.
+// Keys: → / ← next / previous · Space or Enter pause · 1-4 jump to a slide.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ArrowLeft, Maximize2, Pause, Play, UserPlus, PartyPopper, HandCoins,
+  ArrowLeft, Maximize2, Pause, Play, UserPlus, PartyPopper,
   CheckCircle2, HardHat,
 } from 'lucide-react';
 import logoImg from '../../../assets/logo.png';
@@ -25,10 +28,9 @@ import { TZ, ORANGE, usd, toMs } from './tv/tvKit';
 import * as Sales from './tv/SalesSlide';
 import * as Calendar from './tv/CalendarSlide';
 import * as Projects from './tv/ProjectsSlide';
-import * as Receivables from './tv/ReceivablesSlide';
 import * as Bills from './tv/BillsSlide';
 
-const SLIDES = [Sales, Calendar, Projects, Receivables, Bills];
+const SLIDES = [Sales, Calendar, Projects, Bills];
 const SLIDE_MS = 40_000;
 const REFRESH_MS = 60_000;
 const TOAST_MS = 9_000;
@@ -71,12 +73,11 @@ function SlideTimer({ paused, onDone }) {
 // ─── Live toasts ─────────────────────────────────────────────────────
 // Realtime events worth a moment of attention on the TV. Best-effort: a
 // table only streams if it's in the supabase_realtime publication
-// (jobs is; migrations/082 adds bills + payment_milestones).
+// (jobs is; migrations/082 adds bills).
 const TOAST_LOOK = {
   lead:     { icon: UserPlus,     ring: 'bg-indigo-500',  label: 'New lead' },
   approved: { icon: PartyPopper,  ring: 'bg-omega-orange',label: 'Estimate approved', confetti: true },
   started:  { icon: HardHat,      ring: 'bg-emerald-500', label: 'New job in progress', confetti: true },
-  payment:  { icon: HandCoins,    ring: 'bg-emerald-500', label: 'Payment received', confetti: true },
   billPaid: { icon: CheckCircle2, ring: 'bg-slate-700',   label: 'Bill paid' },
 };
 
@@ -124,25 +125,8 @@ function useLiveToasts() {
       })
       .subscribe();
 
-    const payChan = supabase
-      .channel('tv-live-payments')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'payment_milestones' }, async ({ new: m }) => {
-        if (!m || !(Number(m.received_amount) > 0) || !isFresh(m.received_at)) return;
-        let client = '';
-        if (m.job_id) {
-          const { data } = await supabase.from('jobs').select('client_name').eq('id', m.job_id).maybeSingle();
-          client = data?.client_name || '';
-        }
-        push(`pay:${m.id}:${m.received_amount}`, {
-          type: 'payment',
-          title: usd(m.received_amount),
-          text: [client, m.label].filter(Boolean).join(' · '),
-        });
-      })
-      .subscribe();
-
     return () => {
-      [jobsChan, billsChan, payChan].forEach((c) => supabase.removeChannel(c));
+      [jobsChan, billsChan].forEach((c) => supabase.removeChannel(c));
     };
   }, [push]);
 
