@@ -14,7 +14,7 @@ import { supabase } from '../../../../shared/lib/supabase';
 import { serviceBadgeLabel } from '../../../../shared/data/services';
 import {
   T, CARD, TONE, CHIP_TONE, ORANGE, usd, usdShort, plural, selectIn, toMs,
-  SectionTitle, StatTile, CountUp, SlideLoading, EmptyState,
+  SectionTitle, CountUp, SlideLoading, EmptyState,
 } from './tvKit';
 
 export const meta = {
@@ -41,8 +41,23 @@ const NONE_HEX = '#B8B6B0';
 // Same sizes as the kit ramp (T.title / T.label / T.eyebrow), heavier weight
 // for numbers that sit in tight cards.
 const NUM_SM = 'font-black tabular-nums leading-tight tracking-tight text-[clamp(18px,2.6vh,28px)]';
-const NUM_XS = 'font-black tabular-nums leading-tight tracking-tight text-[clamp(14px,2vh,22px)]';
 const SMALL = 'text-[clamp(11px,1.5vh,16px)]';
+
+// Grid cards (7+ jobs) are CSS size containers: everything inside is sized in
+// cqmin (1% of the card's shorter side), so the content grows with the card —
+// a roomy 1080p TV card reads from across the room instead of looking empty.
+const CQ = {
+  name:    'font-black leading-[1.1] tracking-tight text-[clamp(14px,8cqmin,72px)]',
+  chip:    'text-[clamp(11px,4.4cqmin,34px)]',
+  pct:     'font-black tabular-nums leading-none text-[clamp(12px,8.4cqmin,64px)]',
+  cap:     'text-[clamp(9px,3.4cqmin,26px)]',
+  eyebrow: 'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(10px,4.1cqmin,30px)]',
+  key:     'font-black tabular-nums leading-[1.05] tracking-tight text-[clamp(18px,12.5cqmin,96px)]',
+  text:    'text-[clamp(11px,5cqmin,36px)]',
+  total:   'text-[clamp(12px,6cqmin,44px)]',
+  small:   'text-[clamp(10px,3.8cqmin,28px)]',
+  bar:     'h-[clamp(6px,2.4cqmin,18px)]',
+};
 
 const EASE = [0.22, 1, 0.36, 1];
 
@@ -273,9 +288,9 @@ function marginTone(ratio) {
 function gridFor(n) {
   if (n <= 3) return { rows: 1, cols: n, variant: 'wide', capacity: n };
   if (n <= 6) return { rows: 1, cols: n, variant: 'tall', capacity: n };
-  if (n <= 12) return { rows: 2, cols: Math.ceil(n / 2), variant: 'compact', capacity: n };
+  if (n <= 12) return { rows: 2, cols: Math.ceil(n / 2), variant: 'grid', capacity: n };
   const cols = Math.min(6, Math.ceil(n / 3));
-  return { rows: 3, cols, variant: 'mini', capacity: cols * 3 };
+  return { rows: 3, cols, variant: 'grid', capacity: cols * 3 };
 }
 
 function buildView(data) {
@@ -401,6 +416,7 @@ function Gauge({ job, size, numClass, capClass, delay, reduce }) {
 }
 
 // Thin bar under a cost line: committed length, paid part solid on top.
+// `thick`: true for the roomy cards, or a height class for the grid cards.
 function CostBar({ line, scale, delay, reduce, thick }) {
   const hex = KIND[line.kind].hex;
   const w = (v) => `${Math.max(0, Math.min(1, scale ? v / scale : 0)) * 100}%`;
@@ -410,7 +426,7 @@ function CostBar({ line, scale, delay, reduce, thick }) {
     transition: { duration: 0.5, delay: d, ease: EASE },
   });
   return (
-    <div className={`relative w-full rounded-full overflow-hidden bg-black/[0.06] ${thick ? 'h-2.5' : 'h-2'}`}>
+    <div className={`relative w-full rounded-full overflow-hidden bg-black/[0.06] ${typeof thick === 'string' ? thick : thick ? 'h-2.5' : 'h-2'}`}>
       {line.paid != null ? (
         <>
           <motion.div className="absolute inset-y-0 left-0 rounded-full" style={{ background: hex, opacity: 0.3 }} {...grow(w(line.amount), delay)} />
@@ -424,11 +440,29 @@ function CostBar({ line, scale, delay, reduce, thick }) {
 }
 
 // size: 'lg' (wide cards, full dollars + company name), 'md' (tall cards),
-// 'sm' (compact grid).
+// 'cq' (grid cards, sized to the card).
 function CostLine({ line, scale, size, delay, reduce }) {
-  const big = size !== 'sm';
-  const money = size === 'lg' ? usd : big ? usdShort : usdTight;
-  const amountClass = `font-black tabular-nums text-[#111] ${big ? 'text-[clamp(14px,2vh,21px)]' : 'text-[clamp(12px,1.7vh,18px)]'}`;
+  if (size === 'cq') {
+    return (
+      <div className="flex-shrink-0">
+        <div className="flex items-baseline gap-[2.5cqmin] min-w-0">
+          <p className={`flex-1 min-w-0 truncate leading-tight font-semibold text-[#111] ${CQ.text}`}>{line.label}</p>
+          <p className={`flex-shrink-0 whitespace-nowrap leading-tight font-black tabular-nums text-[#111] ${CQ.text}`}>{usdShort(line.amount)}</p>
+        </div>
+        <div className="mt-[1.4cqmin] flex items-center gap-[2.5cqmin] min-w-0">
+          <div className="flex-1 min-w-0">
+            <CostBar line={line} scale={scale} delay={delay} reduce={reduce} thick={CQ.bar} />
+          </div>
+          {line.paid != null && (
+            <span className={`${CQ.small} flex-shrink-0 whitespace-nowrap leading-tight font-semibold text-omega-stone`}>paid {usdTight(line.paid)}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const money = size === 'lg' ? usd : usdShort;
+  const amountClass = 'font-black tabular-nums text-[#111] text-[clamp(14px,2vh,21px)]';
 
   // Tall cards are narrow: the paid amount moves next to the bar so the
   // trade name keeps the whole first row.
@@ -454,9 +488,9 @@ function CostLine({ line, scale, size, delay, reduce }) {
 
   return (
     <div className="flex-shrink-0">
-      <div className={`flex items-center min-w-0 ${big ? 'gap-2.5' : 'gap-2'}`}>
-        {big && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: KIND[line.kind].hex }} />}
-        <p className={`flex-1 min-w-0 truncate leading-tight ${big ? 'font-medium text-[clamp(14px,2vh,21px)]' : 'font-medium text-[clamp(12px,1.7vh,18px)]'}`}>
+      <div className="flex items-center min-w-0 gap-2.5">
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: KIND[line.kind].hex }} />
+        <p className="flex-1 min-w-0 truncate leading-tight font-medium text-[clamp(14px,2vh,21px)]">
           <span className="font-bold text-[#111]">{line.label}</span>
           {size === 'lg' && line.secondary && <span className="text-omega-stone"> · {line.secondary}</span>}
         </p>
@@ -467,8 +501,8 @@ function CostLine({ line, scale, size, delay, reduce }) {
           )}
         </p>
       </div>
-      <div className={big ? 'mt-2' : 'mt-1'}>
-        <CostBar line={line} scale={scale} delay={delay} reduce={reduce} thick={big} />
+      <div className="mt-2">
+        <CostBar line={line} scale={scale} delay={delay} reduce={reduce} thick />
       </div>
     </div>
   );
@@ -479,22 +513,23 @@ function CostLine({ line, scale, size, delay, reduce }) {
 function CostList({ job, size, delay, reduce, cols = 1, center = false }) {
   const [ref, hidden] = useFitCount([job.lines, size, cols]);
   const scale = job.contract || Math.max(0, ...job.lines.map((l) => l.amount));
-  const sm = size === 'sm';
+  const cq = size === 'cq';
+  const eyebrow = cq ? CQ.eyebrow : `${T.eyebrow} leading-tight`;
   return (
     <div className={`${center ? '' : 'flex-1'} min-h-0 flex flex-col`}>
-      <div className={`flex items-baseline justify-between gap-3 flex-shrink-0 border-t border-black/[0.06] ${sm ? 'pt-1.5 mb-1.5' : 'pt-3 mb-3'}`}>
-        <p className={`${T.eyebrow} leading-tight truncate`}>
+      <div className={`flex items-baseline justify-between gap-3 flex-shrink-0 border-t border-black/[0.06] ${cq ? 'pt-[2.6cqmin] mb-[2.4cqmin]' : 'pt-3 mb-3'}`}>
+        <p className={`${eyebrow} truncate`}>
           {job.lines.length
-            ? <>Costs <span className="text-[#111] font-black tabular-nums">{usdShort(job.spent)}</span></>
+            ? <>Costs <span className={`text-[#111] font-black tabular-nums normal-case ${cq ? CQ.total : ''}`}>{usdShort(job.spent)}</span></>
             : 'No costs logged yet'}
         </p>
-        {hidden > 0 && <p className={`${T.eyebrow} leading-tight whitespace-nowrap !text-omega-slate`}>+{hidden} more</p>}
+        {hidden > 0 && <p className={`${eyebrow} whitespace-nowrap !text-omega-slate`}>+{hidden} more</p>}
       </div>
       {job.lines.length ? (
         <div
           ref={ref}
           className={`relative ${center ? '' : 'flex-1'} min-h-0 overflow-hidden ${
-            cols > 1 ? 'grid grid-cols-2 content-start gap-x-10 gap-y-3.5' : `flex flex-col ${sm ? 'gap-1.5' : 'gap-3.5'}`
+            cols > 1 ? 'grid grid-cols-2 content-start gap-x-10 gap-y-3.5' : `flex flex-col ${cq ? 'gap-[2.8cqmin]' : 'gap-3.5'}`
           }`}
         >
           {job.lines.map((line, i) => (
@@ -543,17 +578,17 @@ function Figures({ job, valueClass, marginClass, money, showSpent = false, grid 
   );
 }
 
-// Compact / mini cards: margin as the figure, contract as the line under it.
-function KeyFigure({ job, mini }) {
+// Grid cards: margin as the figure, contract as the line under it.
+function KeyFigure({ job }) {
   const over = job.pct != null && job.pct > 1;
   const hasContract = job.contract != null;
   return (
     <div className="min-w-0">
-      <p className={`${T.eyebrow} leading-tight truncate ${over ? '!text-rose-600' : ''}`}>{marginLabel(job)}</p>
-      <p className={`${mini ? NUM_XS : NUM_SM} whitespace-nowrap ${hasContract ? TONE[job.tone].text : 'text-[#111]'}`}>
+      <p className={`${CQ.eyebrow} truncate ${over ? '!text-rose-600' : ''}`}>{marginLabel(job)}</p>
+      <p className={`${CQ.key} whitespace-nowrap ${hasContract ? TONE[job.tone].text : 'text-[#111]'}`}>
         {usdShort(hasContract ? job.margin : job.spent)}
       </p>
-      <p className={`${SMALL} font-semibold leading-tight text-omega-stone truncate`}>
+      <p className={`${CQ.text} font-semibold leading-tight text-omega-stone truncate`}>
         {hasContract
           ? <>Contract <span className="font-black text-[#111] tabular-nums">{usdShort(job.contract)}</span></>
           : job.signedContracts ? 'contract $0' : 'no contract'}
@@ -565,7 +600,7 @@ function KeyFigure({ job, mini }) {
 function ServiceChip({ text }) {
   if (!text) return null;
   return (
-    <span className={`inline-flex min-w-0 max-w-[75%] flex-shrink-0 items-center px-3 py-1 rounded-full font-bold leading-tight text-[clamp(11px,1.5vh,16px)] ${CHIP_TONE.muted}`}>
+    <span className={`inline-flex min-w-0 max-w-[75%] flex-shrink-0 items-center px-[3cqmin] py-[0.9cqmin] rounded-full font-bold leading-tight ${CQ.chip} ${CHIP_TONE.muted}`}>
       <span className="truncate">{text}</span>
     </span>
   );
@@ -604,8 +639,9 @@ function Banner({ job, height }) {
   );
 }
 
-// Compact / mini cards: the cover photo bleeds softly into the top-right
-// corner behind the name, so the full card width stays free for text.
+// Grid cards: the cover photo bleeds softly into the top-right corner behind
+// the name, so the full card width stays free for text. Sized in % of the
+// card so it grows with it.
 function PhotoCorner({ src }) {
   const [ok, setOk] = useState(true);
   if (!src || !ok) return null;
@@ -614,7 +650,7 @@ function PhotoCorner({ src }) {
       src={src}
       alt=""
       onError={() => setOk(false)}
-      className="absolute top-0 right-0 w-[70%] h-[clamp(70px,11vh,120px)] object-cover pointer-events-none opacity-40"
+      className="absolute top-0 right-0 w-[80%] h-[46%] object-cover pointer-events-none opacity-45"
       style={{
         WebkitMaskImage: 'radial-gradient(ellipse 100% 100% at 100% 0%, #000 25%, transparent 75%)',
         maskImage: 'radial-gradient(ellipse 100% 100% at 100% 0%, #000 25%, transparent 75%)',
@@ -623,13 +659,13 @@ function PhotoCorner({ src }) {
   );
 }
 
-function Header({ job, mini }) {
+function Header({ job }) {
   return (
     <div className="flex-shrink-0 min-w-0">
-      <p className={`truncate text-[#111] ${mini ? 'font-extrabold leading-tight text-[clamp(14px,2vh,22px)]' : T.title}`}>{job.name}</p>
-      <div className="mt-1 flex items-center gap-2 min-w-0">
+      <p className={`truncate text-[#111] ${CQ.name}`}>{job.name}</p>
+      <div className="mt-[1.6cqmin] flex items-center gap-[2.5cqmin] min-w-0">
         <ServiceChip text={job.service} />
-        {job.city && <span className={`${SMALL} font-semibold text-omega-slate truncate min-w-0`}>{job.city}</span>}
+        {job.city && <span className={`${CQ.chip} font-semibold text-omega-slate truncate min-w-0`}>{job.city}</span>}
       </div>
     </div>
   );
@@ -705,44 +741,22 @@ function JobCard({ job, variant, count, index, reduce }) {
     );
   }
 
-  const mini = variant === 'mini';
+  // Grid (7+ jobs). The card is a size container — see CQ.
   return (
-    <motion.div className={frame.className} {...enter}>
+    <motion.div className={`${frame.className} [container-type:size]`} {...enter}>
       {frame.tint}
       <PhotoCorner src={job.photo} />
-      <div className={`relative flex-1 min-h-0 flex flex-col ${mini ? 'gap-2 px-4 py-3' : 'gap-2.5 px-5 py-4'}`}>
-        <Header job={job} mini={mini} />
-        <div className="flex items-center gap-3.5 flex-shrink-0 min-w-0">
-          <Gauge
-            job={job}
-            size={mini ? 'clamp(52px,6.8vh,74px)' : 'clamp(72px,9vh,98px)'}
-            numClass={mini ? 'font-black tabular-nums leading-none text-[clamp(12px,1.6vh,17px)]' : NUM_XS}
-            capClass={mini ? null : 'text-[clamp(10px,1.2vh,13px)]'}
-            delay={delay}
-            reduce={reduce}
-          />
+      <div className="relative flex-1 min-h-0 flex flex-col gap-[3cqmin] px-[5.5cqmin] py-[4.5cqmin]">
+        <Header job={job} />
+        <div className="flex items-center gap-[4.5cqmin] flex-shrink-0 min-w-0">
+          <Gauge job={job} size="31cqmin" numClass={CQ.pct} capClass={CQ.cap} delay={delay} reduce={reduce} />
           <div className="flex-1 min-w-0">
-            <KeyFigure job={job} mini={mini} />
+            <KeyFigure job={job} />
           </div>
         </div>
-        {mini ? <MiniCosts job={job} /> : <CostList job={job} size="sm" delay={delay} reduce={reduce} />}
+        <CostList job={job} size="cq" delay={delay} reduce={reduce} />
       </div>
     </motion.div>
-  );
-}
-
-// Mini cards only have room for one line: total + biggest item.
-function MiniCosts({ job }) {
-  const top = job.lines[0];
-  return (
-    <div className="mt-auto flex items-center gap-2 min-w-0 border-t border-black/[0.06] pt-2">
-      {top && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: KIND[top.kind].hex }} />}
-      <p className={`${SMALL} font-semibold text-omega-stone truncate`}>
-        {top
-          ? <><span className="font-bold text-[#111]">{top.label}</span> <span className="font-black text-[#111] tabular-nums">{usdTight(top.amount)}</span>{job.lines.length > 1 ? ` · +${job.lines.length - 1} more` : ''}</>
-          : 'No costs logged yet'}
-      </p>
-    </div>
   );
 }
 
@@ -751,10 +765,12 @@ function MoreCard({ jobs }) {
   const contract = jobs.reduce((s, j) => s + (j.contract || 0), 0);
   const spent = jobs.reduce((s, j) => s + j.spent, 0);
   return (
-    <div className={`${CARD} min-w-0 min-h-0 overflow-hidden flex flex-col items-center justify-center text-center gap-1 px-4`}>
-      <p className={`${NUM_SM} text-[#111]`}>+{jobs.length} more</p>
-      <p className={`${SMALL} font-semibold text-omega-stone truncate max-w-full`}>{usdShort(contract)} contract</p>
-      <p className={`${SMALL} font-semibold text-omega-stone truncate max-w-full`}>{usdShort(spent)} committed</p>
+    <div className={`${CARD} min-w-0 min-h-0 overflow-hidden [container-type:size]`}>
+      <div className="h-full flex flex-col items-center justify-center text-center gap-[1.5cqmin] px-[5cqmin]">
+        <p className={`${CQ.key} text-[#111]`}>+{jobs.length} more</p>
+        <p className={`${CQ.text} font-semibold text-omega-stone truncate max-w-full`}>{usdShort(contract)} contract</p>
+        <p className={`${CQ.text} font-semibold text-omega-stone truncate max-w-full`}>{usdShort(spent)} committed</p>
+      </div>
     </div>
   );
 }
@@ -829,38 +845,7 @@ export default function ProjectsSlide({ data }) {
       : `${pctText} of contract${totals.noContract && totals.costWithoutContract ? ' · signed jobs only' : ' value'}`;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-5">
-      <div className="grid grid-cols-4 gap-4 flex-shrink-0">
-        <StatTile
-          icon={HardHat}
-          label="Jobs in progress"
-          value={totals.count}
-          sub={statusBits.length ? statusBits.join(' · ') : 'all within budget'}
-        />
-        <StatTile
-          icon={FileSignature}
-          label="Contract value"
-          value={totals.contracted ? totals.contractTotal : null}
-          format={usdShort}
-          sub={totals.contracted ? plural(totals.contracted, 'signed contract', 'signed contracts') : 'no signed contracts'}
-        />
-        <StatTile
-          icon={Wallet}
-          label="Committed cost"
-          value={totals.cost}
-          format={usdShort}
-          sub={costSub || 'nothing committed yet'}
-        />
-        <StatTile
-          icon={totals.margin != null && totals.margin < 0 ? TrendingDown : TrendingUp}
-          label="Projected margin"
-          value={totals.margin}
-          format={usdShort}
-          sub={marginSub}
-          tone={noSubsYet ? undefined : marginTone(totals.marginRatio)}
-        />
-      </div>
-
+    <div className="flex-1 min-h-0 flex flex-col gap-4">
       <section className="flex-1 min-h-0 flex flex-col">
         <SectionTitle title="Cost vs contract">
           <Legend />
@@ -878,6 +863,63 @@ export default function ProjectsSlide({ data }) {
           {overflow && <MoreCard jobs={rest} />}
         </div>
       </section>
+
+      {/* Company totals — a quiet strip under the cards: the jobs are the
+          story, these are context. */}
+      <div className={`${CARD} grid grid-cols-4 divide-x divide-black/[0.06] py-3 flex-shrink-0`}>
+        <TotalItem
+          icon={HardHat}
+          label="Jobs in progress"
+          value={totals.count}
+          sub={statusBits.length ? statusBits.join(' · ') : 'all within budget'}
+        />
+        <TotalItem
+          icon={FileSignature}
+          label="Contract value"
+          value={totals.contracted ? totals.contractTotal : null}
+          format={usdShort}
+          sub={totals.contracted ? plural(totals.contracted, 'signed contract', 'signed contracts') : 'no signed contracts'}
+        />
+        <TotalItem
+          icon={Wallet}
+          label="Committed cost"
+          value={totals.cost}
+          format={usdShort}
+          sub={costSub || 'nothing committed yet'}
+        />
+        <TotalItem
+          icon={totals.margin != null && totals.margin < 0 ? TrendingDown : TrendingUp}
+          label="Projected margin"
+          value={totals.margin}
+          format={usdShort}
+          sub={marginSub}
+          tone={noSubsYet ? undefined : marginTone(totals.marginRatio)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// One segment of the totals strip: small icon, caps label, then the number
+// (medium weight, not hero) with its explanation on the same line.
+function TotalItem({ icon: Icon, label, value, format, sub, tone }) {
+  const t = tone ? TONE[tone] : null;
+  return (
+    <div className="flex items-center gap-4 min-w-0 px-6">
+      <span className={`w-[clamp(32px,4.4vh,46px)] h-[clamp(32px,4.4vh,46px)] rounded-xl flex items-center justify-center flex-shrink-0 ${t ? `${t.bg} ${t.text}` : 'bg-omega-cloud text-omega-slate'}`}>
+        <Icon className="w-1/2 h-1/2" strokeWidth={2.25} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className={`${T.eyebrow} leading-tight truncate`}>{label}</p>
+        <p className="flex items-baseline gap-3 min-w-0 leading-tight">
+          <CountUp
+            value={value}
+            format={format}
+            className={`font-bold tabular-nums whitespace-nowrap text-[clamp(18px,2.6vh,28px)] ${t ? t.text : 'text-[#111]'}`}
+          />
+          {sub && <span className={`${T.meta} truncate min-w-0`}>{sub}</span>}
+        </p>
+      </div>
     </div>
   );
 }
