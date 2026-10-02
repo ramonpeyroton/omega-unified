@@ -417,10 +417,10 @@ const WHEN = { late: 'text-rose-600', warn: 'text-amber-600', info: 'text-indigo
 
 function PersonRow({ p }) {
   return (
-    <div className="flex items-center gap-[0.55em] min-w-0 h-[1.75em] text-[clamp(14px,2.15vh,24px)]">
-      <span className={`w-[0.5em] h-[0.5em] rounded-full flex-shrink-0 ${DOT[p.tone]}`} />
-      <span className="flex-1 min-w-0 truncate font-bold text-[#111] leading-tight">{p.name}</span>
-      {p.when && <span className={`flex-shrink-0 font-extrabold tabular-nums leading-tight ${WHEN[p.tone]}`}>{p.when}</span>}
+    <div className="flex items-center gap-[0.45em] min-w-0 h-[1.3em] text-[clamp(15px,2.4vh,29px)]">
+      <span className={`w-[0.4em] h-[0.4em] rounded-full flex-shrink-0 ${DOT[p.tone]}`} />
+      <span className="flex-1 min-w-0 truncate font-medium text-[#111] leading-tight tracking-tight">{p.name}</span>
+      {p.when && <span className={`flex-shrink-0 text-[0.8em] font-semibold tabular-nums leading-tight ${WHEN[p.tone]}`}>{p.when}</span>}
     </div>
   );
 }
@@ -452,7 +452,9 @@ function StageTile({ label, icon: Icon, hex, count, chips, segments, people, hig
           <Count value={count} />
         </p>
       </div>
-      {segments.length > 0 && <div className="px-6 pt-2.5"><HealthBar segments={segments} /></div>}
+      {/* Same spacing in every tile: tiles without a health bar keep an
+          empty one so their lists start at the same height. */}
+      <div className={`px-6 pt-2.5 ${segments.length ? "" : "invisible"}`}><HealthBar segments={segments} /></div>
 
       <div className="relative flex-1 min-h-0 px-6 pt-2 pb-3 flex flex-col">
         {people.length ? (
