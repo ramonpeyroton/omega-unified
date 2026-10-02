@@ -1,836 +1,268 @@
-// TV dashboard (built for 1920×1080) — the sales side of the pipeline as a
-// flow: Leads (New Lead → Visited) and Estimates (Draft → Approved), one
-// tile per column with its card count, what those cards are waiting on,
-// and an on-time/late health bar (same time-in-stage rules as the Kanban
-// cards, see stageAge.js). Below: 3 KPIs (visit → approval conversion +
-// average time, oldest card). Right: a compact Snapshot (total cards in
-// Disqualified / Lost, each with a small trend) over today's Agenda, then
-// Bills to pay. Layout
-// follows Ramon's mockup (Sep/26). Lives in Ramon's Marketing app at /tv
-// for the office TV. No money on purpose (Ramon dropped the $ KPI).
-// Refreshes every minute + on any jobs change.
+// Office TV (1920×1080) — a slideshow, one area of the company per slide,
+// 40 s each: Sales pipeline → This month's calendar → Projects (cost vs
+// contract) → Receivables → Bills to pay. Lives in Ramon's Marketing app at
+// /tv. Only the office team sees this screen, so money is shown.
+//
+// The slides live in ./tv/ and share one look through ./tv/tvKit.jsx. This
+// file is just the shell: header (logo, slide title, dots, clock), the 40 s
+// progress bar, keyboard control, data refresh for every slide (each minute
+// + realtime), and live toasts when something good happens (new lead,
+// estimate approved, payment received, bill paid).
+//
+// Keys: → / ← next / previous · Space or Enter pause · 1-5 jump to a slide.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ArrowLeft, Maximize2, ChevronRight, UserPlus, PhoneCall, CalendarDays, BadgeCheck,
-  FileText, Send, Handshake, FileCheck2, X, BarChart3, Clock, HelpCircle,
-  Building2, Zap, ShieldCheck, Cpu, Car, Megaphone, Landmark, Briefcase, Package,
-  Plus, ArrowRight,
+  ArrowLeft, Maximize2, Pause, Play, UserPlus, PartyPopper, HandCoins,
+  CheckCircle2, HardHat,
 } from 'lucide-react';
 import logoImg from '../../../assets/logo.png';
 import { supabase } from '../../../shared/lib/supabase';
-import { PIPELINE_COLORS, PIPELINE_STEP_LABEL, OFF_BOARD_STAGES } from '../../../shared/config/phaseBreakdown';
-import { stageAge, resolveVisit, useNow, nyDateKey, nyMidnightMs, formatNyTime } from '../../../shared/lib/stageAge';
-import { lostReasonLabel } from '../../receptionist/lib/leadCatalog';
-import { loadUpcomingBills, categoryLabel, daysUntilDue } from '../../../shared/lib/bills';
-import { EVENT_KIND_META } from '../../../shared/lib/calendar';
+import { useNow, formatNyTime } from '../../../shared/lib/stageAge';
+import { TZ, ORANGE, usd, toMs } from './tv/tvKit';
+import * as Sales from './tv/SalesSlide';
+import * as Calendar from './tv/CalendarSlide';
+import * as Projects from './tv/ProjectsSlide';
+import * as Receivables from './tv/ReceivablesSlide';
+import * as Bills from './tv/BillsSlide';
 
-// Icon per bill category — mirrors BILL_CATEGORIES in src/shared/lib/bills.js.
-const BILL_CATEGORY_ICON = {
-  rent:         Building2,
-  utilities:    Zap,
-  insurance:    ShieldCheck,
-  software:     Cpu,
-  vehicle:      Car,
-  marketing:    Megaphone,
-  taxes:        Landmark,
-  professional: Briefcase,
-  supplies:     Package,
-  other:        FileText,
-};
-
-function dueChip(days) {
-  if (days < 0)       return { label: `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} late`, tone: 'bg-red-100 text-red-700' };
-  if (days === 0)     return { label: 'due today',                                                    tone: 'bg-red-100 text-red-700' };
-  if (days <= 7)      return { label: `${days} day${days === 1 ? '' : 's'} left`,                     tone: 'bg-amber-100 text-amber-700' };
-  if (days <= 30)     return { label: `${days} days left`,                                            tone: 'bg-emerald-100 text-emerald-700' };
-  return { label: `${days} days left`, tone: 'bg-gray-100 text-gray-600' };
-}
-
-function billDueLabel(dueDateISO) {
-  const d = new Date(dueDateISO + 'T12:00:00');
-  return 'Due ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function billAmountLabel(amount) {
-  if (amount == null) return '—';
-  const n = Number(amount);
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 });
-}
-
+const SLIDES = [Sales, Calendar, Projects, Receivables, Bills];
+const SLIDE_MS = 40_000;
 const REFRESH_MS = 60_000;
-const DAY_MS = 86_400_000;
-const TZ = 'America/New_York';
-const ORANGE = '#E8732A';
-const KPI_WINDOW_DAYS = 90; // conversion + average time look back this far
+const TOAST_MS = 9_000;
+const FRESH_MS = 5 * 60_000; // a realtime update only "counts" if this recent
 
-// The two flows on the TV, in Kanban order.
-const SECTIONS = [
-  { key: 'leads',     title: 'Leads',     stages: ['new_lead', 'contacted', 'visit_scheduled', 'visited'] },
-  { key: 'estimates', title: 'Estimates', stages: ['estimate_draft', 'estimate_sent', 'estimate_negotiating', 'estimate_approved'] },
-];
-const BOARD_STAGES = SECTIONS.flatMap((s) => s.stages);
+// ─── Slide timer + progress bar ──────────────────────────────────────
+// Owns its own rAF loop and writes the bar width straight to the DOM, so
+// the slide underneath doesn't re-render 60×/s. Remounted per slide.
+function SlideTimer({ paused, onDone }) {
+  const barRef = useRef(null);
+  const elapsedRef = useRef(0);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
 
-// Per column: short label (the "Estimate" prefix is redundant inside the
-// Estimates flow), icon, and the line under the number (singular/plural).
-const STAGE_META = {
-  new_lead:             { icon: UserPlus,     one: 'waiting for first contact',          many: 'waiting for first contact' },
-  contacted:            { icon: PhoneCall,    one: 'waiting for a visit to be scheduled', many: 'waiting for a visit to be scheduled' },
-  visit_scheduled:      { icon: CalendarDays, one: 'visit booked on the calendar',       many: 'visits booked on the calendar' },
-  visited:              { icon: BadgeCheck,   one: 'visited, waiting for an estimate',   many: 'visited, waiting for an estimate' },
-  estimate_draft:       { icon: FileText,     short: 'Draft',       one: 'estimate being prepared', many: 'estimates being prepared' },
-  estimate_sent:        { icon: Send,         short: 'Sent',        one: 'waiting for the client’s answer', many: 'waiting for the client’s answer' },
-  estimate_negotiating: { icon: Handshake,    short: 'Negotiating', one: 'estimate in negotiation', many: 'estimates in negotiation' },
-  estimate_approved:    { icon: FileCheck2,   short: 'Approved',    one: 'approved, contract not sent yet', many: 'approved, contract not sent yet' },
+  useEffect(() => {
+    let raf;
+    let last = performance.now();
+    const tick = (t) => {
+      const dt = t - last;
+      last = t;
+      if (!pausedRef.current) elapsedRef.current += dt;
+      const p = Math.min(1, elapsedRef.current / SLIDE_MS);
+      if (barRef.current) barRef.current.style.width = `${p * 100}%`;
+      if (p >= 1) { doneRef.current(); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="absolute left-0 right-0 bottom-0 h-[5px] bg-black/[0.04]">
+      <div ref={barRef} className={`h-full ${paused ? 'bg-omega-fog' : 'bg-omega-orange'}`} style={{ width: 0 }} />
+    </div>
+  );
+}
+
+// ─── Live toasts ─────────────────────────────────────────────────────
+// Realtime events worth a moment of attention on the TV. Best-effort: a
+// table only streams if it's in the supabase_realtime publication
+// (jobs is; migrations/082 adds bills + payment_milestones).
+const TOAST_LOOK = {
+  lead:     { icon: UserPlus,     ring: 'bg-indigo-500',  label: 'New lead' },
+  approved: { icon: PartyPopper,  ring: 'bg-omega-orange',label: 'Estimate approved', confetti: true },
+  started:  { icon: HardHat,      ring: 'bg-emerald-500', label: 'New job in progress', confetti: true },
+  payment:  { icon: HandCoins,    ring: 'bg-emerald-500', label: 'Payment received', confetti: true },
+  billPaid: { icon: CheckCircle2, ring: 'bg-slate-700',   label: 'Bill paid' },
 };
 
-// "Oldest in pipeline" subtitle — where that card is stuck.
-const STUCK_LABEL = {
-  new_lead:             'new lead (no contact)',
-  contacted:            'contacted (no visit)',
-  visit_scheduled:      'visit scheduled',
-  visited:              'visited (no estimate)',
-  estimate_draft:       'draft (not sent)',
-  estimate_sent:        'sent (no answer)',
-  estimate_negotiating: 'in negotiation',
-  estimate_approved:    'approved (not sent)',
-};
-
-// Stages where stageAge() has warn/late rules → "3 late · 2 almost late".
-const TIMED_STAGES = new Set([
-  'new_lead', 'contacted', 'visited', 'estimate_draft', 'estimate_sent', 'estimate_negotiating',
-]);
-
-const CHIP_TONE = {
-  late:  'bg-rose-50 text-rose-600',
-  warn:  'bg-amber-50 text-amber-600',
-  ok:    'bg-emerald-50 text-emerald-600',
-  info:  'bg-indigo-50 text-indigo-600',
-  muted: 'bg-omega-cloud text-omega-slate border border-black/[0.06]',
-};
-const BAR_TONE = { ok: 'bg-emerald-500', info: 'bg-indigo-500', warn: 'bg-amber-400', late: 'bg-rose-500' };
-
-function toMs(v) {
-  const t = v ? new Date(v).getTime() : NaN;
-  return Number.isFinite(t) ? t : null;
+function isFresh(iso) {
+  const t = toMs(iso);
+  return t != null && Date.now() - t < FRESH_MS;
 }
 
-// First day of the month `back` months before the month of `key` ('YYYY-MM-DD').
-function monthKey(key, back = 0) {
-  const [y, m] = key.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 - back, 1));
-  return d.toISOString().slice(0, 10);
-}
+function useLiveToasts() {
+  const [queue, setQueue] = useState([]);
+  const seen = useRef(new Set());
 
-function plural(n, one, many) {
-  return `${n} ${n === 1 ? one : many}`;
-}
+  const push = useCallback((key, toast) => {
+    if (seen.current.has(key)) return;
+    seen.current.add(key);
+    setQueue((q) => [...q, { id: key, ...toast }]);
+  }, []);
 
-function topReason(rows) {
-  const counts = {};
-  rows.forEach((r) => { if (r.lost_reason) counts[r.lost_reason] = (counts[r.lost_reason] || 0) + 1; });
-  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-  return best ? lostReasonLabel(best[0]) : null;
-}
-
-// .in() in chunks so the URL stays short on big lists.
-async function selectIn(table, columns, column, ids, build = (q) => q) {
-  const rows = [];
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data, error } = await build(supabase.from(table).select(columns).in(column, ids.slice(i, i + 150)));
-    if (error) throw error;
-    rows.push(...(data || []));
-  }
-  return rows;
-}
-
-// ─── Data ───────────────────────────────────────────────────────────
-
-const HOUR_MS = 3_600_000;
-
-// NY calendar day after `key` ('YYYY-MM-DD'). Jumping 30h from midnight
-// lands safely inside the next day even across a DST switch.
-function nextDayKey(key) {
-  return nyDateKey(nyMidnightMs(key) + 30 * HOUR_MS);
-}
-
-// Calendar events for today + tomorrow (NY), for the Agenda column.
-async function loadAgenda(now) {
-  const todayKey = nyDateKey(now);
-  const from = nyMidnightMs(todayKey);
-  const to = nyMidnightMs(nextDayKey(nextDayKey(todayKey)));
-  const { data, error } = await supabase
-    .from('calendar_events')
-    .select('id, title, starts_at, kind, visit_status, location')
-    .gte('starts_at', new Date(from).toISOString())
-    .lt('starts_at', new Date(to).toISOString())
-    .order('starts_at', { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-// Only the board query is required; everything else degrades to "—".
-async function loadTvData() {
-  const now = Date.now();
-
-  const [boardRes, offRes] = await Promise.all([
-    supabase
-      .from('jobs')
-      .select('id, pipeline_status, stage_entered_at, last_touch_at, preferred_visit_date, preferred_visit_time')
-      .eq('in_pipeline', true),
-    supabase
-      .from('jobs')
-      .select('pipeline_status, lost_reason, stage_entered_at')
-      .in('pipeline_status', [...OFF_BOARD_STAGES]),
-  ]);
-  if (boardRes.error) throw boardRes.error;
-  const board = boardRes.data || [];
-
-  // Sales visits for the Visit Scheduled cards (same source as the Kanban).
-  const visitTimes = {};
-  const visitIds = board.filter((j) => j.pipeline_status === 'visit_scheduled').map((j) => j.id);
-  try {
-    const ev = await selectIn('calendar_events', 'job_id, starts_at, visit_status', 'job_id', visitIds,
-      (q) => q.eq('kind', 'sales_visit').order('starts_at', { ascending: true }));
-    for (const e of ev) {
-      if (!e.job_id || e.visit_status === 'cancelled') continue;
-      const t = toMs(e.starts_at);
-      if (t != null) (visitTimes[e.job_id] ||= []).push(t);
-    }
-  } catch { /* cards fall back to preferred_visit_date */ }
-
-  const funnel = await loadVisitFunnel(now);
-
-  return {
-    board,
-    visitTimes,
-    offBoard: offRes.error ? null : offRes.data || [],
-    funnel,
-    loadedAt: now,
-  };
-}
-
-// Jobs with a sales visit in the last KPI_WINDOW_DAYS: how many got an
-// estimate approved/signed, and how long that took from the first visit.
-async function loadVisitFunnel(now) {
-  try {
-    const { data: ev, error } = await supabase
-      .from('calendar_events')
-      .select('job_id, starts_at, visit_status')
-      .eq('kind', 'sales_visit')
-      .gte('starts_at', new Date(now - KPI_WINDOW_DAYS * DAY_MS).toISOString())
-      .lte('starts_at', new Date(now).toISOString());
-    if (error) throw error;
-    const firstVisit = {};
-    for (const e of ev || []) {
-      const t = toMs(e.starts_at);
-      if (!e.job_id || e.visit_status === 'cancelled' || t == null) continue;
-      if (!(firstVisit[e.job_id] <= t)) firstVisit[e.job_id] = t;
-    }
-    const ids = Object.keys(firstVisit);
-    if (!ids.length) return { visited: 0, approved: 0, avgDays: null };
-
-    const ests = await selectIn('estimates', 'job_id, status, approved_at, signed_at', 'job_id', ids,
-      (q) => q.in('status', ['approved', 'signed']));
-    const approvedAt = {};
-    for (const e of ests) {
-      const t = toMs(e.approved_at) ?? toMs(e.signed_at);
-      if (!(e.job_id in approvedAt) || (t != null && (approvedAt[e.job_id] == null || t < approvedAt[e.job_id]))) {
-        approvedAt[e.job_id] = t;
-      }
-    }
-    const spans = Object.entries(approvedAt)
-      .map(([id, t]) => (t == null ? null : (t - firstVisit[id]) / DAY_MS))
-      .filter((d) => d != null && d >= 0);
-    return {
-      visited: ids.length,
-      approved: Object.keys(approvedAt).length,
-      avgDays: spans.length ? spans.reduce((a, d) => a + d, 0) / spans.length : null,
-    };
-  } catch { return null; }
-}
-
-// ─── View model ─────────────────────────────────────────────────────
-// Health of one column: chips for the footer + bar segments ({ tone, n }).
-function stageHealth(status, jobs, { now, todayKey, visitTimes }) {
-  if (!jobs.length) return { chips: [], segments: [], late: 0 };
-
-  if (status === 'visit_scheduled') {
-    let today = 0, past = 0, noDate = 0;
-    jobs.forEach((j) => {
-      const v = resolveVisit(j, visitTimes[j.id], now);
-      if (!v) noDate++;
-      else if (v.dateKey === todayKey) today++;
-      else if (v.dateKey < todayKey) past++;
-    });
-    const upcoming = jobs.length - today - past - noDate;
-    return {
-      late: past,
-      segments: [{ tone: 'ok', n: upcoming }, { tone: 'info', n: today }, { tone: 'warn', n: noDate }, { tone: 'late', n: past }],
-      chips: [
-        past && { tone: 'late', text: `${past} late` },
-        today && { tone: 'info', text: `${today} today` },
-        noDate && { tone: 'warn', text: `${noDate} no date` },
-        !past && !today && !noDate && { tone: 'ok', text: 'All upcoming' },
-      ].filter(Boolean),
-    };
-  }
-
-  if (TIMED_STAGES.has(status)) {
-    let late = 0, warn = 0;
-    jobs.forEach((j) => {
-      const tone = stageAge(j, { now })?.tone;
-      if (tone === 'late') late++;
-      else if (tone === 'warn') warn++;
-    });
-    return {
-      late,
-      segments: [{ tone: 'ok', n: jobs.length - late - warn }, { tone: 'warn', n: warn }, { tone: 'late', n: late }],
-      chips: !late && !warn
-        ? [{ tone: 'ok', text: 'All on time' }]
-        : [
-          late && { tone: 'late', text: `${late} late` },
-          warn && { tone: 'warn', text: `${warn} almost late` },
-        ].filter(Boolean),
-    };
-  }
-
-  // Estimate Approved has no time rule — the oldest card still tells a story.
-  const oldest = Math.max(...jobs.map((j) => now - (toMs(j.stage_entered_at) ?? now)));
-  const days = Math.floor(oldest / DAY_MS);
-  return {
-    late: 0,
-    segments: [],
-    chips: [{ tone: 'muted', icon: Clock, text: `Oldest: ${days ? plural(days, 'day', 'days') : 'today'}` }],
-  };
-}
-
-function buildView(data, now) {
-  const todayKey = nyDateKey(now);
-
-  const byStage = Object.fromEntries(BOARD_STAGES.map((s) => [s, []]));
-  (data?.board || []).forEach((j) => {
-    if (byStage[j.pipeline_status]) byStage[j.pipeline_status].push(j);
-    else if (!PIPELINE_STEP_LABEL[j.pipeline_status]) byStage.new_lead.push(j); // unknown → New Lead, like the Kanban
-  });
-
-  let totalLate = 0;
-  const sections = SECTIONS.map((section) => {
-    let open = 0, late = 0;
-    const tiles = section.stages.map((status) => {
-      const jobs = byStage[status];
-      const health = data
-        ? stageHealth(status, jobs, { now, todayKey, visitTimes: data.visitTimes })
-        : { chips: [], segments: [], late: 0 };
-      open += jobs.length;
-      late += health.late;
-      const meta = STAGE_META[status];
-      return {
-        key: status,
-        label: meta.short || PIPELINE_STEP_LABEL[status],
-        icon: meta.icon,
-        hex: PIPELINE_COLORS[status]?.hex,
-        count: data ? jobs.length : null,
-        text: data ? (jobs.length === 1 ? meta.one : meta.many) : '',
-        chips: health.chips,
-        segments: health.segments,
-        // Draft is Omega's own backlog — call it out when it's running late.
-        highlight: status === 'estimate_draft' && health.late > 0,
-      };
-    });
-    totalLate += late;
-    return { ...section, tiles, open: data ? open : null, late };
-  });
-
-  // Snapshot — Disqualified + Lost totals with small monthly trend bars
-  // (oldest → newest).
-  const offBoard = data?.offBoard;
-  const offTile = (status, text, icon) => {
-    const rows = offBoard ? offBoard.filter((r) => r.pipeline_status === status) : null;
-    const byMonth = rows
-      ? Array.from({ length: 6 }, (_, i) => {
-        const from = nyMidnightMs(monthKey(todayKey, 5 - i));
-        const to = i === 5 ? Infinity : nyMidnightMs(monthKey(todayKey, 4 - i));
-        return rows.filter((r) => { const t = toMs(r.stage_entered_at) ?? 0; return t >= from && t < to; });
+  useEffect(() => {
+    const jobsChan = supabase
+      .channel('tv-live-jobs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jobs' }, ({ new: j }) => {
+        if (!j || ['import', 'legacy_import'].includes((j.created_by || '').trim())) return;
+        push(`lead:${j.id}`, {
+          type: 'lead',
+          title: j.client_name || 'New client',
+          text: [j.lead_source, j.city].filter(Boolean).join(' · '),
+        });
       })
-      : null;
-    // The big number is every card sitting in that column, all-time.
-    // The trend bars still show when cards landed there (last 6 months).
-    const reason = rows ? topReason(rows) : null;
-    const hex = PIPELINE_COLORS[status]?.hex;
-    return {
-      key: status,
-      label: PIPELINE_STEP_LABEL[status],
-      labelColor: status === 'estimate_rejected' ? hex : null,
-      icon,
-      iconBg: hex,
-      tag: 'Total',
-      hex,
-      count: rows ? rows.length : null,
-      text: rows ? `${rows.length === 1 ? 'lead' : 'leads'} ${text}` : '',
-      trend: byMonth ? byMonth.map((m) => m.length) : null,
-      chips: reason ? [{ tone: 'muted', text: `Top reason: ${reason}` }] : [],
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jobs' }, ({ new: j }) => {
+        if (!j || !isFresh(j.stage_entered_at)) return;
+        if (j.pipeline_status === 'estimate_approved') {
+          push(`approved:${j.id}`, { type: 'approved', title: j.client_name || 'Client', text: j.service || '' });
+        } else if (j.pipeline_status === 'in_progress') {
+          push(`started:${j.id}`, { type: 'started', title: j.client_name || 'Client', text: j.service || '' });
+        }
+      })
+      .subscribe();
+
+    const billsChan = supabase
+      .channel('tv-live-bills')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills' }, ({ new: b }) => {
+        if (!b || b.status !== 'paid' || !isFresh(b.paid_at)) return;
+        push(`bill:${b.id}`, { type: 'billPaid', title: b.label, text: usd(b.paid_amount ?? b.amount) });
+      })
+      .subscribe();
+
+    const payChan = supabase
+      .channel('tv-live-payments')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'payment_milestones' }, async ({ new: m }) => {
+        if (!m || !(Number(m.received_amount) > 0) || !isFresh(m.received_at)) return;
+        let client = '';
+        if (m.job_id) {
+          const { data } = await supabase.from('jobs').select('client_name').eq('id', m.job_id).maybeSingle();
+          client = data?.client_name || '';
+        }
+        push(`pay:${m.id}:${m.received_amount}`, {
+          type: 'payment',
+          title: usd(m.received_amount),
+          text: [client, m.label].filter(Boolean).join(' · '),
+        });
+      })
+      .subscribe();
+
+    return () => {
+      [jobsChan, billsChan, payChan].forEach((c) => supabase.removeChannel(c));
     };
-  };
+  }, [push]);
 
-  const side = [
-    offTile('disqualified', 'disqualified', X),
-    offTile('estimate_rejected', 'lost', X),
-  ];
+  // Show one at a time.
+  const current = queue[0] || null;
+  useEffect(() => {
+    if (!current) return undefined;
+    const t = setTimeout(() => setQueue((q) => q.slice(1)), TOAST_MS);
+    return () => clearTimeout(t);
+  }, [current]);
 
-  // Bottom KPIs.
-  let oldest = null;
-  BOARD_STAGES.forEach((status) => byStage[status].forEach((j) => {
-    const since = toMs(j.stage_entered_at);
-    if (since != null && (!oldest || since < oldest.since)) oldest = { since, status };
-  }));
-  const funnel = data?.funnel;
-  const oldestDays = oldest ? Math.floor((now - oldest.since) / DAY_MS) : null;
-  const kpis = [
-    {
-      key: 'conversion', icon: BarChart3, label: 'Conversion rate',
-      value: funnel?.visited ? `${Math.round((funnel.approved / funnel.visited) * 100)}%` : '—',
-      sub: 'visits → approved', help: `Jobs with a sales visit in the last ${KPI_WINDOW_DAYS} days that got an estimate approved.`,
-    },
-    {
-      key: 'avg', icon: Clock, label: 'Average time',
-      value: funnel?.avgDays != null ? plural(Math.round(funnel.avgDays), 'day', 'days') : '—',
-      sub: 'visit → approval',
-    },
-    {
-      key: 'oldest', icon: CalendarDays, label: 'Oldest in pipeline',
-      value: oldestDays != null ? plural(oldestDays, 'day', 'days') : '—',
-      sub: oldest ? STUCK_LABEL[oldest.status] : '',
-    },
-  ];
-
-  return { sections, side, kpis, totalLate };
+  return current;
 }
 
-// ─── UI ─────────────────────────────────────────────────────────────
-function Chip({ tone, text, icon: Icon, dot }) {
+// A short burst of brand-colored confetti behind celebratory toasts.
+const CONFETTI_COLORS = [ORANGE, '#10B981', '#6366F1', '#F59E0B', '#F43F5E'];
+function Confetti() {
+  const bits = useMemo(() => Array.from({ length: 36 }, (_, i) => ({
+    x: (i % 2 ? 1 : -1) * (40 + ((i * 53) % 320)),
+    y: -(120 + ((i * 97) % 260)),
+    r: (i * 67) % 360,
+    c: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    d: 0.9 + ((i * 13) % 10) / 20,
+  })), []);
   return (
-    <span className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full font-bold leading-tight text-[clamp(12px,1.7vh,18px)] ${CHIP_TONE[tone]}`}>
-      {Icon
-        ? <Icon className="w-[1.1em] h-[1.1em] flex-shrink-0" strokeWidth={2.5} />
-        : (tone !== 'muted' || dot) && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${tone === 'muted' ? 'bg-omega-stone' : 'bg-current'}`} />}
-      {text}
-    </span>
-  );
-}
-
-// Segmented bar: one slice per health bucket, sized by card count.
-function HealthBar({ segments }) {
-  const total = segments.reduce((a, s) => a + s.n, 0);
-  if (!total) return <div className="h-2 w-full rounded-full bg-black/[0.06]" />;
-  return (
-    <div className="flex h-2 w-full rounded-full overflow-hidden bg-black/[0.06]">
-      {segments.filter((s) => s.n > 0).map((s) => (
-        <div key={s.tone} className={`${BAR_TONE[s.tone]} h-full transition-all duration-700`} style={{ width: `${(s.n / total) * 100}%` }} />
-      ))}
-    </div>
-  );
-}
-
-function StageTile({ label, icon: Icon, hex, count, text, chips, segments, highlight }) {
-  const color = highlight ? ORANGE : hex;
-  return (
-    <div
-      className={`relative flex-1 min-w-0 rounded-3xl bg-white shadow-card overflow-hidden flex flex-col ${
-        highlight ? 'border-2 border-omega-orange' : 'border border-black/[0.05]'
-      }`}
-    >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ background: `linear-gradient(180deg, ${color}${highlight ? '24' : '14'} 0%, ${color}00 75%)` }}
-      />
-      <div className="relative px-7 pt-6 flex items-center gap-3">
-        <Icon className="w-[clamp(20px,3vh,32px)] h-[clamp(20px,3vh,32px)] flex-shrink-0" style={{ color }} strokeWidth={2.25} />
-        <p className="font-extrabold uppercase tracking-wide truncate text-[clamp(14px,2vh,22px)]" style={{ color }}>
-          {label}
-        </p>
-      </div>
-      <div className="relative flex-1 min-h-0 px-7 pb-5 flex flex-col">
-        <p className={`mt-1 font-black tabular-nums leading-none tracking-tight text-[clamp(48px,10vh,112px)] ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
-          {count ?? '—'}
-        </p>
-        <p className="mt-2 text-omega-slate font-medium leading-snug line-clamp-2 text-[clamp(13px,2vh,21px)]">{text}</p>
-        <div className="mt-auto pt-3 space-y-3">
-          {segments.length > 0 && <HealthBar segments={segments} />}
-          {chips.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {chips.map((c) => <Chip key={c.text} {...c} />)}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Little bar trend — last bar (today / this month) in full color.
-function TrendBars({ values, hex }) {
-  if (!values) return null;
-  const max = Math.max(1, ...values);
-  return (
-    <div className="flex items-end gap-[clamp(3px,0.5vh,6px)] h-[clamp(28px,5.5vh,60px)] flex-shrink-0">
-      {values.map((v, i) => (
-        <div
+    <div className="absolute left-1/2 top-1/2 pointer-events-none">
+      {bits.map((b, i) => (
+        <motion.span
           key={i}
-          className="w-[clamp(5px,0.9vh,10px)] rounded-full"
-          style={{
-            height: `${Math.max(22, (v / max) * 100)}%`,
-            background: hex,
-            opacity: i === values.length - 1 ? 1 : 0.3,
-          }}
+          className="absolute w-3 h-5 rounded-sm"
+          style={{ background: b.c }}
+          initial={{ x: 0, y: 0, rotate: 0, opacity: 1 }}
+          animate={{ x: b.x, y: [0, b.y, b.y + 260], rotate: b.r + 360, opacity: [1, 1, 0] }}
+          transition={{ duration: 2.2 * b.d, ease: 'easeOut' }}
         />
       ))}
     </div>
   );
 }
 
-// `compact` = shorter tile with no chips, so Snapshot only takes the top of
-// its column and the Agenda gets the rest.
-function SideTile({ label, labelColor, icon: Icon, iconBg, tag, hex, count, text, trend, chips, compact = false }) {
+function LiveToast({ toast }) {
   return (
-    <div className={`rounded-3xl bg-white shadow-card border border-black/[0.05] flex flex-col justify-center ${compact ? 'flex-shrink-0 px-6 py-4' : 'flex-1 min-h-0 px-7 py-5'}`}>
-      <div className="flex items-center gap-3">
-        <span className="w-[clamp(26px,3.6vh,38px)] h-[clamp(26px,3.6vh,38px)] rounded-full flex items-center justify-center flex-shrink-0" style={{ background: iconBg }}>
-          <Icon className="w-3/5 h-3/5 text-white" strokeWidth={3} />
-        </span>
-        <p className="flex-1 font-extrabold uppercase tracking-wide truncate text-[clamp(14px,2vh,22px)]" style={{ color: labelColor || '#111' }}>{label}</p>
-        <span className="flex-shrink-0 rounded-lg px-3 py-1 font-bold uppercase tracking-wide text-[clamp(10px,1.3vh,14px)] bg-omega-cloud text-omega-slate">
-          {tag}
-        </span>
-      </div>
-      <div className={`flex items-end gap-4 ${compact ? 'mt-2' : 'mt-3'}`}>
-        <p className={`font-black tabular-nums leading-none tracking-tight ${compact ? 'text-[clamp(34px,5.8vh,64px)]' : 'text-[clamp(40px,8vh,88px)]'} ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
-          {count ?? '—'}
-        </p>
-        <p className="flex-1 min-w-0 pb-2 text-omega-slate font-medium leading-snug line-clamp-2 text-[clamp(12px,1.9vh,20px)]">{text}</p>
-        <TrendBars values={trend} hex={hex} />
-      </div>
-      {!compact && chips.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {chips.map((c) => <Chip key={c.text} {...c} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function KpiCard({ icon: Icon, label, value, sub, help }) {
-  return (
-    <div className="flex-1 min-w-0 rounded-3xl bg-white shadow-card border border-black/[0.05] px-5 py-5 flex items-center gap-4">
-      <span
-        className="w-[clamp(44px,6.5vh,68px)] h-[clamp(44px,6.5vh,68px)] rounded-2xl flex items-center justify-center flex-shrink-0 bg-omega-cloud text-[#111]"
-      >
-        <Icon className="w-1/2 h-1/2" strokeWidth={2.5} />
-      </span>
-      <div className="min-w-0">
-        <p className="font-bold uppercase tracking-wider text-omega-stone truncate text-[clamp(10px,1.4vh,15px)]">{label}</p>
-        <p className="font-black tabular-nums text-[#111] leading-tight whitespace-nowrap tracking-tight text-[clamp(20px,3.3vh,36px)]">{value}</p>
-        <p className="text-omega-slate font-medium truncate inline-flex items-center gap-2 max-w-full text-[clamp(12px,1.8vh,19px)]">
-          {sub}
-          {help && <HelpCircle className="w-[1em] h-[1em] text-omega-fog flex-shrink-0" title={help} />}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function SectionTitle({ title, children }) {
-  return (
-    <div className="flex items-center gap-4 mb-3 flex-shrink-0">
-      <span className="w-1.5 h-[clamp(20px,3vh,32px)] rounded-full bg-omega-orange flex-shrink-0" />
-      <h2 className="font-black uppercase tracking-wide text-[#111] text-[clamp(18px,2.8vh,30px)]">{title}</h2>
-      <div className="flex-1 h-px bg-black/10" />
-      {children}
-    </div>
-  );
-}
-
-function Flow({ section }) {
-  return (
-    <section className="flex-1 min-h-0 flex flex-col">
-      <SectionTitle title={section.title}>
-        {section.open != null && (
-          <p className="font-semibold text-omega-stone text-[clamp(12px,1.9vh,20px)]">
-            <span className="text-[#111] font-black">{section.open}</span> open
-            {section.late > 0 && <> · <span className="text-rose-600 font-black">{section.late}</span> late</>}
-          </p>
-        )}
-      </SectionTitle>
-      <div className="flex-1 min-h-0 flex items-stretch">
-        {section.tiles.map(({ key, ...tile }, i) => (
-          <div key={key} className="contents">
-            {i > 0 && (
-              <div className="w-[clamp(20px,2.2vw,42px)] flex-shrink-0 flex items-center justify-center text-omega-fog">
-                <ChevronRight className="w-full h-auto" strokeWidth={2.5} />
-              </div>
-            )}
-            <StageTile {...tile} />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ─── Agenda (under Snapshot) ─────────────────────────────────────────
-// What's happening in the field today: visits, job starts, inspections,
-// deliveries — big enough to read from across the office. Events that
-// started over an hour ago drop off; once today runs out, tomorrow's
-// events fill the column under a "Tomorrow" divider.
-
-const AGENDA_MAX = 4;
-
-// Event titles are auto-built as "Client — Kind" (EventForm). The kind
-// already shows in color under the name, so strip it from the title.
-function agendaTitle(title, kindLabel) {
-  let t = (title || '').trim();
-  if (kindLabel) {
-    const suffix = ` — ${kindLabel}`.toLowerCase();
-    const prefix = `${kindLabel} — `.toLowerCase();
-    if (t.toLowerCase().endsWith(suffix)) t = t.slice(0, -suffix.length);
-    else if (t.toLowerCase().startsWith(prefix)) t = t.slice(prefix.length);
-  }
-  t = t.replace(/^visit:\s*/i, '');
-  return t || kindLabel || 'Event';
-}
-
-// "Now" / "In 25 min" / "In 1h 30m" — only for the next couple of hours.
-function agendaTag(startMs, now) {
-  const mins = Math.round((startMs - now) / 60_000);
-  if (mins <= 0) return { text: 'Now', tone: 'bg-omega-orange text-white' };
-  if (mins < 60) return { text: `In ${mins} min`, tone: 'bg-amber-100 text-amber-700' };
-  if (mins < 120) {
-    const m = mins - 60;
-    return { text: m ? `In 1h ${m}m` : 'In 1h', tone: 'bg-amber-100 text-amber-700' };
-  }
-  return null;
-}
-
-function AgendaRow({ ev, now, showTag }) {
-  const meta = EVENT_KIND_META[ev.kind] || { label: 'Event', color: '#6B7280' };
-  const tag = showTag ? agendaTag(ev._ms, now) : null;
-  return (
-    <div className={`flex items-stretch rounded-2xl bg-white shadow-card overflow-hidden flex-shrink-0 ${tag?.text === 'Now' ? 'border-2 border-omega-orange' : 'border border-black/[0.05]'}`}>
-      <span className="w-2 flex-shrink-0" style={{ background: meta.color }} />
-      <div className="flex-1 min-w-0 pl-4 pr-5 py-[clamp(10px,1.5vh,18px)]">
-        <div className="flex items-center justify-between gap-2">
-          <p className="font-black tabular-nums text-[#111] leading-tight whitespace-nowrap text-[clamp(20px,2.8vh,30px)]">
-            {formatNyTime(ev._ms)}
-          </p>
-          {tag && (
-            <span className={`font-bold px-3 py-1 rounded-lg whitespace-nowrap text-[clamp(13px,1.7vh,18px)] ${tag.tone}`}>
-              {tag.text}
-            </span>
-          )}
-        </div>
-        <p className="font-extrabold text-[#111] truncate leading-tight text-[clamp(18px,2.6vh,28px)]">
-          {agendaTitle(ev.title, meta.label)}
-        </p>
-        <p className="font-bold truncate text-[clamp(14px,1.9vh,20px)]" style={{ color: meta.color }}>
-          {meta.label}
-          {ev.location && <span className="text-omega-slate font-medium"> · {ev.location}</span>}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function AgendaPanel({ events, now }) {
-  const todayKey = nyDateKey(now);
-  const tomorrowStart = nyMidnightMs(nextDayKey(todayKey));
-
-  const live = (events || [])
-    .filter((e) => e.visit_status !== 'cancelled')
-    .map((e) => ({ ...e, _ms: toMs(e.starts_at) }))
-    .filter((e) => e._ms != null);
-  const todayAll = live.filter((e) => e._ms < tomorrowStart);
-  const todayLeft = todayAll.filter((e) => e._ms >= now - HOUR_MS);
-  const tomorrow = live.filter((e) => e._ms >= tomorrowStart);
-
-  const shownToday = todayLeft.slice(0, AGENDA_MAX);
-  const shownTomorrow = tomorrow.slice(0, Math.max(0, AGENDA_MAX - shownToday.length));
-  const moreToday = todayLeft.length - shownToday.length;
-
-  return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      <SectionTitle title="Agenda">
-        <span className="font-semibold text-omega-stone whitespace-nowrap text-[clamp(14px,2vh,22px)]">
-          {todayAll.length} today
-        </span>
-      </SectionTitle>
-
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(8px,1.2vh,14px)]">
-        {shownToday.map((ev) => <AgendaRow key={ev.id} ev={ev} now={now} showTag />)}
-
-        {moreToday > 0 && (
-          <p className="text-center font-semibold text-omega-stone flex-shrink-0 text-[clamp(14px,1.9vh,20px)]">
-            + {moreToday} more today
-          </p>
-        )}
-
-        {shownToday.length === 0 && (
-          <p className="font-semibold text-omega-stone flex-shrink-0 text-[clamp(16px,2.2vh,24px)]">
-            {todayAll.length ? 'Nothing else today.' : 'Nothing on the calendar today.'}
-          </p>
-        )}
-
-        {shownTomorrow.length > 0 && (
-          <>
-            <p className="mt-1 font-black uppercase tracking-wide text-omega-slate flex-shrink-0 text-[clamp(13px,1.8vh,19px)]">
-              Tomorrow
-            </p>
-            {shownTomorrow.map((ev) => <AgendaRow key={ev.id} ev={ev} now={now} showTag={false} />)}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Hides every child of a fixed-height list that wouldn't fit whole, so the
-// list fills its column without a half-cut card at the bottom. The list
-// must be `relative` (children measure offsetTop against it). Re-runs when
-// the box resizes or `deps` change.
-function useFitChildren(deps) {
-  const ref = useRef(null);
-  useLayoutEffect(() => {
-    const box = ref.current;
-    if (!box) return undefined;
-    const fit = () => {
-      const limit = box.clientHeight + 1;
-      for (const el of box.children) {
-        el.style.visibility = el.offsetTop + el.offsetHeight <= limit ? '' : 'hidden';
-      }
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(box);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return ref;
-}
-
-// ─── Bills to pay (right-most column on the TV) ──────────────────────
-// Reads the same pending bills Operations sees in Finance → Bills, in
-// due-date order. Read-only on the TV; the header link and the "+ Add
-// bill" button bounce to /finance where Brenda does the actual CRUD.
-function BillsPanel({ bills, onNavigate }) {
-  const nowMs = Date.now();
-  // Show overdue + upcoming — the ones that actually need attention.
-  // Show as many bills as fit whole in the column (see useFitChildren).
-  const visible = bills;
-  const listRef = useFitChildren([visible]);
-
-  return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      {/* Same header as Snapshot / Leads so the three columns read as one board. */}
-      <SectionTitle title="Bills to pay">
-        <button
-          onClick={onNavigate}
-          className="font-semibold text-omega-stone hover:text-omega-orange inline-flex items-center gap-1 text-[clamp(18px,2.4vh,26px)]"
+    <div className="fixed inset-x-0 bottom-[6vh] z-50 flex justify-center pointer-events-none">
+    <AnimatePresence>
+      {toast && (
+        <motion.div
+          key={toast.id}
+          className="relative"
+          initial={{ opacity: 0, y: 60, scale: 0.92 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 40, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 22 }}
         >
-          View all <ArrowRight className="w-[1em] h-[1em]" />
-        </button>
-      </SectionTitle>
-
-      <div ref={listRef} className="relative flex-1 min-h-0 overflow-hidden flex flex-col gap-[clamp(10px,1.4vh,18px)]">
-        {visible.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-omega-stone font-medium text-[clamp(21px,3vh,33px)]">
-            All bills are paid.
-          </div>
-        ) : (
-          visible.map((bill) => {
-            const Icon = BILL_CATEGORY_ICON[bill.category] || FileText;
-            const days = daysUntilDue(bill, nowMs);
-            const chip = dueChip(days);
-            return (
-              <div key={bill.id} className="flex items-center gap-5 px-6 py-[clamp(14px,2vh,24px)] rounded-2xl bg-white shadow-card border border-black/[0.05]">
-                <div className="w-[clamp(54px,7.5vh,81px)] h-[clamp(54px,7.5vh,81px)] rounded-2xl bg-omega-cloud flex items-center justify-center flex-shrink-0 text-omega-stone">
-                  <Icon className="w-1/2 h-1/2" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold uppercase tracking-wider text-omega-stone truncate text-[clamp(15px,2vh,21px)]">
-                    {categoryLabel(bill.category)}
-                  </p>
-                  <p className="font-extrabold text-[#111] truncate leading-tight text-[clamp(21px,3vh,33px)]">
-                    {bill.label}
-                  </p>
-                  <p className="text-omega-slate font-medium whitespace-nowrap text-[clamp(18px,2.4vh,26px)]">
-                    {billDueLabel(bill.due_date)}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                  {/* Readable but deliberately not the loudest thing on the row. */}
-                  <p className="font-semibold text-omega-slate tabular-nums whitespace-nowrap text-[clamp(20px,2.7vh,30px)]">
-                    {billAmountLabel(bill.amount)}
-                  </p>
-                  <span className={`font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap text-[clamp(17px,2.1vh,23px)] ${chip.tone}`}>
-                    {chip.label}
+          {TOAST_LOOK[toast.type]?.confetti && <Confetti />}
+          <div className="relative flex items-center gap-6 rounded-3xl bg-white shadow-2xl border border-black/[0.06] pl-6 pr-10 py-5 min-w-[34vw]">
+            {(() => {
+              const look = TOAST_LOOK[toast.type] || TOAST_LOOK.lead;
+              const Icon = look.icon;
+              return (
+                <>
+                  <span className={`w-[clamp(56px,8vh,84px)] h-[clamp(56px,8vh,84px)] rounded-2xl flex items-center justify-center text-white flex-shrink-0 ${look.ring}`}>
+                    <Icon className="w-1/2 h-1/2" strokeWidth={2.5} />
                   </span>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <button
-        onClick={onNavigate}
-        className="mt-4 w-full py-4 rounded-2xl border-2 border-dashed border-black/[0.12] text-omega-stone hover:text-omega-orange hover:border-omega-orange inline-flex items-center justify-center gap-2 font-semibold transition-colors flex-shrink-0 text-[clamp(20px,2.6vh,27px)]"
-      >
-        <Plus className="w-[1em] h-[1em]" /> Add bill
-      </button>
+                  <div className="min-w-0">
+                    <p className="font-bold uppercase tracking-wider text-omega-stone text-[clamp(13px,1.8vh,19px)]">{look.label}</p>
+                    <p className="font-black text-[#111] leading-tight truncate text-[clamp(26px,4.4vh,48px)]">{toast.title}</p>
+                    {toast.text && <p className="font-medium text-omega-slate truncate text-[clamp(15px,2.2vh,24px)]">{toast.text}</p>}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
     </div>
   );
 }
 
+// ─── Shell ───────────────────────────────────────────────────────────
 export default function PipelineTV() {
   const navigate = useNavigate();
   const now = useNow(15_000);
-  const [data, setData] = useState(null);
-  const [bills, setBills] = useState([]);
-  const [agenda, setAgenda] = useState([]);
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [data, setData] = useState({});
+  const [loadedAt, setLoadedAt] = useState(null);
   const [error, setError] = useState(false);
   const [idle, setIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
+  const toast = useLiveToasts();
 
-  // Load now, every minute, and a beat after any change to jobs, bills or
-  // the calendar.
+  const go = useCallback((i) => setIndex(((i % SLIDES.length) + SLIDES.length) % SLIDES.length), []);
+  const next = useCallback(() => setIndex((i) => (i + 1) % SLIDES.length), []);
+
+  // Load every slide now, every minute, and a beat after any change to the
+  // tables they read. A slide that fails keeps its last good data.
   useEffect(() => {
     let alive = true;
     let debounce;
-    async function load() {
-      try {
-        const [d, bl, ag] = await Promise.all([
-          loadTvData(),
-          loadUpcomingBills({ limit: 12 }).catch(() => []),
-          loadAgenda(Date.now()).catch(() => null),
-        ]);
-        if (alive) {
-          setData(d);
-          setBills(bl);
-          if (ag) setAgenda(ag); // keep the last good agenda on a hiccup
-          setError(false);
-        }
-      } catch {
-        if (alive) setError(true);
-      }
+    async function loadAll() {
+      const results = await Promise.allSettled(SLIDES.map((s) => s.load(Date.now())));
+      if (!alive) return;
+      setData((prev) => {
+        const out = { ...prev };
+        results.forEach((r, i) => { if (r.status === 'fulfilled') out[SLIDES[i].meta.key] = r.value; });
+        return out;
+      });
+      setError(results.some((r) => r.status === 'rejected'));
+      setLoadedAt(Date.now());
     }
     const reloadSoon = () => {
       clearTimeout(debounce);
-      debounce = setTimeout(load, 2000);
+      debounce = setTimeout(loadAll, 2000);
     };
-    load();
-    const iv = setInterval(load, REFRESH_MS);
-    const chans = ['jobs', 'bills', 'calendar_events'].map((table) => supabase
-      .channel(`marketing-tv-${table}`)
+    loadAll();
+    const iv = setInterval(loadAll, REFRESH_MS);
+    const tables = [...new Set(SLIDES.flatMap((s) => s.meta.tables || []))];
+    const chans = tables.map((table) => supabase
+      .channel(`tv-data-${table}`)
       .on('postgres_changes', { event: '*', schema: 'public', table }, reloadSoon)
       .subscribe());
     return () => {
@@ -840,6 +272,18 @@ export default function PipelineTV() {
       chans.forEach((c) => supabase.removeChannel(c));
     };
   }, []);
+
+  // Keyboard / TV remote.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); go(index + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(index - 1); }
+      else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPaused((p) => !p); }
+      else if (/^[1-9]$/.test(e.key) && Number(e.key) <= SLIDES.length) go(Number(e.key) - 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, index]);
 
   // Keep the TV from dimming/sleeping while the page is visible.
   useEffect(() => {
@@ -880,12 +324,12 @@ export default function PipelineTV() {
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
-  const { sections, side, kpis, totalLate } = useMemo(() => buildView(data, now), [data, now]);
-
+  const slide = SLIDES[index];
+  const Slide = slide.default;
   const dateLabel = new Date(now).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' });
-  const updatedLabel = !data
+  const updatedLabel = !loadedAt
     ? (error ? 'Can’t reach the server — retrying…' : 'Loading…')
-    : `${error ? 'Offline · last update' : 'Live · updated'} ${formatNyTime(data.loadedAt)}`;
+    : `${error ? 'Some data offline · updated' : 'Live · updated'} ${formatNyTime(loadedAt)}`;
 
   const exit = () => {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -894,7 +338,7 @@ export default function PipelineTV() {
 
   return (
     <div className={`h-screen w-screen overflow-hidden bg-omega-cloud flex flex-col select-none ${idle ? 'cursor-none' : ''}`}>
-      <header className="flex items-stretch bg-white border-b border-black/[0.06] flex-shrink-0 h-[clamp(64px,9.5vh,104px)]">
+      <header className="relative flex items-stretch bg-white border-b border-black/[0.06] flex-shrink-0 h-[clamp(64px,9.5vh,104px)]">
         {/* Dark logo block with the orange diagonal stripe. */}
         <div className="relative w-[clamp(240px,20vw,400px)] flex-shrink-0 bg-omega-orange [clip-path:polygon(0_0,100%_0,calc(100%-3.2vw)_100%,0_100%)]">
           <div className="absolute inset-0 bg-[#141414] flex items-center pl-[2vw] [clip-path:polygon(0_0,calc(100%-1.5vw)_0,calc(100%-4.7vw)_100%,0_100%)]">
@@ -902,57 +346,86 @@ export default function PipelineTV() {
           </div>
         </div>
 
-        <div className="min-w-0 flex flex-col justify-center pl-[1.5vw]">
-          <p className="text-[#111] font-bold uppercase tracking-[0.25em] text-[clamp(11px,1.5vh,16px)]">Pipeline Today</p>
-          <p className="text-[#111] font-black leading-tight truncate text-[clamp(22px,3.8vh,42px)]">{dateLabel}</p>
+        <div className="min-w-0 flex-1 flex flex-col justify-center pl-[1.5vw]">
+          <p className="text-omega-stone font-bold uppercase tracking-[0.25em] text-[clamp(11px,1.5vh,16px)]">{dateLabel}</p>
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={slide.meta.key}
+              className="text-[#111] font-black leading-tight truncate text-[clamp(22px,3.8vh,42px)]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.35 }}
+            >
+              {slide.meta.title}
+            </motion.p>
+          </AnimatePresence>
         </div>
 
-        <div className="ml-auto flex items-center gap-8 pr-8">
-          {data && (
-            <span
-              className={`inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full font-bold text-[clamp(14px,2vh,22px)] ${
-                totalLate > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
-              }`}
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-current" />
-              {totalLate > 0 ? `${plural(totalLate, 'card', 'cards')} late` : 'Everything on time'}
+        {/* Slide dots — the active one stretches into an orange pill. */}
+        <nav className="flex items-center gap-3 px-6" aria-label="Slides">
+          {SLIDES.map((s, i) => {
+            const Icon = s.meta.icon;
+            const on = i === index;
+            return (
+              <button
+                key={s.meta.key}
+                onClick={() => go(i)}
+                title={s.meta.title}
+                className={`h-[clamp(36px,5vh,52px)] rounded-full flex items-center justify-center gap-2 transition-all duration-500 ${
+                  on ? 'px-5 bg-omega-orange text-white' : 'w-[clamp(36px,5vh,52px)] bg-omega-cloud text-omega-stone hover:text-[#111]'
+                }`}
+              >
+                {Icon && <Icon className="w-[clamp(16px,2.4vh,24px)] h-[clamp(16px,2.4vh,24px)]" strokeWidth={2.5} />}
+                {on && <span className="font-extrabold uppercase tracking-wide whitespace-nowrap text-[clamp(12px,1.7vh,18px)]">{i + 1}/{SLIDES.length}</span>}
+              </button>
+            );
+          })}
+          {paused && (
+            <span className="ml-1 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 text-amber-700 font-bold text-[clamp(12px,1.7vh,18px)]">
+              <Pause className="w-[1em] h-[1em]" /> Paused
             </span>
           )}
+        </nav>
+
+        <div className="flex items-center pr-8 pl-2">
           <div className="text-right">
             <p className="text-[#111] font-black tabular-nums leading-none text-[clamp(24px,4vh,44px)]">{formatNyTime(now)}</p>
             <p className={`mt-1.5 inline-flex items-center gap-1.5 font-medium text-[clamp(11px,1.4vh,15px)] ${error ? 'text-amber-600' : 'text-omega-slate'}`}>
-              {data && !error && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+              {loadedAt && !error && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
               {updatedLabel}
             </p>
           </div>
         </div>
+
+        <SlideTimer key={`${index}`} paused={paused} onDone={next} />
       </header>
 
-      <main className="flex-1 min-h-0 px-8 pt-5 pb-6 flex gap-6">
-        <div className="flex-1 min-w-0 flex flex-col gap-5">
-          {sections.map((s) => <Flow key={s.key} section={s} />)}
-          <div className="flex gap-4 flex-shrink-0 h-[clamp(84px,12.5vh,136px)]">
-            {kpis.map(({ key, ...kpi }) => <KpiCard key={key} {...kpi} />)}
-          </div>
-        </div>
-
-        <aside className="w-[19%] flex-shrink-0 flex flex-col min-h-0">
-          <SectionTitle title="Snapshot" />
-          <div className="flex-shrink-0 flex flex-col gap-4">
-            {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} compact />)}
-          </div>
-          <div className="mt-[clamp(28px,4.5vh,52px)] flex-1 min-h-0 flex flex-col">
-            <AgendaPanel events={agenda} now={now} />
-          </div>
-        </aside>
-
-        <aside className="w-[25%] flex-shrink-0 flex flex-col min-h-0">
-          <BillsPanel bills={bills} onNavigate={() => navigate('/finance')} />
-        </aside>
+      <main className="flex-1 min-h-0 px-8 pt-5 pb-6 flex flex-col">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={slide.meta.key}
+            className="flex-1 min-h-0 flex flex-col"
+            initial={{ opacity: 0, y: 28 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -18 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Slide data={data[slide.meta.key]} now={now} active />
+          </motion.div>
+        </AnimatePresence>
       </main>
+
+      <LiveToast toast={toast} />
 
       {/* Floating controls — fade out with the cursor so the TV stays clean. */}
       <div className={`fixed bottom-4 right-4 flex gap-2 transition-opacity duration-300 ${idle ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <button
+          onClick={() => setPaused((p) => !p)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-omega-charcoal text-sm font-semibold shadow-lg border border-black/10 hover:bg-omega-cloud"
+        >
+          {paused ? <><Play className="w-4 h-4" /> Resume</> : <><Pause className="w-4 h-4" /> Pause</>}
+        </button>
         {!isFullscreen && (
           <button
             onClick={() => document.documentElement.requestFullscreen?.().catch(() => {})}

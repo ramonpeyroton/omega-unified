@@ -576,6 +576,58 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-02 (TV do escritório vira slideshow — 5 telas × 40s)** — Ramon + Claude (Opus 5.5).
+
+Pedido do Inácio: a TV (`/tv`, app Marketing do Ramon) passa a girar entre
+telas, uma área da empresa por tela, 40 s cada. Só o pessoal do office vê a
+TV, então **mostra dinheiro** (decisão do Ramon).
+
+**Arquitetura** (`src/apps/marketing/screens/`):
+- `PipelineTV.jsx` = só o shell: header (logo, data, título animado da tela,
+  bolinhas clicáveis "1/5", relógio), barra laranja de 40 s (`SlideTimer`, rAF
+  escrevendo direto no DOM), teclado (← → troca · Espaço/Enter pausa · 1–5
+  pula), transição framer-motion, refresh de todas as telas a cada 60 s +
+  realtime nas tabelas de `meta.tables`, e **toasts ao vivo** com confete
+  (novo lead, estimate aprovado, obra virou in_progress, pagamento recebido,
+  conta paga).
+- `tv/tvKit.jsx` = kit compartilhado: escala de tipo `T`, `CARD`, `TONE`,
+  `Chip`, `SectionTitle`, `StatTile`, `CountUp`/`useCountUp` (números sobem
+  ao entrar), `useFitChildren`, `usd`/`usdShort`, `dueChip`. **Toda tela nova
+  usa o kit** — é o que garante mesma fonte/estética.
+- Contrato de tela: `export const meta = { key, title, eyebrow, icon, tables }`,
+  `export async function load(now)` (só leitura, NUNCA escreve no banco),
+  `export default function Slide({ data, now })`.
+- Telas, nessa ordem: `SalesSlide` (quadro antigo Leads+Estimates + Snapshot),
+  `CalendarSlide` (mês inteiro, hoje em laranja, Next up), `ProjectsSlide`
+  (obras `in_progress`: contrato assinado × custo comprometido — subs pelo
+  valor combinado com "pago" menor, linha **Office** = Material+Fuel+Van+Return
+  (Return é negativo), demais categorias de `job_expenses` em linhas próprias,
+  **ghost não entra**), `ReceivablesSlide` (parcelas de contratos assinados,
+  overdue com a mesma carência de 3 dias do Finance, gráfico de fluxo 5
+  semanas in × out), `BillsSlide` (contas pendentes por data, donut por
+  categoria, cash out por semana).
+- `index.html` agora carrega Inter **900** (os números grandes usam font-black).
+- `migrations/082_tv_realtime.sql` (**PENDENTE RODAR**) adiciona bills,
+  payment_milestones, sub_payments, job_expenses, subcontractor_agreements,
+  calendar_events e estimates ao `supabase_realtime`. Sem ela a TV atualiza só
+  a cada 60 s e os toasts de pagamento/conta paga não disparam.
+- Preview local sem login (NÃO commitado, está em `.git/info/exclude`):
+  `tv-preview.html` + `src/tvPreview.jsx` → `localhost:5174/tv-preview.html`.
+
+**Dados reais em 02/10 que deixam telas "quietas" (não é bug):** nenhum
+acordo de sub cadastrado (Projetos mostra ~0% gasto; o card de margem avisa
+"no sub agreements recorded yet"); 43 de 44 parcelas abertas sem `due_date`
+(A receber mostra "No due date $686k"); todas as contas são `vehicle` (donut
+de uma cor só).
+
+**Bugs achados fora do escopo (não corrigidos):** `FinanceScreen.jsx` usa
+`subcontractor_agreements.offer_id`, que não existe no banco; `effectiveStatus`
+/ `loadFinanceTotals` em `finance.js` parseiam `due_date` como UTC (overdue
+1 dia adiantado em NY); `loadFinanceTotals` conta parcelas órfãs (contrato
+apagado).
+
+---
+
 **2026-10-01 (Resumo diário por SMS às 17h — temporário até 04/10)** — Ramon + Claude (Opus 5.5).
 
 Ramon ativou SÓ o resumo diário por SMS (o resto do Lead Alerts/WhatsApp
