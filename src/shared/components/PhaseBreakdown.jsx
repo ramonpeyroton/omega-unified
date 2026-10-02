@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ChevronDown, ChevronRight, CheckCircle2, Circle,
+  ChevronDown, ChevronRight, MoreVertical, Clock3,
   MessageSquare, MessageCircle, Phone, ThumbsUp, ThumbsDown, AlertTriangle,
-  Pencil, Trash2, Plus, Check, CalendarDays, HardHat, Sparkles, Loader2, GripVertical,
+  Pencil, Trash2, Plus, Check, HardHat, Sparkles, Loader2, GripVertical,
 } from 'lucide-react';
 import {
   DndContext, PointerSensor, KeyboardSensor, closestCenter, pointerWithin, useSensor, useSensors,
@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase';
 import { templateForJob, progressFromPhaseData } from '../config/phaseBreakdown';
 import { generatePhasesFromEstimate } from '../lib/phaseGenerator';
 import { planRows, blankPlanRow, withPlanRows } from '../lib/phasePlan';
+import { nyDateKey } from '../lib/stageAge';
 import PhasePhotos from './PhasePhotos';
 import ContactMessageModal from './ContactMessageModal';
 import { subConfirmTemplate, waDeepLink } from '../lib/twilio';
@@ -522,37 +523,55 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     );
   }
 
+  // Which phase is "now": the first one with an unchecked item (same rule as
+  // progressFromPhaseData's currentPhaseName).
+  const currentIdx = phaseData.phases.findIndex((p) => (p.items || []).some((it) => !it.done));
+  const todayKey = nyDateKey(Date.now());
+
   return (
-    <div className="space-y-3">
-      {/* Summary + Edit toggle */}
-      <div className="flex items-center justify-between text-xs gap-3">
-        <div className="min-w-0">
-          <p className="text-omega-stone uppercase font-semibold">Progress</p>
-          <p className="font-semibold text-omega-charcoal">{totalDone}/{totalItems} items · {currentPhaseName || '—'}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-32 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-            <div className="h-full bg-[#D4AF37] transition-all" style={{ width: `${progress}%` }} />
+    <div className="font-optical space-y-3">
+      {/* Title + overall progress + Edit toggle */}
+      <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-3 pb-1">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <HardHat className="w-9 h-9 sm:w-11 sm:h-11 text-[#F26B1D] flex-shrink-0" strokeWidth={2.2} />
+          <div className="min-w-0">
+            <h2 className="text-[24px] sm:text-[30px] font-extrabold text-[#141413] tracking-[-0.025em] leading-tight">
+              Phase Breakdown
+            </h2>
+            <p className="text-[14px] sm:text-[15px] text-[#5F5F5B] truncate">
+              {totalDone}/{totalItems} items
+              {currentPhaseName && <><span className="mx-1.5 text-[#A3A39E]">·</span>{currentPhaseName}</>}
+            </p>
           </div>
-          <span className="font-semibold text-omega-charcoal text-xs w-8 text-right">{progress}%</span>
+        </div>
+        <div className="flex items-center gap-4 flex-1 sm:flex-none justify-end">
+          <div className="flex-1 sm:flex-none sm:w-[260px] sm:pl-6 sm:border-l border-[#ECECE9]">
+            <p className="text-[14px] font-medium text-[#3A3A37]">Overall Progress</p>
+            <div className="flex items-center gap-3">
+              <span className="flex-1 h-2.5 rounded-full bg-[#ECECE9] overflow-hidden">
+                <span className="block h-full rounded-full bg-[#F26B1D] transition-all" style={{ width: `${progress}%` }} />
+              </span>
+              <span className="text-[24px] sm:text-[28px] font-extrabold text-[#141413] tracking-[-0.02em] tabular-nums">{progress}%</span>
+            </div>
+          </div>
           {canEdit && (
             <button
               onClick={() => setEditing((v) => !v)}
-              className={`ml-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold uppercase tracking-wider transition ${
+              className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[13px] font-semibold transition flex-shrink-0 ${
                 editing
-                  ? 'bg-omega-charcoal text-white border-omega-charcoal'
-                  : 'border-gray-300 text-omega-stone hover:border-omega-orange hover:text-omega-orange'
+                  ? 'bg-[#141413] text-white border-[#141413]'
+                  : 'border-[#DADAD6] text-[#3A3A37] hover:border-omega-orange hover:text-omega-orange'
               }`}
               title={editing ? 'Finish editing' : 'Edit phases & items'}
             >
-              {editing ? <><Check className="w-3 h-3" /> Done</> : <><Pencil className="w-3 h-3" /> Edit</>}
+              {editing ? <><Check className="w-4 h-4" /> Done</> : <><Pencil className="w-4 h-4" /> Edit</>}
             </button>
           )}
         </div>
       </div>
-      {saving && <p className="text-[11px] text-omega-stone">Saving…</p>}
+      {saving && <p className="text-[12px] text-[#8A8A85]">Saving…</p>}
       {editing && phaseData.phases.length === 0 && (
-        <div className="text-xs text-omega-stone bg-omega-cloud rounded-lg p-3">
+        <div className="text-sm text-[#5F5F5B] bg-[#FAFAF9] border border-[#E7E7E4] rounded-xl p-4">
           No phases yet. Use <strong>Add phase</strong> below to start.
         </div>
       )}
@@ -560,139 +579,177 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
       {/* Phases */}
       <DndContext sensors={sensors} collisionDetection={phaseCollision} onDragEnd={reorderPhases}>
       <SortableContext items={phaseData.phases.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {phaseData.phases.map((ph, phaseIdx) => {
           const open = openIds.has(ph.id);
-          const done = ph.items.every((it) => it.done);
-          const doneCount = ph.items.filter((it) => it.done).length;
+          const items = ph.items || [];
+          const doneCount = items.filter((it) => it.done).length;
+          const pct = items.length ? Math.round((doneCount / items.length) * 100) : 0;
+          const status = phaseStatus(ph, phaseIdx, currentIdx);
+          const look = PHASE_LOOK[status];
+          const isCurrent = status === 'current';
           const assignments = assignmentsFor(ph);
           return (
-            <SortablePhase key={ph.id} id={ph.id} name={ph.name} editing={editing}>
+            <SortablePhase key={ph.id} id={ph.id} name={ph.name} editing={editing} className={look.card}>
               {(grip) => (<>
-              <div className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-omega-cloud transition-colors">
+              <div className={`flex items-center gap-2.5 sm:gap-4 pl-3 sm:pl-5 pr-2 sm:pr-3 ${isCurrent ? 'py-4 sm:py-5' : 'py-3.5'}`}>
                 {grip}
                 <button
                   onClick={() => toggleOpen(ph.id)}
-                  className="flex items-center gap-2 text-left flex-shrink-0"
+                  className="no-touch-min flex items-center gap-2 sm:gap-3 text-left flex-shrink-0"
                   aria-label={open ? 'Collapse phase' : 'Expand phase'}
                 >
-                  {open ? <ChevronDown className="w-4 h-4 text-omega-stone" /> : <ChevronRight className="w-4 h-4 text-omega-stone" />}
-                  {done
-                    ? <CheckCircle2 className="w-4 h-4 text-omega-success" />
-                    : <Circle className="w-4 h-4 text-omega-stone" />
-                  }
+                  {open
+                    ? <ChevronDown className="w-5 h-5 text-[#3A3A37]" strokeWidth={2.4} />
+                    : <ChevronRight className="w-5 h-5 text-[#3A3A37]" strokeWidth={2.4} />}
+                  <StatusIcon status={status} />
                 </button>
-                {editing ? (
-                  <input
-                    value={ph.name}
-                    onChange={(e) => renamePhase(phaseIdx, e.target.value)}
-                    placeholder="Phase name"
-                    className="flex-1 min-w-0 px-2 py-1 rounded border border-gray-200 text-sm font-semibold text-omega-charcoal focus:border-omega-orange focus:outline-none"
-                  />
-                ) : (
-                  <button
-                    onClick={() => toggleOpen(ph.id)}
-                    className="flex-1 text-left min-w-0"
-                  >
-                    <p className="text-sm font-semibold text-omega-charcoal truncate">{ph.name}</p>
-                  </button>
-                )}
-                <span className="text-[11px] text-omega-stone flex-shrink-0">{doneCount}/{ph.items.length}</span>
-                {!editing && canContact && assignments.length > 0 && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setPickerFor({ phase: ph, assignments }); }}
-                    className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-omega-orange/40 text-omega-orange hover:bg-omega-pale text-[11px] font-bold"
-                    title={`Contact ${assignments.length} sub${assignments.length > 1 ? 's' : ''}`}
-                  >
-                    <Phone className="w-3 h-3" /> {assignments.length}
-                  </button>
-                )}
-                {editing && (
-                  <button
-                    onClick={() => removePhase(phaseIdx)}
-                    className="ml-1 p-1.5 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600 transition"
-                    title="Delete this phase"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <PhasePlan
-                phase={ph}
-                rows={canSchedule ? shownRows(ph) : planRows(ph)}
-                subs={subs}
-                canSchedule={canSchedule}
-                onPickSub={(rowIdx, id) => pickSub(phaseIdx, rowIdx, id)}
-                onDates={(rowIdx, patch) => setPlanRow(phaseIdx, rowIdx, patch)}
-                onAddRow={() => addPlanRow(phaseIdx)}
-                onRemoveRow={(rowIdx) => removePlanRow(phaseIdx, rowIdx)}
-              />
-
-              {open && (
-                <div className="px-3 pb-3 pt-1 space-y-1.5 border-t border-gray-100">
-                  {ph.items.map((it, itemIdx) => (
-                    <div key={it.id} className="flex items-start gap-2 py-1 group">
-                      <button
-                        onClick={() => toggleItem(phaseIdx, itemIdx)}
-                        className="flex items-start gap-2 text-left flex-shrink-0 mt-0.5"
-                        aria-label={it.done ? 'Mark undone' : 'Mark done'}
-                      >
-                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
-                          it.done ? 'bg-omega-success border-omega-success' : 'bg-white border-gray-300 group-hover:border-omega-orange'
-                        }`}>
-                          {it.done && <CheckCircle2 className="w-3 h-3 text-white" />}
+                <div className="flex-1 min-w-0">
+                  {editing ? (
+                    <input
+                      value={ph.name}
+                      onChange={(e) => renamePhase(phaseIdx, e.target.value)}
+                      placeholder="Phase name"
+                      className="w-full px-3 h-10 rounded-lg border border-[#E2E2DE] bg-white text-[16px] font-semibold text-[#141413] focus:border-omega-orange focus:outline-none"
+                    />
+                  ) : (
+                    <button onClick={() => toggleOpen(ph.id)} className="no-touch-min w-full text-left min-w-0">
+                      <span className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <span className={`${isCurrent ? 'text-[18px] sm:text-[21px] font-bold' : 'text-[16px] sm:text-[17px] font-semibold'} text-[#141413] tracking-[-0.01em] truncate`}>
+                          {ph.name}
                         </span>
-                      </button>
-                      {editing ? (
-                        <input
-                          value={it.label}
-                          onChange={(e) => renameItem(phaseIdx, itemIdx, e.target.value)}
-                          placeholder="Item label"
-                          className="flex-1 min-w-0 px-2 py-1 rounded border border-gray-200 text-xs text-omega-charcoal focus:border-omega-orange focus:outline-none"
-                        />
-                      ) : (
-                        <button
-                          onClick={() => toggleItem(phaseIdx, itemIdx)}
-                          className="flex-1 text-left min-w-0"
-                        >
-                          <span className={`text-xs ${it.done ? 'line-through text-omega-stone' : 'text-omega-charcoal'}`}>
-                            {it.label}
+                        {isCurrent && (
+                          <span className="hidden sm:inline-flex items-center h-7 px-3 rounded-full bg-[#F26B1D] text-white text-[12px] font-bold uppercase tracking-[0.04em] flex-shrink-0">
+                            Current phase
                           </span>
-                          {it.verify_status && <VerifyBadge status={it.verify_status} />}
-                          {it.done && it.done_by && (
-                            <span className="block text-[9px] text-omega-stone/70 leading-tight mt-0.5">
-                              {it.done_by}{it.done_at ? ` · ${new Date(it.done_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${new Date(it.done_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}
-                            </span>
-                          )}
-                        </button>
-                      )}
-                      {!editing && canContact && (
-                        <VerifyControls
-                          current={it.verify_status}
-                          onSet={(s) => setVerify(phaseIdx, itemIdx, s)}
-                        />
-                      )}
-                      {!editing && <PhasePhotos jobId={job.id} phaseId={ph.id} itemId={it.id} user={user} />}
-                      {editing && (
-                        <button
-                          onClick={() => removeItem(phaseIdx, itemIdx)}
-                          className="p-1 rounded text-omega-stone hover:bg-red-50 hover:text-red-600 transition flex-shrink-0"
-                          title="Delete this item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {editing && (
-                    <button
-                      onClick={() => addItem(phaseIdx)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs font-semibold text-omega-orange hover:bg-omega-pale transition mt-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add item
+                        )}
+                      </span>
+                      <span className="block mt-0.5 text-[14px] sm:text-[15px] text-[#5F5F5B] truncate">
+                        {planSummary(ph, subs)}
+                      </span>
                     </button>
                   )}
+                </div>
+                <div className="flex items-center gap-2.5 sm:gap-4 flex-shrink-0">
+                  <span className="hidden lg:block w-[150px] h-2.5 rounded-full overflow-hidden" style={{ background: look.track }}>
+                    <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: look.bar }} />
+                  </span>
+                  <span className={`${isCurrent ? 'text-[16px] sm:text-[18px]' : 'text-[15px] sm:text-[17px]'} font-semibold text-[#1C1C1A] tabular-nums`}>
+                    {doneCount}/{items.length}
+                  </span>
+                  {isCurrent ? (
+                    <span className="text-[20px] sm:text-[24px] font-extrabold text-[#D35A12] tabular-nums">{pct}%</span>
+                  ) : (
+                    <span className={`hidden sm:inline-flex items-center justify-center h-8 px-3.5 rounded-full text-[14px] font-semibold ${look.pill}`}>
+                      {look.label}
+                    </span>
+                  )}
+                  {editing ? (
+                    <button
+                      onClick={() => removePhase(phaseIdx)}
+                      className="no-touch-min p-2 rounded-lg text-[#5F5F5B] hover:bg-red-50 hover:text-red-600 transition"
+                      title="Delete this phase"
+                    >
+                      <Trash2 className="w-[18px] h-[18px]" />
+                    </button>
+                  ) : (
+                    <PhaseMenu
+                      phaseName={ph.name}
+                      onContact={canContact && assignments.length ? () => setPickerFor({ phase: ph, assignments }) : null}
+                      contactCount={assignments.length}
+                      onEdit={canEdit ? () => { setEditing(true); setOpenIds((prev) => new Set([...prev, ph.id])); } : null}
+                      onDelete={canEdit ? () => removePhase(phaseIdx) : null}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {open && (
+                <div className="px-3 sm:px-4 pb-4 space-y-3">
+                  <PlanTable
+                    phase={ph}
+                    rows={canSchedule ? shownRows(ph) : planRows(ph)}
+                    subs={subs}
+                    canSchedule={canSchedule}
+                    todayKey={todayKey}
+                    onPickSub={(rowIdx, id) => pickSub(phaseIdx, rowIdx, id)}
+                    onDates={(rowIdx, patch) => setPlanRow(phaseIdx, rowIdx, patch)}
+                    onAddRow={() => addPlanRow(phaseIdx)}
+                    onRemoveRow={(rowIdx) => removePlanRow(phaseIdx, rowIdx)}
+                  />
+
+                  <div className="rounded-xl border border-[#E7E7E4] bg-white px-4 sm:px-5 py-2">
+                    <p className="pt-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-[#8A8A85]">
+                      Checklist · {doneCount}/{items.length}
+                    </p>
+                    {!items.length && !editing && (
+                      <p className="py-2 text-[14px] text-[#8A8A85]">No checklist items yet.</p>
+                    )}
+                    {items.map((it, itemIdx) => (
+                      <div key={it.id} className="flex items-center gap-3 py-2.5 border-t border-[#F1F1EE] first-of-type:border-t-0 group">
+                        <button
+                          onClick={() => toggleItem(phaseIdx, itemIdx)}
+                          className="no-touch-min flex-shrink-0"
+                          aria-label={it.done ? 'Mark undone' : 'Mark done'}
+                        >
+                          {it.done ? (
+                            <span className="w-[22px] h-[22px] rounded-full bg-[#16A34A] flex items-center justify-center">
+                              <Check className="w-3.5 h-3.5 text-white" strokeWidth={3.2} />
+                            </span>
+                          ) : (
+                            <span className="block w-[22px] h-[22px] rounded-full border-2 border-[#C9C9C4] bg-white group-hover:border-omega-orange transition-colors" />
+                          )}
+                        </button>
+                        {editing ? (
+                          <input
+                            value={it.label}
+                            onChange={(e) => renameItem(phaseIdx, itemIdx, e.target.value)}
+                            placeholder="Item label"
+                            className="flex-1 min-w-0 px-3 h-9 rounded-lg border border-[#E2E2DE] text-[15px] text-[#2A2A27] focus:border-omega-orange focus:outline-none"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => toggleItem(phaseIdx, itemIdx)}
+                            className="no-touch-min flex-1 text-left min-w-0"
+                          >
+                            <span className={`text-[15px] ${it.done ? 'line-through text-[#9A9A95]' : 'text-[#2A2A27]'}`}>
+                              {it.label}
+                            </span>
+                            {it.verify_status && <VerifyBadge status={it.verify_status} />}
+                            {it.done && it.done_by && (
+                              <span className="block text-[11px] text-[#9A9A95] leading-tight mt-0.5">
+                                {it.done_by}{it.done_at ? ` · ${new Date(it.done_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${new Date(it.done_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        {!editing && canContact && (
+                          <VerifyControls
+                            current={it.verify_status}
+                            onSet={(s) => setVerify(phaseIdx, itemIdx, s)}
+                          />
+                        )}
+                        {!editing && <PhasePhotos jobId={job.id} phaseId={ph.id} itemId={it.id} user={user} />}
+                        {editing && (
+                          <button
+                            onClick={() => removeItem(phaseIdx, itemIdx)}
+                            className="no-touch-min p-1.5 rounded-lg text-[#5F5F5B] hover:bg-red-50 hover:text-red-600 transition flex-shrink-0"
+                            title="Delete this item"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {editing && (
+                      <button
+                        onClick={() => addItem(phaseIdx)}
+                        className="w-full flex items-center gap-2 px-1 py-2.5 border-t border-[#F1F1EE] text-[14px] font-semibold text-omega-orange hover:text-omega-dark transition"
+                      >
+                        <Plus className="w-4 h-4" /> Add item
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               </>)}
@@ -757,7 +814,7 @@ function phaseCollision(args) {
 
 // ─── One phase card; in edit mode its grip drags it to a new spot ─
 // Only the grip starts a drag, so typing in the inputs never moves the card.
-function SortablePhase({ id, name, editing, children }) {
+function SortablePhase({ id, name, editing, className = '', children }) {
   const {
     attributes, listeners, setNodeRef, setActivatorNodeRef,
     transform, transition, isDragging,
@@ -785,107 +842,271 @@ function SortablePhase({ id, name, editing, children }) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`border rounded-lg overflow-hidden bg-white ${isDragging ? 'border-omega-orange shadow-card-hover' : 'border-gray-200'}`}
+      className={`rounded-2xl ${className} ${isDragging ? 'ring-2 ring-omega-orange shadow-card-hover' : ''}`}
     >
       {children(grip)}
     </div>
   );
 }
 
-// ─── Phase plan: one "sub + start → end" row per sub, under each header ─
-const PLAN_INPUT = 'h-10 sm:h-9 px-2.5 rounded-lg border border-gray-200 bg-white text-base sm:text-sm text-omega-charcoal focus:border-omega-orange focus:outline-none';
+// ─── Look of each phase by status (Ramon's design, 02/10) ─────────
+//   done     = every checklist item checked            → green
+//   current  = first phase with an unchecked item      → orange
+//   upcoming = not started yet, but subs/dates planned → blue
+//   idle     = nothing planned yet                     → grey
+// The office TV's Jobs Calendar uses the same colors.
+const PHASE_LOOK = {
+  done: {
+    card: 'bg-[#F1FAF4] border border-[#CFEBD8]',
+    bar: '#16A34A', track: '#D7EEDF', pill: 'bg-[#DDF3E4] text-[#15803D]', label: 'Completed',
+  },
+  current: {
+    card: 'bg-gradient-to-b from-[#FFF5EC] to-white border-2 border-[#F7A766] border-l-[6px] border-l-[#F26B1D] shadow-[0_6px_20px_-8px_rgba(232,115,42,0.35)]',
+    bar: '#F26B1D', track: '#F3E3D4', pill: '', label: 'Current phase',
+  },
+  upcoming: {
+    card: 'bg-[#F6FAFF] border border-[#C5DBF5] border-l-[5px] border-l-[#4A8FE2]',
+    bar: '#3B82F6', track: '#E3ECF7', pill: 'bg-[#DCEBFC] text-[#2563EB]', label: 'Upcoming',
+  },
+  idle: {
+    card: 'bg-[#FAFAF9] border border-[#E7E7E4]',
+    bar: '#9CA3AF', track: '#E9E9E6', pill: 'bg-[#EDEDEA] text-[#5F5F5B]', label: 'Not started',
+  },
+};
 
-function PhasePlan({ phase, rows, subs, canSchedule, onPickSub, onDates, onAddRow, onRemoveRow }) {
-  if (!canSchedule) {
-    const filled = rows.filter((r) => r.start_date || r.end_date || r.sub_name);
-    if (!filled.length) return null;
+function phaseStatus(ph, idx, currentIdx) {
+  const items = ph.items || [];
+  if (items.length && items.every((it) => it.done)) return 'done';
+  if (idx === currentIdx) return 'current';
+  if (planRows(ph).some((r) => r.sub_id || r.sub_name || r.start_date)) return 'upcoming';
+  return 'idle';
+}
+
+function StatusIcon({ status }) {
+  if (status === 'done') {
     return (
-      <div className="px-3 sm:pl-[3.1rem] pb-2.5 -mt-1 space-y-1 text-xs text-omega-stone">
-        {filled.map((r) => (
-          <div key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            {(r.start_date || r.end_date) && (
-              <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="w-3.5 h-3.5" /> {r.start_date ? shortDay(r.start_date) : '—'} → {r.end_date ? shortDay(r.end_date) : '—'}
-              </span>
-            )}
-            {r.sub_name && (
-              <span className="inline-flex items-center gap-1.5">
-                <HardHat className="w-3.5 h-3.5" /> {r.sub_name}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+      <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#16A34A] flex items-center justify-center">
+        <Check className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-white" strokeWidth={3.2} />
+      </span>
     );
   }
+  if (status === 'current') {
+    return <span className="block w-7 h-7 sm:w-8 sm:h-8 rounded-full border-[6px] border-[#F26B1D] bg-white" />;
+  }
+  return <span className="block w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-[#B9B9B4] bg-white" />;
+}
 
-  const many = rows.length > 1;
+// Collapsed-row subtitle: who does it and when.
+function planSummary(ph, subs) {
+  const rows = planRows(ph).filter((r) => r.sub_id || r.sub_name || r.start_date);
+  if (!rows.length) return 'No sub assigned';
+  const starts = rows.map((r) => r.start_date).filter(Boolean).sort();
+  const ends = rows.map((r) => r.end_date).filter(Boolean).sort();
+  const when = starts.length ? ` · ${shortDay(starts[0])} → ${ends.length ? shortDay(ends[ends.length - 1]) : '—'}` : '';
+  if (rows.length === 1) {
+    const sub = subs.find((s) => s.id === rows[0].sub_id);
+    const who = sub ? `${subInlineLabel(sub)}${sub.trade ? ` · ${sub.trade}` : ''}` : (rows[0].sub_name || 'No sub assigned');
+    return `${who}${when}`;
+  }
+  const names = rows.map((r) => {
+    const sub = subs.find((s) => s.id === r.sub_id);
+    return sub ? subDisplayNames(sub).primary : r.sub_name;
+  }).filter(Boolean);
+  return `${rows.length} subs${names.length ? ` · ${names.join(', ')}` : ''}${when}`;
+}
+
+// A sub's status comes from its dates — nobody has to update it by hand.
+function SubStatus({ row, todayKey }) {
+  if (!row.start_date || !row.end_date) return <span className="text-[14px] text-[#A3A39E]">—</span>;
+  if (row.end_date < todayKey) {
+    return (
+      <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-[#DDF3E4] text-[#15803D] text-[14px] font-semibold whitespace-nowrap">
+        <Check className="w-4 h-4" strokeWidth={2.6} /> Done
+      </span>
+    );
+  }
+  if (row.start_date <= todayKey) {
+    return (
+      <span className="inline-flex items-center gap-2 h-8 px-3 rounded-full bg-[#FFE9D8] text-[#C2410C] text-[14px] font-semibold whitespace-nowrap">
+        <span className="w-2 h-2 rounded-full bg-[#F26B1D]" /> On site
+      </span>
+    );
+  }
   return (
-    <div className="px-3 sm:pl-[3.1rem] pb-3 -mt-0.5 space-y-2">
-      {rows.map((r, i) => {
+    <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-[#DCEBFC] text-[#2563EB] text-[14px] font-semibold whitespace-nowrap">
+      <Clock3 className="w-4 h-4" strokeWidth={2.4} /> Scheduled
+    </span>
+  );
+}
+
+// ⋮ per phase: contact its subs, jump into edit mode, delete it.
+function PhaseMenu({ phaseName, onContact, contactCount, onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('touchstart', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('touchstart', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  if (!onContact && !onEdit && !onDelete) return <span className="w-9" />;
+  const item = 'w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-[14px] font-medium hover:bg-[#F5F5F2]';
+  const run = (fn) => () => { setOpen(false); fn(); };
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="no-touch-min w-9 h-9 rounded-lg flex items-center justify-center text-[#3A3A37] hover:bg-black/[0.05]"
+        aria-label={`More actions for ${phaseName}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <MoreVertical className="w-5 h-5" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 z-30 w-52 py-1.5 rounded-xl bg-white border border-[#E7E7E4] shadow-[0_10px_30px_-10px_rgba(0,0,0,0.25)]">
+          {onContact && (
+            <button role="menuitem" onClick={run(onContact)} className={`${item} text-[#2A2A27]`}>
+              <Phone className="w-4 h-4 text-omega-orange" /> Contact subs ({contactCount})
+            </button>
+          )}
+          {onEdit && (
+            <button role="menuitem" onClick={run(onEdit)} className={`${item} text-[#2A2A27]`}>
+              <Pencil className="w-4 h-4 text-[#5F5F5B]" /> Edit phases & items
+            </button>
+          )}
+          {onDelete && (
+            <button role="menuitem" onClick={run(onDelete)} className={`${item} text-red-600`}>
+              <Trash2 className="w-4 h-4" /> Delete phase
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Who does the phase, and when: one row per sub ───────────────
+// Table on wide screens (Subcontractor · Start · End · Status); on tablets
+// in portrait / phones each sub stacks (sub on top, dates + status below).
+const PLAN_COLS = 'lg:grid-cols-[minmax(0,1.7fr)_minmax(150px,1fr)_minmax(150px,1fr)_128px_48px]';
+const PLAN_INPUT = 'h-11 w-full px-3 rounded-lg border border-[#E2E2DE] bg-white text-base lg:text-[15px] text-[#1C1C1A] focus:border-omega-orange focus:outline-none';
+
+function PlanTable({ phase, rows, subs, canSchedule, todayKey, onPickSub, onDates, onAddRow, onRemoveRow }) {
+  const shown = canSchedule ? rows : rows.filter((r) => r.sub_id || r.sub_name || r.start_date || r.end_date);
+  if (!canSchedule && !shown.length) return null;
+  const many = shown.length > 1;
+  return (
+    <div className="rounded-xl border border-[#E7E7E4] bg-white overflow-hidden">
+      <div className={`hidden lg:grid ${PLAN_COLS} bg-[#F7F7F5] text-[14px] font-semibold text-[#5F5F5B]`}>
+        <div className="px-5 py-3">Subcontractor</div>
+        <div className="px-3 py-3">Start Date</div>
+        <div className="px-3 py-3">End Date</div>
+        <div className="px-3 py-3">Status</div>
+        <div />
+      </div>
+      {shown.map((r, i) => {
         const tag = many ? ` (${i + 1})` : '';
+        const sub = subs.find((s) => s.id === r.sub_id);
         // A sub that was removed from the list stays selectable under its
         // saved name, so the dropdown never blanks out on its own.
-        const known = !r.sub_id || subs.some((s) => s.id === r.sub_id);
+        const known = !r.sub_id || !!sub;
         return (
-          <div key={r.id} className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 flex-1 min-w-[220px]">
-              <HardHat className="w-4 h-4 text-omega-stone flex-shrink-0" />
-              <span className="sr-only">Subcontractor for {phase.name}{tag}</span>
-              <select
-                value={r.sub_id || ''}
-                onChange={(e) => onPickSub(i, e.target.value || null)}
-                className={`${PLAN_INPUT} flex-1 min-w-0`}
-              >
-                <option value="">No sub assigned</option>
-                {!known && <option value={r.sub_id}>{r.sub_name || 'Removed sub'}</option>}
-                {subs.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {subInlineLabel(s)}{s.trade ? ` · ${s.trade}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-omega-stone flex-shrink-0" />
-              <input
-                type="date"
-                aria-label={`${phase.name} start date${tag}`}
-                value={r.start_date || ''}
-                onChange={(e) => onDates(i, { start_date: e.target.value })}
-                className={PLAN_INPUT}
-              />
-              <span className="text-sm text-omega-stone">→</span>
-              <input
-                type="date"
-                aria-label={`${phase.name} end date${tag}`}
-                value={r.end_date || ''}
-                min={r.start_date || undefined}
-                onChange={(e) => onDates(i, { end_date: e.target.value })}
-                className={PLAN_INPUT}
-              />
-              {many && (
-                <button
-                  type="button"
-                  onClick={() => onRemoveRow(i)}
-                  className="p-2 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600 transition"
-                  title="Remove this sub from the phase"
-                  aria-label={`Remove sub${tag} from ${phase.name}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+          <div key={r.id} className={`grid grid-cols-1 ${PLAN_COLS} gap-2 lg:gap-0 items-center px-3 py-3 lg:p-0 border-t border-[#EEEEEB] [&:nth-child(2)]:border-t-0 lg:[&:nth-child(2)]:border-t`}>
+            <div className="flex items-center gap-3 lg:px-5 lg:py-3 min-w-0">
+              <HardHat className="w-5 h-5 text-[#3A3A37] flex-shrink-0" />
+              {canSchedule ? (
+                <>
+                  <span className="sr-only">Subcontractor for {phase.name}{tag}</span>
+                  <select
+                    value={r.sub_id || ''}
+                    onChange={(e) => onPickSub(i, e.target.value || null)}
+                    className={`${PLAN_INPUT} font-semibold`}
+                  >
+                    <option value="">No sub assigned</option>
+                    {!known && <option value={r.sub_id}>{r.sub_name || 'Removed sub'}</option>}
+                    {subs.map((s) => (
+                      <option key={s.id} value={s.id}>{subInlineLabel(s)}{s.trade ? ` · ${s.trade}` : ''}</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <span className="text-[16px] font-semibold text-[#1C1C1A] truncate">
+                  {sub ? subDisplayNames(sub).primary : (r.sub_name || 'No sub assigned')}
+                  {sub && subDisplayNames(sub).secondary && (
+                    <span className="font-normal text-[#5F5F5B]"> ({subDisplayNames(sub).secondary})</span>
+                  )}
+                </span>
               )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 lg:contents">
+              <div className={`${canSchedule ? 'flex-1 min-w-[140px]' : ''} lg:px-3 lg:py-3`}>
+                {canSchedule ? (
+                  <input
+                    type="date"
+                    aria-label={`${phase.name} start date${tag}`}
+                    value={r.start_date || ''}
+                    onChange={(e) => onDates(i, { start_date: e.target.value })}
+                    className={PLAN_INPUT}
+                  />
+                ) : (
+                  <span className="text-[15px] text-[#1C1C1A]">{r.start_date ? shortDay(r.start_date) : '—'}</span>
+                )}
+              </div>
+              <span className="lg:hidden text-[#8A8A85]">→</span>
+              <div className={`${canSchedule ? 'flex-1 min-w-[140px]' : ''} lg:px-3 lg:py-3`}>
+                {canSchedule ? (
+                  <input
+                    type="date"
+                    aria-label={`${phase.name} end date${tag}`}
+                    value={r.end_date || ''}
+                    min={r.start_date || undefined}
+                    onChange={(e) => onDates(i, { end_date: e.target.value })}
+                    className={PLAN_INPUT}
+                  />
+                ) : (
+                  <span className="text-[15px] text-[#1C1C1A]">{r.end_date ? shortDay(r.end_date) : '—'}</span>
+                )}
+              </div>
+              <div className="lg:px-3 lg:py-3">
+                <SubStatus row={r} todayKey={todayKey} />
+              </div>
+              <div className="lg:py-3 flex lg:justify-center">
+                {canSchedule && many ? (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveRow(i)}
+                    className="no-touch-min w-10 h-10 rounded-lg border border-[#E2E2DE] bg-white flex items-center justify-center text-[#5F5F5B] hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                    title="Remove this sub from the phase"
+                    aria-label={`Remove sub${tag} from ${phase.name}`}
+                  >
+                    <Trash2 className="w-[18px] h-[18px]" />
+                  </button>
+                ) : <span className="hidden lg:block w-10" />}
+              </div>
             </div>
           </div>
         );
       })}
-      <button
-        type="button"
-        onClick={onAddRow}
-        className="inline-flex items-center gap-1.5 px-1 py-1 text-xs font-semibold text-omega-stone hover:text-omega-orange transition"
-      >
-        <Plus className="w-3.5 h-3.5" /> Add another sub
-      </button>
+      {canSchedule && (
+        <div className="border-t border-[#EEEEEB] p-3">
+          <button
+            type="button"
+            onClick={onAddRow}
+            className="w-full flex items-center gap-2 px-3 h-11 rounded-lg border border-dashed border-[#DADAD6] text-[15px] text-[#5F5F5B] hover:border-omega-orange hover:text-omega-orange transition"
+          >
+            <Plus className="w-[18px] h-[18px]" /> Add another sub
+          </button>
+        </div>
+      )}
     </div>
   );
 }

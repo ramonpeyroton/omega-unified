@@ -782,10 +782,8 @@ export default function JobFullView({
 
           {tab === 'phases' && (
             <div className="space-y-5">
-              <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-                <h2 className="text-lg font-bold text-omega-charcoal mb-4 inline-flex items-center gap-2">
-                  <HardHat className="w-4 h-4 text-omega-orange" /> Phase Breakdown
-                </h2>
+              <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6">
+                {/* PhaseBreakdown draws its own title + overall progress. */}
                 <PhaseBreakdown
                   job={job}
                   user={user}

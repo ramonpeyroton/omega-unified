@@ -6,6 +6,9 @@
   * { box-sizing: border-box; }
   body {
     font-family: 'Inter', sans-serif;
+    /* Inter loads with its optical-size axis; keep the classic text cut
+       everywhere (same look as before) — .font-optical opts in. */
+    font-optical-sizing: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-color: #FAFAF8;
@@ -34,6 +37,8 @@
 }
 
 @layer utilities {
+  /* Inter's display cut on big text (Phases tab redesign, 02/10). */
+  .font-optical { font-optical-sizing: auto; }
   .scrollbar-hide::-webkit-scrollbar { display: none; }
   .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }

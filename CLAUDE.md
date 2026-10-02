@@ -592,6 +592,18 @@ Ramon aprovou por prints antes de codar.
   formato antigo de 1 sub). Término antes do início é puxado pro início.
   No modo Edit as etapas reordenam arrastando a alça ⋮⋮ (`@dnd-kit`; o
   destino é a etapa sob o cursor — `phaseCollision`).
+  **Visual (redesign aprovado pelo Ramon por print)**: cada etapa tem cor
+  por status — verde = concluída (todos os itens), laranja + "CURRENT
+  PHASE" = 1ª etapa com item aberto, azul = "Upcoming" (tem sub/data
+  planejado), cinza = "Not started" (nada planejado) (`PHASE_LOOK` /
+  `phaseStatus`). Aberta: tabela de subs (Subcontractor · Start · End ·
+  Status — status sai das datas: Scheduled / On site / Done; vira cards
+  empilhados abaixo de `lg`) + checklist. Menu ⋮ por etapa (Contact subs,
+  Edit, Delete). Fonte: Inter com eixo de tamanho óptico (`index.html`
+  carrega `opsz`); `index.css` desliga no app todo (`font-optical-sizing:
+  none`, visual igual a antes) e a aba liga com a classe `.font-optical`.
+  O componente desenha o próprio título — não pôr `<h2>Phase Breakdown`
+  em volta.
   Editam: marketing (Ramon), sales (Attila), owner
   (Inácio), receptionist (Rafaela), operations, admin (`CAN_SCHEDULE`);
   manager (Gabriel) vê só leitura. Rafaela ganhou a aba Phases no
@@ -612,9 +624,11 @@ Ramon aprovou por prints antes de codar.
   obra `contract_signed`/`in_progress` com etapa datada; barra dividida
   por etapa e, dentro dela, por sub (subs ao mesmo tempo empilham em
   faixas; etapa com vários subs mostra o nome da empresa primeiro)
-  (cinza ✓ feita · verde forte agora · verde claro próximas ·
-  rosa etapa atrasada · listrado amarelo não começou · hachura vermelha =
-  obra passou do término). Obras sem datas aparecem no rodapé. O
+  (mesmas cores da aba Phases: verde ✓ feita · laranja agora · azul
+  próximas · rosa etapa atrasada · listrado azul não começou · hachura
+  vermelha = obra passou do término). Obra com trabalhos simultâneos ganha
+  linha mais alta (uma faixa por sobreposição; barras de altura igual).
+  Obras sem datas aparecem no rodapé. O
   Calendar dos roles (`shared/components/Calendar/`) **não mudou**.
 - Preview local sem login e sem gravar no banco (não commitado, em
   `.git/info/exclude`): `jobs-calendar-preview.html?view=tv` /

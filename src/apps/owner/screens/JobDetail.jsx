@@ -803,10 +803,7 @@ export default function JobDetail({ job: initialJob, onNavigate, onAssignSubs, o
         {/* ── PHASES TAB ──────────────────────────────────────────────────────── */}
         {activeTab === 'phases' && (
           <div className="max-w-3xl mx-auto">
-            <div className="mb-4">
-              <h2 className="font-bold text-omega-charcoal">Phase Breakdown</h2>
-              <p className="text-xs text-omega-stone">Tick sub-items as work progresses — synced with Pipeline & Dashboard</p>
-            </div>
+            {/* PhaseBreakdown draws its own title + overall progress. */}
             <PhaseBreakdown
               job={job}
               onJobUpdated={(updated) => {

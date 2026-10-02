@@ -6,12 +6,12 @@
 // drawn from the subs and dates planned in the job card → Phases tab
 // (stored in jobs.phase_data, see shared/lib/phasePlan.js). Read-only.
 //
-// Phase colors: all checklist items done = grey ✓; under way (items being
-// checked, or today falls in its dates) = solid green "Tile · 2/10"; still
-// ahead = light green; end date passed and not done = rose. A job that hasn't started (contract signed) is striped
-// yellow. Past its last phase's end and still in progress = red hatch up
-// to today. Jobs with no dated phase are named in the footer so somebody
-// fills them in.
+// Phase colors match the job card's Phases tab: all checklist items done =
+// green ✓; under way (items being checked, or today falls in its dates) =
+// orange "Tile · 2/10"; still ahead = blue; end date passed and not done =
+// rose. A job that hasn't started (contract signed) is striped blue. Past
+// its last phase's end and still in progress = red hatch up to today. Jobs
+// with no dated phase are named in the footer so somebody fills them in.
 
 import { useMemo } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -74,13 +74,15 @@ function shortName(name) {
   return `${name.slice(0, cut)} — ${SHORT_NAME[rest] || rest}`;
 }
 
+// Same palette as the Phases tab (shared/components/PhaseBreakdown.jsx):
+// green = done, orange = now, blue = ahead.
 const SEG = {
-  done:   { bg: '#D9D6CE', fg: '#5B5A55' },
-  active: { bg: '#22C55E', fg: '#FFFFFF' },
-  todo:   { bg: '#DCFCE7', fg: '#166534' },
+  done:   { bg: '#DDF3E4', fg: '#15803D' },
+  active: { bg: '#F26B1D', fg: '#FFFFFF' },
+  todo:   { bg: '#DCEBFC', fg: '#1D4ED8' },
   late:   { bg: '#FFE4E6', fg: '#BE123C' },
 };
-const SIGNED_STRIPES = 'repeating-linear-gradient(135deg, rgba(234,179,8,.28) 0 10px, rgba(234,179,8,.12) 10px 20px)';
+const SIGNED_STRIPES = 'repeating-linear-gradient(135deg, rgba(59,130,246,.26) 0 10px, rgba(59,130,246,.10) 10px 20px)';
 const LATE_HATCH = 'repeating-linear-gradient(135deg, rgba(244,63,94,.55) 0 8px, rgba(244,63,94,.22) 8px 16px)';
 
 // ─── Day math on 'YYYY-MM-DD' keys (calendar days, no time zone) ─────
@@ -311,8 +313,14 @@ function DayColumns({ days }) {
 function JobRow({ row, index, view }) {
   const reduce = useReducedMotion();
   const { pct, M0, M1, T0, todayKey } = view;
-  const laneTop = (seg) => `calc(14% + ${seg.lane} * (72% / ${seg.lanes}))`;
-  const laneHeight = (seg) => `calc(72% / ${seg.lanes} - ${seg.lanes > 1 ? 3 : 0}px)`;
+  // A job with work overlapping in time gets a taller row: one 'unit' of
+  // height per stacked piece, so every bar keeps a readable height. Bars
+  // are all one unit tall — stacked where pieces overlap, centered where
+  // they don't.
+  const stack = Math.max(1, ...row.segs.filter((x) => x.e > M0 && x.s < M1).map((x) => x.lanes || 1));
+  const unit = `(72% / ${stack})`;
+  const laneTop = (seg) => `calc(14% + ${seg.lane} * (72% / ${seg.lanes}) + (72% / ${seg.lanes} - ${unit}) / 2)`;
+  const laneHeight = () => `calc(${unit} - ${stack > 1 ? 3 : 0}px)`;
 
   // The finish date: a flag after the bar, a chip inside it when the bar
   // ends at the right edge, an arrow chip when it ends past the window
@@ -323,7 +331,7 @@ function JobRow({ row, index, view }) {
     const to = pct(T0 + 1);
     finish = (
       <>
-        <div className="absolute rounded-r-lg" style={{ left: `${from}%`, width: `${to - from}%`, top: '14%', height: '72%', backgroundImage: LATE_HATCH }} />
+        <div className="absolute rounded-r-lg" style={{ left: `${from}%`, width: `${to - from}%`, top: `calc(14% + (72% - ${unit}) / 2)`, height: laneHeight(), backgroundImage: LATE_HATCH }} />
         <span
           className="absolute top-1/2 -translate-y-1/2 pl-3 font-black text-rose-600 whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
           style={{ left: `${to}%` }}
@@ -363,7 +371,8 @@ function JobRow({ row, index, view }) {
 
   return (
     <motion.div
-      className={`relative flex-1 min-h-0 max-h-[clamp(64px,10vh,110px)] flex items-stretch ${index % 2 ? 'bg-black/[0.015]' : ''}`}
+      className={`relative min-h-0 flex items-stretch ${index % 2 ? 'bg-black/[0.015]' : ''}`}
+      style={{ flex: `${stack} 1 0%`, maxHeight: `calc(clamp(64px,10vh,110px) * ${stack})` }}
       initial={reduce ? false : { opacity: 0, x: -14 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.45, delay: 0.06 + index * 0.04, ease: EASE }}
@@ -389,7 +398,7 @@ function Segment({ seg, row, view, top, height }) {
   const cutR = seg.e > M1;
   const c = SEG[seg.status];
   const style = row.signed
-    ? { backgroundImage: SIGNED_STRIPES, color: '#854D0E' }
+    ? { backgroundImage: SIGNED_STRIPES, color: '#1E3A8A' }
     : { background: c.bg, color: c.fg };
   // Leave room for the "→ date" chip on the phase that runs off the edge.
   const chipRoom = cutR && !row.late && row.finish > M1 && width >= 22;
@@ -401,7 +410,7 @@ function Segment({ seg, row, view, top, height }) {
   return (
     <div
       className={`absolute flex items-center overflow-hidden ${cutL ? '' : 'rounded-l-lg'} ${cutR ? '' : 'rounded-r-lg'} ${
-        row.signed ? 'border-2 border-yellow-400/70' : seg.status === 'late' ? 'border-2 border-rose-300' : ''
+        row.signed ? 'border-2 border-[#93C5FD]' : seg.status === 'late' ? 'border-2 border-rose-300' : ''
       }`}
       style={{
         left: `calc(${left}% + ${cutL ? 0 : 2}px)`,
@@ -430,7 +439,7 @@ function Legend({ view }) {
       <span className={item}><span className={swatch} style={{ background: SEG.active.bg }} />Now <span className="font-medium text-omega-stone">(items done / total)</span></span>
       <span className={item}><span className={swatch} style={{ background: SEG.todo.bg }} />Next</span>
       <span className={item}><span className={`${swatch} border-2 border-rose-300`} style={{ background: SEG.late.bg }} />Phase late</span>
-      <span className={item}><span className={`${swatch} border border-yellow-400/60`} style={{ backgroundImage: SIGNED_STRIPES }} />Not started</span>
+      <span className={item}><span className={`${swatch} border border-[#93C5FD]`} style={{ backgroundImage: SIGNED_STRIPES }} />Not started</span>
       <span className={item}><Flag className="w-[1em] h-[1em] text-omega-orange" strokeWidth={2.75} />Expected finish</span>
       <span className="ml-auto flex items-center gap-3 min-w-0">
         {hidden > 0 && (
