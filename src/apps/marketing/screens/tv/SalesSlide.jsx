@@ -1,15 +1,15 @@
 // TV slide 1 — Sales pipeline. The sales side of the pipeline as a flow:
 // Leads (New Lead → Visited) and Estimates (Draft → Approved), one tile per
-// column with its card count, what those cards are waiting on, and an
-// on-time/late health bar (same time-in-stage rules as the Kanban cards, see
-// stageAge.js). Below: 3 KPIs (visit → approval conversion + average time,
-// oldest card). Right: Snapshot with the total cards in Disqualified / Lost,
-// each with a 6-month trend. No money on purpose.
+// column with its card count, an on-time/late health bar (same time-in-stage
+// rules as the Kanban cards, see stageAge.js) and WHO is there: the clients'
+// names, late ones first with a red dot and how long they've been waiting.
+// Below, a quiet strip: visit → approval conversion + average time, oldest
+// card, and the Disqualified / Lost totals. No money on purpose.
 
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronRight, UserPlus, PhoneCall, CalendarDays, BadgeCheck, FileText, Send,
-  Handshake, FileCheck2, X, BarChart3, Clock, HelpCircle, TrendingUp,
+  Handshake, FileCheck2, X, BarChart3, Clock, TrendingUp,
 } from 'lucide-react';
 import { supabase } from '../../../../shared/lib/supabase';
 import { PIPELINE_COLORS, PIPELINE_STEP_LABEL, OFF_BOARD_STAGES } from '../../../../shared/config/phaseBreakdown';
@@ -17,7 +17,7 @@ import { stageAge, resolveVisit, nyDateKey, nyMidnightMs } from '../../../../sha
 import { lostReasonLabel } from '../../../receptionist/lib/leadCatalog';
 import {
   DAY_MS, ORANGE, toMs, plural, selectIn, useCountUp,
-  SectionTitle, Chip, SlideLoading,
+  SectionTitle, SlideLoading,
 } from './tvKit';
 
 export const meta = {
@@ -90,7 +90,7 @@ export async function load(now = Date.now()) {
   const [boardRes, offRes] = await Promise.all([
     supabase
       .from('jobs')
-      .select('id, pipeline_status, stage_entered_at, last_touch_at, preferred_visit_date, preferred_visit_time')
+      .select('id, client_name, pipeline_status, stage_entered_at, last_touch_at, preferred_visit_date, preferred_visit_time')
       .eq('in_pipeline', true),
     supabase
       .from('jobs')
@@ -165,6 +165,42 @@ async function loadVisitFunnel(now) {
 }
 
 // ─── View model ─────────────────────────────────────────────────────
+
+// "45m" / "5h" / "12d" — how long a card has been waiting.
+function shortSpan(ms) {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  if (min < 60) return `${min}m`;
+  if (min < 24 * 60) return `${Math.floor(min / 60)}h`;
+  return `${Math.floor(min / (24 * 60))}d`;
+}
+
+// One line per client in a tile: name, a short "how long / when", and the
+// tone of its time-in-stage (late / warn / ok) — late first, then oldest.
+function stagePeople(status, jobs, { now, todayKey, visitTimes }) {
+  const TONE_RANK = { late: 0, warn: 1, info: 2, ok: 3 };
+  return jobs.map((j) => {
+    const name = (j.client_name || '').trim() || 'Unnamed lead';
+    if (status === 'visit_scheduled') {
+      const v = resolveVisit(j, visitTimes[j.id], now);
+      if (!v) return { id: j.id, name, when: 'no date', tone: 'warn', sort: Infinity };
+      const days = Math.round((nyMidnightMs(v.dateKey) - nyMidnightMs(todayKey)) / DAY_MS);
+      const when = days === 0 ? `today${v.timeLabel ? ` ${v.timeLabel}` : ''}`
+        : days === 1 ? 'tomorrow'
+          : days < 0 ? `${-days}d ago`
+            : new Date(`${v.dateKey}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+      return { id: j.id, name, when, tone: days < 0 ? 'late' : days === 0 ? 'info' : 'ok', sort: days };
+    }
+    const entered = toMs(j.stage_entered_at);
+    const touch = toMs(j.last_touch_at);
+    const since = ['estimate_sent', 'estimate_negotiating'].includes(status)
+      ? Math.max(entered ?? -Infinity, touch ?? -Infinity)
+      : entered;
+    const age = Number.isFinite(since) && since != null ? now - since : null;
+    const tone = TIMED_STAGES.has(status) ? (stageAge(j, { now })?.tone || 'ok') : 'ok';
+    return { id: j.id, name, when: age != null ? shortSpan(age) : '', tone, sort: -(age ?? 0) };
+  }).sort((a, b) => (TONE_RANK[a.tone] - TONE_RANK[b.tone]) || (a.sort - b.sort));
+}
+
 // Health of one column: chips for the footer + bar segments ({ tone, n }).
 function stageHealth(status, jobs, { now, todayKey, visitTimes }) {
   if (!jobs.length) return { chips: [], segments: [], late: 0 };
@@ -248,6 +284,7 @@ function buildView(data, now) {
         text: data ? (jobs.length === 1 ? meta.one : meta.many) : '',
         chips: health.chips,
         segments: health.segments,
+        people: data ? stagePeople(status, jobs, { now, todayKey, visitTimes: data.visitTimes }) : [],
         // Draft is Omega's own backlog — call it out when it's running late.
         highlight: status === 'estimate_draft' && health.late > 0,
       };
@@ -291,6 +328,14 @@ function buildView(data, now) {
     offTile('disqualified', 'disqualified', X),
     offTile('estimate_rejected', 'lost', X),
   ];
+  const stripOff = side.map((t) => ({
+    key: t.key,
+    icon: t.icon,
+    iconHex: t.hex,
+    label: t.label,
+    value: t.count != null ? t.count.toLocaleString('en-US') : '—',
+    sub: t.chips[0]?.text?.replace('Top reason: ', 'mostly ') || 'all time',
+  }));
 
   // Bottom KPIs.
   let oldest = null;
@@ -318,7 +363,7 @@ function buildView(data, now) {
     },
   ];
 
-  return { sections, side, kpis, totalLate };
+  return { sections, strip: [...kpis, ...stripOff], totalLate };
 }
 
 // Count that rolls up from 0 each time the slide comes on screen.
@@ -330,9 +375,9 @@ function Count({ value }) {
 // Segmented bar: one slice per health bucket, sized by card count.
 function HealthBar({ segments }) {
   const total = segments.reduce((a, s) => a + s.n, 0);
-  if (!total) return <div className="h-2 w-full rounded-full bg-black/[0.06]" />;
+  if (!total) return <div className="h-1.5 w-full rounded-full bg-black/[0.06]" />;
   return (
-    <div className="flex h-2 w-full rounded-full overflow-hidden bg-black/[0.06]">
+    <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-black/[0.06]">
       {segments.filter((s) => s.n > 0).map((s) => (
         <div key={s.tone} className={`${BAR_TONE[s.tone]} h-full transition-all duration-700`} style={{ width: `${(s.n / total) * 100}%` }} />
       ))}
@@ -340,107 +385,115 @@ function HealthBar({ segments }) {
   );
 }
 
-function StageTile({ label, icon: Icon, hex, count, text, chips, segments, highlight }) {
+// Hides list rows that don't fit whole and reports how many were hidden.
+function useFitCount(deps) {
+  const ref = useRef(null);
+  const [hidden, setHidden] = useState(0);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return undefined;
+    const fit = () => {
+      const limit = box.clientHeight + 1;
+      let h = 0;
+      for (const el of box.children) {
+        const ok = el.offsetTop + el.offsetHeight <= limit;
+        el.style.visibility = ok ? '' : 'hidden';
+        if (!ok) h++;
+      }
+      setHidden(h);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    document.fonts?.ready?.then(fit).catch(() => {});
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return [ref, hidden];
+}
+
+const DOT = { late: 'bg-rose-500', warn: 'bg-amber-400', info: 'bg-indigo-500', ok: 'bg-emerald-500' };
+const WHEN = { late: 'text-rose-600', warn: 'text-amber-600', info: 'text-indigo-600', ok: 'text-omega-stone' };
+
+function PersonRow({ p }) {
+  return (
+    <div className="flex items-center gap-[0.55em] min-w-0 h-[1.75em] text-[clamp(14px,2.15vh,24px)]">
+      <span className={`w-[0.5em] h-[0.5em] rounded-full flex-shrink-0 ${DOT[p.tone]}`} />
+      <span className="flex-1 min-w-0 truncate font-bold text-[#111] leading-tight">{p.name}</span>
+      {p.when && <span className={`flex-shrink-0 font-extrabold tabular-nums leading-tight ${WHEN[p.tone]}`}>{p.when}</span>}
+    </div>
+  );
+}
+
+function StageTile({ label, icon: Icon, hex, count, chips, segments, people, highlight }) {
   const color = highlight ? ORANGE : hex;
+  const [listRef, hidden] = useFitCount([people]);
+  const lateChip = chips.find((c) => c.tone === 'late');
   return (
     <div
       className={`relative flex-1 min-w-0 rounded-3xl bg-white shadow-card overflow-hidden flex flex-col ${
         highlight ? 'border-2 border-omega-orange' : 'border border-black/[0.05]'
       }`}
     >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ background: `linear-gradient(180deg, ${color}${highlight ? '24' : '14'} 0%, ${color}00 75%)` }}
-      />
-      <div className="relative px-7 pt-6 flex items-center gap-3">
-        <Icon className="w-[clamp(20px,3vh,32px)] h-[clamp(20px,3vh,32px)] flex-shrink-0" style={{ color }} strokeWidth={2.25} />
-        <p className="font-extrabold uppercase tracking-wide truncate text-[clamp(14px,2vh,22px)]" style={{ color }}>
-          {label}
-        </p>
-      </div>
-      <div className="relative flex-1 min-h-0 px-7 pb-5 flex flex-col">
-        <p className={`mt-1 font-black tabular-nums leading-none tracking-tight text-[clamp(48px,10vh,112px)] ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
+      {/* Colored header band with the label and the count. */}
+      <div className="relative px-6 pt-4 pb-3 flex items-center gap-3" style={{ background: `${color}1A` }}>
+        <span className="w-[clamp(34px,4.6vh,50px)] h-[clamp(34px,4.6vh,50px)] rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: color }}>
+          <Icon className="w-1/2 h-1/2 text-white" strokeWidth={2.5} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-extrabold uppercase tracking-wide truncate leading-tight text-[clamp(16px,2.5vh,28px)]" style={{ color: shadeHex(color) }}>
+            {label}
+          </p>
+          {lateChip
+            ? <p className="font-bold text-rose-600 leading-tight text-[clamp(12px,1.7vh,18px)]">{lateChip.text}</p>
+            : <p className="font-semibold text-omega-stone leading-tight text-[clamp(12px,1.7vh,18px)]">{count ? 'on track' : 'empty'}</p>}
+        </div>
+        <p className={`font-black tabular-nums leading-none tracking-tight text-[clamp(40px,7.4vh,84px)] ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
           <Count value={count} />
         </p>
-        <p className="mt-2 text-omega-slate font-medium leading-snug line-clamp-2 text-[clamp(13px,2vh,21px)]">{text}</p>
-        <div className="mt-auto pt-3 space-y-3">
-          {segments.length > 0 && <HealthBar segments={segments} />}
-          {chips.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {chips.map((c) => <Chip key={c.text} {...c} />)}
+      </div>
+      {segments.length > 0 && <div className="px-6 pt-2.5"><HealthBar segments={segments} /></div>}
+
+      <div className="relative flex-1 min-h-0 px-6 pt-2 pb-3 flex flex-col">
+        {people.length ? (
+          <>
+            <div ref={listRef} className="relative flex-1 min-h-0 overflow-hidden flex flex-col">
+              {people.map((p) => <PersonRow key={p.id} p={p} />)}
             </div>
-          )}
-        </div>
+            {hidden > 0 && (
+              <p className="flex-shrink-0 pt-1 font-bold text-omega-slate text-[clamp(12px,1.7vh,18px)]">+{hidden} more</p>
+            )}
+          </>
+        ) : (
+          <p className="m-auto font-semibold text-omega-fog text-[clamp(13px,2vh,21px)]">Nobody here</p>
+        )}
       </div>
     </div>
   );
 }
 
-// Little bar trend — last bar (today / this month) in full color.
-function TrendBars({ values, hex }) {
-  if (!values) return null;
-  const max = Math.max(1, ...values);
-  return (
-    <div className="flex items-end gap-[clamp(3px,0.5vh,6px)] h-[clamp(28px,5.5vh,60px)] flex-shrink-0">
-      {values.map((v, i) => (
-        <div
-          key={i}
-          className="w-[clamp(5px,0.9vh,10px)] rounded-full"
-          style={{
-            height: `${Math.max(22, (v / max) * 100)}%`,
-            background: hex,
-            opacity: i === values.length - 1 ? 1 : 0.3,
-          }}
-        />
-      ))}
-    </div>
-  );
+// Darker stop of a stage color so the label reads on its light band.
+function shadeHex(hex, amt = 0.25) {
+  if (!hex || hex[0] !== '#') return hex;
+  const n = parseInt(hex.slice(1, 7), 16);
+  const f = (c) => Math.round(c * (1 - amt)).toString(16).padStart(2, '0');
+  return `#${f(n >> 16)}${f((n >> 8) & 255)}${f(n & 255)}`;
 }
 
-// `compact` = shorter tile with no chips, so Snapshot only takes the top of
-// its column and the Agenda gets the rest.
-function SideTile({ label, labelColor, icon: Icon, iconBg, tag, hex, count, text, trend, chips, compact = false }) {
+function StripItem({ icon: Icon, iconHex, label, value, sub }) {
   return (
-    <div className={`rounded-3xl bg-white shadow-card border border-black/[0.05] flex flex-col justify-center ${compact ? 'flex-shrink-0 px-6 py-4' : 'flex-1 min-h-0 px-7 py-5'}`}>
-      <div className="flex items-center gap-3">
-        <span className="w-[clamp(26px,3.6vh,38px)] h-[clamp(26px,3.6vh,38px)] rounded-full flex items-center justify-center flex-shrink-0" style={{ background: iconBg }}>
-          <Icon className="w-3/5 h-3/5 text-white" strokeWidth={3} />
-        </span>
-        <p className="flex-1 font-extrabold uppercase tracking-wide truncate text-[clamp(14px,2vh,22px)]" style={{ color: labelColor || '#111' }}>{label}</p>
-        <span className="flex-shrink-0 rounded-lg px-3 py-1 font-bold uppercase tracking-wide text-[clamp(10px,1.3vh,14px)] bg-omega-cloud text-omega-slate">
-          {tag}
-        </span>
-      </div>
-      <div className={`flex items-end gap-4 ${compact ? 'mt-2' : 'mt-3'}`}>
-        <p className={`font-black tabular-nums leading-none tracking-tight ${compact ? 'text-[clamp(34px,5.8vh,64px)]' : 'text-[clamp(40px,8vh,88px)]'} ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
-          <Count value={count} />
-        </p>
-        <p className="flex-1 min-w-0 pb-2 text-omega-slate font-medium leading-snug line-clamp-2 text-[clamp(12px,1.9vh,20px)]">{text}</p>
-        <TrendBars values={trend} hex={hex} />
-      </div>
-      {!compact && chips.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {chips.map((c) => <Chip key={c.text} {...c} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function KpiCard({ icon: Icon, label, value, sub, help }) {
-  return (
-    <div className="flex-1 min-w-0 rounded-3xl bg-white shadow-card border border-black/[0.05] px-5 py-5 flex items-center gap-4">
+    <div className="flex items-center gap-3.5 min-w-0 px-5">
       <span
-        className="w-[clamp(44px,6.5vh,68px)] h-[clamp(44px,6.5vh,68px)] rounded-2xl flex items-center justify-center flex-shrink-0 bg-omega-cloud text-[#111]"
+        className="w-[clamp(30px,4.2vh,44px)] h-[clamp(30px,4.2vh,44px)] rounded-xl flex items-center justify-center flex-shrink-0"
+        style={iconHex ? { background: `${iconHex}1F`, color: iconHex } : undefined}
       >
-        <Icon className="w-1/2 h-1/2" strokeWidth={2.5} />
+        <Icon className={`w-1/2 h-1/2 ${iconHex ? '' : 'text-omega-slate'}`} strokeWidth={2.5} />
       </span>
       <div className="min-w-0">
-        <p className="font-bold uppercase tracking-wider text-omega-stone truncate text-[clamp(10px,1.4vh,15px)]">{label}</p>
-        <p className="font-black tabular-nums text-[#111] leading-tight whitespace-nowrap tracking-tight text-[clamp(20px,3.3vh,36px)]">{value}</p>
-        <p className="text-omega-slate font-medium truncate inline-flex items-center gap-2 max-w-full text-[clamp(12px,1.8vh,19px)]">
-          {sub}
-          {help && <HelpCircle className="w-[1em] h-[1em] text-omega-fog flex-shrink-0" title={help} />}
+        <p className="font-bold uppercase tracking-wider text-omega-stone truncate leading-tight text-[clamp(10px,1.4vh,15px)]">{label}</p>
+        <p className="flex items-baseline gap-2 min-w-0 leading-tight">
+          <span className="font-bold tabular-nums text-[#111] whitespace-nowrap text-[clamp(17px,2.5vh,27px)]">{value}</span>
+          {sub && <span className="font-medium text-omega-stone truncate min-w-0 text-[clamp(11px,1.6vh,17px)]">{sub}</span>}
         </p>
       </div>
     </div>
@@ -462,7 +515,7 @@ function Flow({ section }) {
         {section.tiles.map(({ key, ...tile }, i) => (
           <div key={key} className="contents">
             {i > 0 && (
-              <div className="w-[clamp(20px,2.2vw,42px)] flex-shrink-0 flex items-center justify-center text-omega-fog">
+              <div className="w-[clamp(16px,1.6vw,32px)] flex-shrink-0 flex items-center justify-center text-omega-fog">
                 <ChevronRight className="w-full h-auto" strokeWidth={2.5} />
               </div>
             )}
@@ -475,23 +528,14 @@ function Flow({ section }) {
 }
 
 export default function SalesSlide({ data, now }) {
-  const { sections, side, kpis } = useMemo(() => buildView(data, now), [data, now]);
+  const { sections, strip } = useMemo(() => buildView(data, now), [data, now]);
   if (!data) return <SlideLoading />;
   return (
-    <div className="flex-1 min-h-0 flex gap-6">
-      <div className="flex-1 min-w-0 flex flex-col gap-5">
-        {sections.map((s) => <Flow key={s.key} section={s} />)}
-        <div className="flex gap-4 flex-shrink-0 h-[clamp(84px,12.5vh,136px)]">
-          {kpis.map(({ key, ...kpi }) => <KpiCard key={key} {...kpi} />)}
-        </div>
+    <div className="flex-1 min-h-0 flex flex-col gap-4">
+      {sections.map((s) => <Flow key={s.key} section={s} />)}
+      <div className="flex-shrink-0 rounded-3xl bg-white shadow-card border border-black/[0.05] grid grid-cols-5 divide-x divide-black/[0.06] py-3">
+        {strip.map(({ key, ...item }) => <StripItem key={key} {...item} />)}
       </div>
-
-      <aside className="w-[21%] flex-shrink-0 flex flex-col min-h-0">
-        <SectionTitle title="Snapshot" />
-        <div className="flex-1 min-h-0 flex flex-col gap-5">
-          {side.map(({ key, ...tile }) => <SideTile key={key} {...tile} />)}
-        </div>
-      </aside>
     </div>
   );
 }
