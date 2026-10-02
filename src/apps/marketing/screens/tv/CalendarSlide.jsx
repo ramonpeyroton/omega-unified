@@ -322,10 +322,10 @@ function useOuterRows(ref, days) {
 function LegendStrip({ rangeLabel, total, done, ahead, legend }) {
   return (
     <div className={`${CARD} flex-shrink-0 mt-2 px-6 py-2 flex items-center gap-6 min-w-0 ${SIZE.legend}`}>
-      <p className="flex-shrink-0 whitespace-nowrap font-semibold text-omega-slate">
-        <span className="font-extrabold text-[#111]">{rangeLabel}</span>
+      <p className="flex-shrink-0 whitespace-nowrap font-normal text-[#5F5F5B]">
+        <span className="font-extrabold tracking-[-0.015em] text-[#141413]">{rangeLabel}</span>
         {' · '}
-        <span className="font-extrabold text-[#111]">{total}</span> {total === 1 ? 'event' : 'events'}
+        <span className="font-extrabold text-[#141413]">{total}</span> {total === 1 ? 'event' : 'events'}
         {total ? ` · ${ahead} ahead · ${done} done` : ''}
       </p>
       {legend.length > 0 && <div className="w-px self-stretch bg-black/10 flex-shrink-0" />}
@@ -333,8 +333,8 @@ function LegendStrip({ rangeLabel, total, done, ahead, legend }) {
         {legend.map((k) => (
           <div key={k.kind} className="flex items-center gap-2 whitespace-nowrap">
             <span className="w-[0.75em] h-[0.75em] rounded-full flex-shrink-0" style={{ background: k.color }} />
-            <span className="font-bold text-[#111]">{k.label}</span>
-            <span className="font-bold tabular-nums text-omega-stone">{k.n}</span>
+            <span className="font-medium text-[#3A3A37]">{k.label}</span>
+            <span className="font-semibold tabular-nums text-omega-stone">{k.n}</span>
           </div>
         ))}
       </div>
@@ -346,7 +346,7 @@ function Pill({ e, past, isNext, size = 'one', reduce }) {
   const ring = ORANGE;
   const tip = [`${e.label}${e.time ? ` · ${formatNyTime(e.ms)}` : ''}`, e.name, e.location].filter(Boolean).join('\n');
   const time = e.time && (
-    <span className="font-black tabular-nums leading-none flex-shrink-0" style={{ color: shade(e.color, 0.35) }}>
+    <span className="font-bold tabular-nums leading-none flex-shrink-0" style={{ color: shade(e.color, 0.35) }}>
       {e.time}
     </span>
   );
@@ -363,9 +363,9 @@ function Pill({ e, past, isNext, size = 'one', reduce }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-[0.35em] min-w-0 leading-[1.05]">
             {time}
-            <span className="font-bold text-[#111] truncate min-w-0">{e.client || e.name}</span>
+            <span className="font-semibold tracking-[-0.01em] text-[#141413] truncate min-w-0">{e.client || e.name}</span>
           </div>
-          <p className="text-[0.82em] font-semibold text-omega-slate leading-[1.15] truncate">
+          <p className="text-[0.82em] font-normal text-[#5F5F5B] leading-[1.15] truncate">
             {e.client ? (e.detail || e.label) : e.label}
           </p>
         </div>
@@ -375,11 +375,11 @@ function Pill({ e, past, isNext, size = 'one', reduce }) {
           <span className="leading-tight truncate min-w-0">
             {e.client ? (
               <>
-                <span className="font-bold text-[#111]">{e.client}</span>
-                {e.detail && <span className="font-semibold text-omega-slate"> · {e.detail}</span>}
+                <span className="font-semibold tracking-[-0.01em] text-[#141413]">{e.client}</span>
+                {e.detail && <span className="font-normal text-[#5F5F5B]"> · {e.detail}</span>}
               </>
             ) : (
-              <span className="font-bold text-[#111]">{e.name}</span>
+              <span className="font-semibold tracking-[-0.01em] text-[#141413]">{e.name}</span>
             )}
           </span>
         </>
@@ -393,7 +393,7 @@ function DayNumber({ d, reduce }) {
   if (d.isToday) {
     return (
       <motion.span
-        className={`inline-flex items-center justify-center rounded-full bg-omega-orange text-white px-2.5 h-full min-w-[clamp(26px,3vh,34px)] font-black tabular-nums leading-none whitespace-nowrap ${SIZE.day}`}
+        className={`inline-flex items-center justify-center rounded-full bg-omega-orange text-white px-2.5 h-full min-w-[clamp(26px,3vh,34px)] font-extrabold tracking-[-0.02em] tabular-nums leading-none whitespace-nowrap ${SIZE.day}`}
         animate={reduce ? undefined : { boxShadow: [`0 0 0 0 ${ORANGE}66`, `0 0 0 8px ${ORANGE}00`] }}
         transition={{ duration: 2.4, repeat: Infinity, ease: 'easeOut' }}
       >
@@ -402,7 +402,7 @@ function DayNumber({ d, reduce }) {
     );
   }
   return (
-    <span className={`pl-1 font-black tabular-nums leading-none whitespace-nowrap ${SIZE.day} ${d.inMonth ? 'text-[#111]' : 'text-omega-fog'}`}>
+    <span className={`pl-1 font-extrabold tracking-[-0.02em] tabular-nums leading-none whitespace-nowrap ${SIZE.day} ${d.inMonth ? 'text-[#111]' : 'text-omega-fog'}`}>
       {label}
     </span>
   );
@@ -436,11 +436,11 @@ function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
       <div className={`relative flex-shrink-0 h-[clamp(24px,2.7vh,30px)] flex items-center justify-between gap-2 ${fade}`}>
         <DayNumber d={d} reduce={reduce} />
         {more > 0 ? (
-          <span className={`flex-shrink-0 rounded-full px-2.5 py-0.5 border border-black/[0.08] font-bold leading-tight whitespace-nowrap ${SIZE.meta} ${d.isToday ? 'bg-white text-omega-orange' : 'bg-omega-cloud text-omega-slate'}`}>
+          <span className={`flex-shrink-0 rounded-full px-2.5 py-0.5 border border-black/[0.08] font-semibold leading-tight whitespace-nowrap ${SIZE.meta} ${d.isToday ? 'bg-white text-omega-orange' : 'bg-omega-cloud text-omega-slate'}`}>
             +{more} more
           </span>
         ) : d.isToday ? (
-          <span className={`flex-shrink-0 pr-1 font-black uppercase tracking-wider text-omega-orange ${SIZE.label}`}>Today</span>
+          <span className={`flex-shrink-0 pr-1 font-bold tracking-[-0.01em] text-omega-orange ${SIZE.label}`}>Today</span>
         ) : null}
       </div>
       <div data-cell-body data-key={d.key} data-size={d.pillSize} className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[2px] overflow-hidden ${fade}`}>
@@ -469,7 +469,7 @@ function SundayCell({ d, index, reduce }) {
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
     >
       <div className={`flex-shrink-0 h-[clamp(24px,2.7vh,30px)] flex items-center ${fade}`}>
-        <span className={`font-black tabular-nums leading-none ${SIZE.day} ${d.isToday ? 'text-omega-orange' : 'text-omega-slate'}`}>
+        <span className={`font-extrabold tracking-[-0.02em] tabular-nums leading-none ${SIZE.day} ${d.isToday ? 'text-omega-orange' : 'text-omega-slate'}`}>
           {d.day}
         </span>
       </div>
@@ -510,12 +510,12 @@ export default function CalendarSlide({ data, now = Date.now() }) {
   if (!view) return <SlideLoading />;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div className="font-optical flex-1 min-h-0 flex flex-col">
       <div className="grid gap-1.5 flex-shrink-0 mb-1" style={{ gridTemplateColumns: COLUMNS }}>
         {WEEKDAYS.map((w, i) => (
           <p
             key={w}
-            className={`font-extrabold uppercase tracking-wider truncate ${SIZE.week} ${i === SUN ? 'text-center' : 'px-3'} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
+            className={`font-semibold tracking-[-0.01em] truncate ${SIZE.week} ${i === SUN ? 'text-center' : 'px-3'} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
           >
             {w}
           </p>
