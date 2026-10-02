@@ -3,7 +3,7 @@ import { Plus, X, Save, Trash2, Upload, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 
-const CATEGORIES = ['Material', 'Fuel', 'Van', 'Labor', 'Subcontractor', 'Equipment', 'Permit', 'Return', 'Other'];
+const CATEGORIES = ['Material', 'Cabinets', 'Fuel', 'Van', 'Labor', 'Subcontractor', 'Equipment', 'Permit', 'Return', 'Other'];
 
 function money(n) {
   if (n == null) return '—';
