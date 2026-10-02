@@ -228,7 +228,7 @@ export default function Slide({ data, now }) {
     );
   }
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-4">
+    <div className="font-optical flex-1 min-h-0 flex flex-col gap-4">
       <div className={`${CARD} flex-1 min-h-0 flex flex-col overflow-hidden`}>
         <DayHeader view={view} />
         <div className="relative flex-1 min-h-0 flex flex-col">
@@ -248,8 +248,8 @@ function DayHeader({ view }) {
   return (
     <div className="flex flex-shrink-0 border-b border-black/[0.08] pb-2">
       <div className={`${LABEL_COL} flex flex-col justify-end pl-6 pb-1 border-r border-black/[0.06]`}>
-        <span className="font-bold uppercase tracking-wider text-omega-stone text-[clamp(11px,1.5vh,16px)]">Last week + next 3 weeks</span>
-        <span className="font-black text-[#111] leading-tight text-[clamp(20px,3vh,34px)]">
+        <span className="font-medium text-[#5F5F5B] text-[clamp(13px,1.8vh,19px)]">Last week + next 3 weeks</span>
+        <span className="font-extrabold tracking-[-0.025em] text-[#141413] leading-tight text-[clamp(22px,3.2vh,36px)]">
           {monthDay(keyOf(M0))} – {monthDay(keyOf(M1 - 1))}
         </span>
       </div>
@@ -263,7 +263,7 @@ function DayHeader({ view }) {
                 className={`absolute top-0 h-full flex items-center pl-2 ${i ? 'border-l-2 border-black/[0.12]' : ''}`}
                 style={{ left: `${pct(m.from)}%`, width: `${width}%` }}
               >
-                <span className="font-black uppercase tracking-wider text-[#111] truncate text-[clamp(13px,1.9vh,21px)]">
+                <span className="font-extrabold tracking-[-0.015em] text-[#141413] truncate text-[clamp(15px,2.2vh,24px)]">
                   {keyLabel(m.key, { month: width > 25 ? 'long' : 'short' })}
                 </span>
               </div>
@@ -280,8 +280,8 @@ function DayHeader({ view }) {
                   d.today ? 'bg-omega-orange text-white' : muted ? 'text-omega-fog' : 'text-omega-stone'
                 }`}
               >
-                <span className="font-bold uppercase text-[clamp(10px,1.4vh,15px)]">{'SMTWTFS'[d.dow]}</span>
-                <span className={`font-black tabular-nums text-[clamp(14px,2.1vh,24px)] ${d.today ? 'text-white' : muted ? '' : 'text-[#111]'}`}>
+                <span className="font-semibold uppercase text-[clamp(10px,1.4vh,15px)]">{'SMTWTFS'[d.dow]}</span>
+                <span className={`font-extrabold tabular-nums tracking-[-0.02em] text-[clamp(14px,2.1vh,24px)] ${d.today ? 'text-white' : muted ? '' : 'text-[#111]'}`}>
                   {Number(d.key.slice(8))}
                 </span>
               </div>
@@ -333,7 +333,7 @@ function JobRow({ row, index, view }) {
       <>
         <div className="absolute rounded-r-lg" style={{ left: `${from}%`, width: `${to - from}%`, top: `calc(14% + (72% - ${unit}) / 2)`, height: laneHeight(), backgroundImage: LATE_HATCH }} />
         <span
-          className="absolute top-1/2 -translate-y-1/2 pl-3 font-black text-rose-600 whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
+          className="absolute top-1/2 -translate-y-1/2 pl-3 font-extrabold text-rose-600 whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
           style={{ left: `${to}%` }}
         >
           Was due {monthDay(row.finishKey)} · {row.daysLate} {row.daysLate === 1 ? 'day' : 'days'} late
@@ -344,14 +344,14 @@ function JobRow({ row, index, view }) {
     const right = pct(row.finish);
     finish = right > 90 ? (
       <span
-        className="absolute top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/95 shadow-card font-extrabold text-[#111] whitespace-nowrap text-[clamp(12px,1.7vh,18px)]"
+        className="absolute top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/95 shadow-card font-bold text-[#141413] whitespace-nowrap text-[clamp(12px,1.7vh,18px)]"
         style={{ right: `calc(${100 - right}% + 6px)` }}
       >
         <Flag className="w-[0.95em] h-[0.95em] text-omega-orange" strokeWidth={2.75} />{monthDay(row.finishKey)}
       </span>
     ) : (
       <span
-        className="absolute top-1/2 -translate-y-1/2 pl-2.5 inline-flex items-center gap-1.5 font-extrabold text-[#111] whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
+        className="absolute top-1/2 -translate-y-1/2 pl-2.5 inline-flex items-center gap-1.5 font-bold text-[#141413] whitespace-nowrap text-[clamp(13px,1.9vh,20px)]"
         style={{ left: `${right}%` }}
       >
         <Flag className="w-[0.95em] h-[0.95em] text-omega-orange" strokeWidth={2.75} />{monthDay(row.finishKey)}
@@ -362,7 +362,7 @@ function JobRow({ row, index, view }) {
     const lastStart = visible.length ? Math.max(...visible.map((x) => x.s)) : M0;
     if (100 - pct(lastStart) >= 22) {
       finish = (
-        <span className="absolute top-1/2 -translate-y-1/2 right-1 px-2 py-0.5 rounded-md bg-white/95 shadow-card font-bold text-omega-slate whitespace-nowrap text-[clamp(12px,1.7vh,18px)]">
+        <span className="absolute top-1/2 -translate-y-1/2 right-1 px-2 py-0.5 rounded-md bg-white/95 shadow-card font-semibold text-omega-slate whitespace-nowrap text-[clamp(12px,1.7vh,18px)]">
           → {finishLabel(row.finishKey, todayKey)}
         </span>
       );
@@ -378,7 +378,7 @@ function JobRow({ row, index, view }) {
       transition={{ duration: 0.45, delay: 0.06 + index * 0.04, ease: EASE }}
     >
       <div className={`${LABEL_COL} flex items-center pl-6 pr-4 border-r border-black/[0.06] min-w-0`}>
-        <span className="font-extrabold text-[#111] leading-tight truncate text-[clamp(18px,2.8vh,30px)]">{row.name}</span>
+        <span className="font-semibold tracking-[-0.015em] text-[#141413] leading-tight truncate text-[clamp(18px,2.8vh,30px)]">{row.name}</span>
       </div>
       <div className="relative flex-1 min-w-0 mr-6">
         {row.segs.filter((x) => x.e > M0 && x.s < M1).map((seg) => (
@@ -419,7 +419,7 @@ function Segment({ seg, row, view, top, height }) {
       }}
     >
       <span className={`pl-2.5 pr-1.5 whitespace-nowrap truncate text-[clamp(12px,1.8vh,19px)] ${chipRoom ? 'pr-[9em]' : ''}`}>
-        <span className="font-extrabold">
+        <span className="font-bold tracking-[-0.01em]">
           {cutL ? '‹ ' : ''}{!row.signed && seg.status === 'done' ? '✓ ' : ''}{lead}
         </span>
         {trail && <span className="font-semibold opacity-80"> · {trail}</span>}
@@ -429,7 +429,7 @@ function Segment({ seg, row, view, top, height }) {
 }
 
 function Legend({ view }) {
-  const item = 'inline-flex items-center gap-2.5 font-bold text-omega-slate whitespace-nowrap';
+  const item = 'inline-flex items-center gap-2.5 font-medium text-[#3A3A37] whitespace-nowrap';
   const swatch = 'w-10 h-4 rounded-md';
   const { undated, hidden } = view;
   const names = undated.slice(0, 3).join(', ') + (undated.length > 3 ? ` +${undated.length - 3}` : '');
@@ -443,10 +443,10 @@ function Legend({ view }) {
       <span className={item}><Flag className="w-[1em] h-[1em] text-omega-orange" strokeWidth={2.75} />Expected finish</span>
       <span className="ml-auto flex items-center gap-3 min-w-0">
         {hidden > 0 && (
-          <span className="px-3 py-1 rounded-full bg-[#111] text-white font-extrabold whitespace-nowrap">+{hidden} more jobs</span>
+          <span className="px-3 py-1 rounded-full bg-[#111] text-white font-semibold whitespace-nowrap">+{hidden} more jobs</span>
         )}
         {undated.length > 0 && (
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold min-w-0">
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold min-w-0">
             <CalendarX className="w-[1.1em] h-[1.1em] flex-shrink-0" strokeWidth={2.5} />
             <span className="truncate">
               {undated.length} {undated.length === 1 ? 'job' : 'jobs'} without phase dates: {names}

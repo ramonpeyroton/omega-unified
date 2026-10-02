@@ -17,7 +17,7 @@ import { stageAge, resolveVisit, nyDateKey, nyMidnightMs } from '../../../../sha
 import { lostReasonLabel } from '../../../receptionist/lib/leadCatalog';
 import {
   DAY_MS, ORANGE, toMs, plural, selectIn, useCountUp,
-  SectionTitle, SlideLoading,
+  SlideLoading,
 } from './tvKit';
 
 export const meta = {
@@ -441,14 +441,16 @@ function StageTile({ label, icon: Icon, hex, count, chips, segments, people, hig
           <Icon className="w-1/2 h-1/2 text-white" strokeWidth={2.5} />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="font-extrabold uppercase tracking-wide truncate leading-tight text-[clamp(16px,2.5vh,28px)]" style={{ color: shadeHex(color) }}>
+          <p className="font-bold tracking-[-0.015em] truncate leading-tight text-[clamp(18px,2.8vh,31px)]" style={{ color: shadeHex(color) }}>
             {label}
           </p>
-          {lateChip
-            ? <p className="font-bold text-rose-600 leading-tight text-[clamp(12px,1.7vh,18px)]">{lateChip.text}</p>
-            : <p className="font-semibold text-omega-stone leading-tight text-[clamp(12px,1.7vh,18px)]">{count ? 'on track' : 'empty'}</p>}
+          <span className={`mt-1 inline-flex items-center h-[1.75em] px-[0.7em] rounded-full font-semibold leading-none text-[clamp(12px,1.7vh,18px)] ${
+            lateChip ? 'bg-rose-100 text-rose-700' : count ? 'bg-emerald-100 text-emerald-700' : 'bg-black/[0.05] text-omega-stone'
+          }`}>
+            {lateChip ? lateChip.text : count ? 'On track' : 'Empty'}
+          </span>
         </div>
-        <p className={`font-black tabular-nums leading-none tracking-tight text-[clamp(40px,7.4vh,84px)] ${count ? 'text-[#111]' : 'text-omega-fog'}`}>
+        <p className={`font-extrabold tabular-nums leading-none tracking-[-0.035em] text-[clamp(40px,7.4vh,84px)] ${count ? 'text-[#141413]' : 'text-omega-fog'}`}>
           <Count value={count} />
         </p>
       </div>
@@ -463,7 +465,7 @@ function StageTile({ label, icon: Icon, hex, count, chips, segments, people, hig
               {people.map((p) => <PersonRow key={p.id} p={p} />)}
             </div>
             {hidden > 0 && (
-              <p className="flex-shrink-0 pt-1 font-bold text-omega-slate text-[clamp(12px,1.7vh,18px)]">+{hidden} more</p>
+              <p className="flex-shrink-0 pt-1 font-semibold text-omega-slate text-[clamp(13px,1.8vh,19px)]">+{hidden} more</p>
             )}
           </>
         ) : (
@@ -492,9 +494,9 @@ function StripItem({ icon: Icon, iconHex, label, value, sub }) {
         <Icon className={`w-1/2 h-1/2 ${iconHex ? '' : 'text-omega-slate'}`} strokeWidth={2.5} />
       </span>
       <div className="min-w-0">
-        <p className="font-bold uppercase tracking-wider text-omega-stone truncate leading-tight text-[clamp(10px,1.4vh,15px)]">{label}</p>
+        <p className="font-medium text-[#3A3A37] truncate leading-tight text-[clamp(12px,1.65vh,18px)]">{label}</p>
         <p className="flex items-baseline gap-2 min-w-0 leading-tight">
-          <span className="font-bold tabular-nums text-[#111] whitespace-nowrap text-[clamp(17px,2.5vh,27px)]">{value}</span>
+          <span className="font-extrabold tabular-nums text-[#141413] tracking-[-0.02em] whitespace-nowrap text-[clamp(18px,2.7vh,30px)]">{value}</span>
           {sub && <span className="font-medium text-omega-stone truncate min-w-0 text-[clamp(11px,1.6vh,17px)]">{sub}</span>}
         </p>
       </div>
@@ -502,17 +504,30 @@ function StripItem({ icon: Icon, iconHex, label, value, sub }) {
   );
 }
 
+// Same type scheme as the job card's Phases tab: Title Case, extra-bold,
+// tight tracking (no all-caps).
+function FlowTitle({ title, children }) {
+  return (
+    <div className="flex items-center gap-4 mb-3 flex-shrink-0">
+      <span className="w-1.5 h-[clamp(22px,3.2vh,34px)] rounded-full bg-omega-orange flex-shrink-0" />
+      <h2 className="font-extrabold tracking-[-0.025em] leading-none text-[#141413] text-[clamp(22px,3.4vh,38px)]">{title}</h2>
+      <div className="flex-1 h-px bg-black/10" />
+      {children}
+    </div>
+  );
+}
+
 function Flow({ section }) {
   return (
     <section className="flex-1 min-h-0 flex flex-col">
-      <SectionTitle title={section.title}>
+      <FlowTitle title={section.title}>
         {section.open != null && (
-          <p className="font-semibold text-omega-stone text-[clamp(12px,1.9vh,20px)]">
-            <span className="text-[#111] font-black">{section.open}</span> open
-            {section.late > 0 && <> · <span className="text-rose-600 font-black">{section.late}</span> late</>}
+          <p className="font-medium text-[#5F5F5B] text-[clamp(13px,2vh,22px)]">
+            <span className="text-[#141413] font-extrabold">{section.open}</span> open
+            {section.late > 0 && <> · <span className="text-rose-600 font-extrabold">{section.late}</span> late</>}
           </p>
         )}
-      </SectionTitle>
+      </FlowTitle>
       <div className="flex-1 min-h-0 flex items-stretch">
         {section.tiles.map(({ key, ...tile }, i) => (
           <div key={key} className="contents">
@@ -533,7 +548,7 @@ export default function SalesSlide({ data, now }) {
   const { sections, strip } = useMemo(() => buildView(data, now), [data, now]);
   if (!data) return <SlideLoading />;
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-4">
+    <div className="font-optical flex-1 min-h-0 flex flex-col gap-4">
       {sections.map((s) => <Flow key={s.key} section={s} />)}
       <div className="flex-shrink-0 rounded-3xl bg-white shadow-card border border-black/[0.05] grid grid-cols-5 divide-x divide-black/[0.06] py-3">
         {strip.map(({ key, ...item }) => <StripItem key={key} {...item} />)}
