@@ -67,7 +67,7 @@ const CQ = {
   // Cost section — bigger than the figures' small print so it reads from
   // across the room (the cards have the height for it).
   costHead:'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(12px,6.5cqmin,48px)]',
-  line:    'text-[clamp(15px,11cqmin,84px)]',
+  line:    'text-[clamp(14px,8cqmin,72px)]', // same size as the client name
   small:   'text-[clamp(12px,6cqmin,46px)]',
 };
 
