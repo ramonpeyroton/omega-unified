@@ -64,9 +64,11 @@ const CQ = {
   eyebrow: 'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(10px,4.1cqmin,30px)]',
   key:     'font-black tabular-nums leading-[1.05] tracking-tight text-[clamp(18px,12.5cqmin,96px)]',
   text:    'text-[clamp(11px,5cqmin,36px)]',
-  total:   'text-[clamp(12px,6cqmin,44px)]',
-  small:   'text-[clamp(10px,3.8cqmin,28px)]',
-  bar:     'h-[clamp(6px,2.4cqmin,18px)]',
+  // Cost section — bigger than the figures' small print so it reads from
+  // across the room (the cards have the height for it).
+  costHead:'font-bold uppercase tracking-wider text-omega-stone leading-tight text-[clamp(12px,6.5cqmin,48px)]',
+  line:    'text-[clamp(15px,11cqmin,84px)]',
+  small:   'text-[clamp(12px,6cqmin,46px)]',
 };
 
 const EASE = [0.22, 1, 0.36, 1];
@@ -497,20 +499,15 @@ function CostLine({ line, scale, size, delay, reduce }) {
   if (size === 'cq') {
     return (
       <div className="flex-shrink-0">
-        <div className="flex items-baseline gap-[2.5cqmin] min-w-0">
-          <p className={`flex-1 min-w-0 truncate leading-tight font-semibold text-[#111] ${CQ.text}`}>{line.label}</p>
-          <p className={`flex-shrink-0 whitespace-nowrap leading-tight font-black tabular-nums ${amountTone(line)} ${CQ.text}`}>{usdShort(line.amount)}</p>
+        <div className="flex items-baseline gap-[3cqmin] min-w-0">
+          {/* Same grey as "No costs logged yet"; returns keep their green. */}
+          <p className={`flex-1 min-w-0 truncate leading-tight font-bold text-omega-stone ${CQ.line}`}>{line.label}</p>
+          <p className={`flex-shrink-0 whitespace-nowrap leading-tight font-black tabular-nums ${line.amount < 0 ? 'text-emerald-600' : 'text-omega-stone'} ${CQ.line}`}>{usdShort(line.amount)}</p>
         </div>
-        <div className="mt-[1.4cqmin] flex items-center gap-[2.5cqmin] min-w-0">
-          <div className="flex-1 min-w-0">
-            <CostBar line={line} scale={scale} delay={delay} reduce={reduce} thick={CQ.bar} />
-          </div>
-          {(line.paid != null || line.secondary) && (
-            <span className={`${CQ.small} flex-shrink-0 whitespace-nowrap leading-tight font-semibold text-omega-stone`}>
-              {line.paid != null ? `paid ${usdTight(line.paid)}` : line.secondary}
-            </span>
-          )}
-        </div>
+        {/* Subs only: what was already paid of the agreed amount. */}
+        {line.paid != null && (
+          <p className={`${CQ.small} mt-[0.8cqmin] leading-tight font-semibold text-omega-stone`}>paid {usdTight(line.paid)}</p>
+        )}
       </div>
     );
   }
@@ -568,13 +565,13 @@ function CostList({ job, size, delay, reduce, cols = 1, center = false }) {
   const [ref, hidden] = useFitCount([job.lines, size, cols]);
   const scale = job.contract || Math.max(0, ...job.lines.map((l) => Math.abs(l.amount)));
   const cq = size === 'cq';
-  const eyebrow = cq ? CQ.eyebrow : `${T.eyebrow} leading-tight`;
+  const eyebrow = cq ? CQ.costHead : `${T.eyebrow} leading-tight`;
   return (
     <div className={`${center ? '' : 'flex-1'} min-h-0 flex flex-col`}>
-      <div className={`flex items-baseline justify-between gap-3 flex-shrink-0 border-t border-black/[0.06] ${cq ? 'pt-[2.6cqmin] mb-[2.4cqmin]' : 'pt-3 mb-3'}`}>
+      <div className={`flex items-baseline justify-between gap-3 flex-shrink-0 border-t border-black/[0.06] ${cq ? `pt-[3cqmin] ${job.lines.length && !hidden ? '' : 'mb-[3cqmin]'}` : 'pt-3 mb-3'}`}>
         <p className={`${eyebrow} truncate`}>
           {job.lines.length
-            ? <>Costs <span className={`text-[#111] font-black tabular-nums normal-case ${cq ? CQ.total : ''}`}>{usdShort(job.spent)}</span></>
+            ? (cq ? null : <>Costs <span className={`text-[#111] font-black tabular-nums normal-case`}>{usdShort(job.spent)}</span></>)
             : 'No costs logged yet'}
         </p>
         {hidden > 0 && <p className={`${eyebrow} whitespace-nowrap !text-omega-slate`}>+{hidden} more</p>}
@@ -583,7 +580,7 @@ function CostList({ job, size, delay, reduce, cols = 1, center = false }) {
         <div
           ref={ref}
           className={`relative ${center ? '' : 'flex-1'} min-h-0 overflow-hidden ${
-            cols > 1 ? 'grid grid-cols-2 content-start gap-x-10 gap-y-3.5' : `flex flex-col ${cq ? 'gap-[2.8cqmin]' : 'gap-3.5'}`
+            cols > 1 ? 'grid grid-cols-2 content-start gap-x-10 gap-y-3.5' : `flex flex-col ${cq ? 'gap-[4cqmin]' : 'gap-3.5'}`
           }`}
         >
           {job.lines.map((line, i) => (
@@ -829,7 +826,9 @@ function MoreCard({ jobs }) {
   );
 }
 
-function Legend() {
+// `costKinds`: the cost-line colors only mean something on the cards that
+// draw cost bars (1–6 jobs); the grid cards list costs as plain text.
+function Legend({ costKinds }) {
   const dot = (hex, text) => (
     <span className="inline-flex items-center gap-2 whitespace-nowrap">
       <span className="w-3 h-3 rounded-full" style={{ background: hex }} />{text}
@@ -845,11 +844,15 @@ function Legend() {
       {dot(TONE.good.hex, 'Under 70%')}
       {dot(TONE.warn.hex, '70–90%')}
       {dot(TONE.bad.hex, '90%+')}
-      <span className="w-px h-5 bg-black/10" />
-      {bar(KIND.sub.hex, 'Subs')}
-      {bar(KIND.receipt.hex, 'Receipts')}
-      {bar(KIND.manual.hex, 'Manual')}
-      {bar(KIND.credit.hex, 'Returns')}
+      {costKinds && (
+        <>
+          <span className="w-px h-5 bg-black/10" />
+          {bar(KIND.sub.hex, 'Subs')}
+          {bar(KIND.receipt.hex, 'Receipts')}
+          {bar(KIND.manual.hex, 'Manual')}
+          {bar(KIND.credit.hex, 'Returns')}
+        </>
+      )}
     </div>
   );
 }
@@ -902,9 +905,7 @@ export default function ProjectsSlide({ data }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-4">
       <section className="flex-1 min-h-0 flex flex-col">
-        <SectionTitle title="Cost vs contract">
-          <Legend />
-        </SectionTitle>
+        <SectionTitle title="Cost vs contract" />
         <div
           className="flex-1 min-h-0 grid gap-4"
           style={{
@@ -920,8 +921,9 @@ export default function ProjectsSlide({ data }) {
       </section>
 
       {/* Company totals — a quiet strip under the cards: the jobs are the
-          story, these are context. */}
-      <div className={`${CARD} grid grid-cols-4 divide-x divide-black/[0.06] py-3 flex-shrink-0`}>
+          story, these are context. The legend sits with it. */}
+      <div className="flex-shrink-0 flex flex-col gap-2">
+      <div className={`${CARD} grid grid-cols-4 divide-x divide-black/[0.06] py-3`}>
         <TotalItem
           icon={HardHat}
           label="Jobs in progress"
@@ -950,6 +952,10 @@ export default function ProjectsSlide({ data }) {
           sub={marginSub}
           tone={noSubsYet ? undefined : marginTone(totals.marginRatio)}
         />
+      </div>
+      <div className="flex justify-end px-2">
+        <Legend costKinds={grid.variant !== 'grid'} />
+      </div>
       </div>
     </div>
   );
