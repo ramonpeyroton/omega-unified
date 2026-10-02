@@ -403,6 +403,7 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               margin,
               profit,
               contractValue,
+              spent: fin.cost,
               raw: j,
             };
           })
@@ -973,12 +974,13 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[600px]">
+                <table className="w-full text-sm min-w-[700px]">
                   <thead>
                     <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
                       <th className="text-left py-2 px-2">Job / Client</th>
                       <th className="text-left py-2 px-2">Type</th>
                       <th className="text-left py-2 px-2 w-[160px]">Progress</th>
+                      <th className="text-right py-2 px-2">Spent</th>
                       <th className="text-left py-2 px-2">Status</th>
                       <th className="text-right py-2 px-2">Margin</th>
                       <th className="w-6"></th>
@@ -1015,6 +1017,18 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                               </div>
                               <span className="text-xs font-bold text-omega-charcoal tabular-nums w-9 text-right">{j.progress}%</span>
                             </div>
+                          </td>
+                          {/* Spent = every logged expense + manual costs (same
+                              cost the margin uses); contract value underneath. */}
+                          <td
+                            className="py-2.5 px-2 text-right whitespace-nowrap"
+                            onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
+                            title="Open Financials"
+                          >
+                            <p className="text-sm font-bold text-omega-charcoal tabular-nums">{fmtMoney(j.spent)}</p>
+                            <p className="text-[11px] text-omega-stone tabular-nums">
+                              {j.contractValue > 0 ? `of ${fmtMoney(j.contractValue)}` : 'no contract value'}
+                            </p>
                           </td>
                           <td
                             className="py-2.5 px-2"
@@ -1262,6 +1276,9 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
                         </div>
                         <span className="text-[10px] font-bold text-omega-stone tabular-nums">{j.progress}%</span>
                       </div>
+                      <p className="text-[11px] text-omega-stone tabular-nums mt-1">
+                        {fmtMoneyCompact(j.spent)} spent{j.contractValue > 0 ? ` of ${fmtMoneyCompact(j.contractValue)}` : ''}
+                      </p>
                     </div>
                     <span
                       onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
