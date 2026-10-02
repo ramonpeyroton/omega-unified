@@ -1,9 +1,12 @@
-// TV slide 2 — This Month. The whole current month (New York time) as a
-// calendar: month card with progress and a live "Next up" card on top, a
-// Sun–Sat grid with every day's events as colored pills (as many as fit
-// whole, then "+N more"; today's cell is solid orange), and the month's
-// total + what each color means in a strip at the bottom. Cancelled visits
-// are left out. Sized to be read from across the office.
+// TV slide 2 — Calendar. Always three Mon–Sun weeks (New York time): last
+// week, THIS week and next week. The middle row is the current week — twice
+// as tall as the other two, the only one with a highlighted edge and big
+// two-line events; last and next week are quiet half-height rows (Ramon,
+// 02/10). Every day's events are colored pills (as many as fit whole, then
+// "+N more"; today's cell is light orange; the next event pulses), then a
+// small strip with the range, its totals and what each color means. Pills
+// lead with the client's name (from the job when the event has one) so they
+// read from across the office. Cancelled visits are left out.
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -12,23 +15,34 @@ import { supabase } from '../../../../shared/lib/supabase';
 import { EVENT_KIND_META } from '../../../../shared/lib/calendar';
 import { nyDateKey, nyMidnightMs, formatNyTime } from '../../../../shared/lib/stageAge';
 import {
-  TZ, ORANGE, DAY_MS, HOUR_MS, T, CARD, CountUp, SlideLoading,
-  toMs, plural, daysFromToday, nextDayKey,
+  TZ, ORANGE, HOUR_MS, CARD, SlideLoading,
+  toMs, nextDayKey,
 } from './tvKit';
 
 export const meta = {
   key: 'calendar',
-  title: 'This Month',
+  title: 'Calendar',
   eyebrow: 'Calendar',
   icon: CalendarDays,
   tables: ['calendar_events'],
 };
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-// Nobody works Sunday and Saturday is a half day: Sunday is a thin strip
-// (day number + a dot per event), Saturday is narrower, and the weekdays
-// get the width so their events can be big.
-const COLUMNS = 'minmax(0,0.24fr) repeat(5, minmax(0,1fr)) minmax(0,0.62fr)';
+// The week runs Monday → Sunday, so the weekend sits together on the right.
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const SUN = 6; // column index of Sunday
+// Saturday is a half day (narrower) and nobody works Sunday (a thin strip
+// with the day number and a dot per event), so the weekdays get the width
+// and their events can be big.
+const COLUMNS = 'repeat(5, minmax(0,1fr)) minmax(0,0.62fr) minmax(0,0.24fr)';
+const TODAY_BG = '#FCEBDF'; // light orange — today's cell
+// Last week and next week are exactly as tall as their busiest day needs
+// (the row ends right under its last event — no gap, no "+N more"); this
+// week takes all the rest. Until that's measured: half / double / half.
+const ROWS = 'minmax(0,1fr) minmax(0,2fr) minmax(0,1fr)';
+// …but an outer row never takes more than this share of the grid, so this
+// week always stays the big one (past that, "+N more" kicks in).
+const OUTER_MAX = 0.3;
+const WEEKS = 3;
 const OTHER_KIND = { label: 'Event', color: '#6B7280' };
 const KIND_ORDER = [...Object.keys(EVENT_KIND_META), 'other'];
 // Legend only — the two delivery labels are too long for a 4-up legend.
@@ -42,13 +56,23 @@ const SIZE = {
   eyebrow: 'text-[clamp(11px,1.5vh,16px)]',
   meta:    'text-[clamp(12px,1.7vh,18px)]',
   label:   'text-[clamp(14px,2vh,22px)]',
-  pill:    'text-[clamp(15px,2.4vh,28px)]',
+  pill:    'text-[clamp(14px,2.2vh,26px)]',
+  pillBig: 'text-[clamp(16px,2.6vh,30px)]',
   day:     'text-[clamp(16px,2.5vh,28px)]',
   week:    'text-[clamp(13px,1.9vh,22px)]',
-  legend:  'text-[clamp(14px,2.1vh,24px)]',
+  legend:  'text-[clamp(12px,1.7vh,19px)]',
 };
 
-const PILL = `relative flex-shrink-0 flex items-center gap-[0.4em] h-[1.2em] rounded-lg pl-[0.55em] pr-[0.4em] overflow-hidden ${SIZE.pill}`;
+const PILL_BASE = 'relative flex-shrink-0 flex items-center gap-[0.4em] h-[1.2em] rounded-lg pl-[0.55em] pr-[0.4em] overflow-hidden';
+const PILL = `${PILL_BASE} ${SIZE.pill}`;
+// This week's and next week's events are two-line cards: time + client on
+// top, what it is underneath — so the client's name doesn't get cut. This
+// week uses the big size; next week the regular one. Last week stays on a
+// single line.
+const PILL_2L = 'relative flex-shrink-0 flex items-center h-[2.05em] rounded-lg pl-[0.55em] pr-[0.4em] overflow-hidden';
+const PILL_BIG = `${PILL_2L} ${SIZE.pillBig}`;
+const PILL_TWO = `${PILL_2L} ${SIZE.pill}`;
+const PILL_CLASS = { big: PILL_BIG, two: PILL_TWO, one: PILL };
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
 
@@ -89,6 +113,19 @@ function eventName(title, fallback) {
   return softenCaps(t) || fallback;
 }
 
+// For an event tied to a job: what's left of the title once the client's
+// name is taken out — "Plumbing Start at Megan Flores" → "Plumbing Start",
+// "Fabuwood Delivery Keisha (boxes)" → "Fabuwood Delivery (boxes)". A title
+// that is just the client's name leaves nothing.
+function eventDetail(name, client, kindLabel) {
+  let t = name;
+  if (/\sat\s/i.test(t)) t = t.replace(/\s+at\s+.+$/i, '');
+  t = t.replace(new RegExp(escapeRe(client), 'ig'), ' ');
+  t = t.replace(/\(\s*\)/g, ' ').replace(/\s{2,}/g, ' ').replace(/^[\s—–:·-]+|[\s—–:·-]+$/g, '').trim();
+  if (!t || t.toLowerCase() === kindLabel.toLowerCase()) return '';
+  return t;
+}
+
 // Darker stop of a kind color, for the time text on its own light tint.
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1, 7), 16);
@@ -106,21 +143,17 @@ function keyLabel(key, opts) {
   return new Date(`${key}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', ...opts });
 }
 
-// First Sunday on/before the 1st → last Saturday on/after the last day.
-function monthGrid(now) {
+// Monday of last week → Sunday of next week (3 rows).
+function rangeGrid(now) {
   const todayKey = nyDateKey(now);
-  const [y, m] = todayKey.split('-').map(Number);
-  const first = `${todayKey.slice(0, 7)}-01`;
-  const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
-  const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const weeks = Math.ceil((lead + dim) / 7);
-  const start = addDays(first, -lead);
-  const days = Array.from({ length: weeks * 7 }, (_, i) => addDays(start, i));
-  return { todayKey, prefix: todayKey.slice(0, 7), first, dim, weeks, days, start, end: days[days.length - 1] };
+  const dow = (new Date(`${todayKey}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const start = addDays(todayKey, -dow - 7);
+  const days = Array.from({ length: WEEKS * 7 }, (_, i) => addDays(start, i));
+  return { todayKey, dow, days, start, end: days[days.length - 1], focusStart: addDays(start, 7), focusEnd: addDays(start, 13) };
 }
 
 export async function load(now = Date.now()) {
-  const g = monthGrid(now);
+  const g = rangeGrid(now);
   // A few hours of slack on both ends: nyMidnightMs is an hour off on a DST
   // switch day. Events are bucketed by their own NY date afterwards.
   const from = nyMidnightMs(g.start) - 3 * HOUR_MS;
@@ -134,12 +167,23 @@ export async function load(now = Date.now()) {
     .limit(2000);
   if (error) throw error;
 
+  // Client names for events tied to a job — the pill leads with them.
+  const jobIds = [...new Set((data || []).map((e) => e.job_id).filter(Boolean))];
+  let clientByJob = {};
+  if (jobIds.length) {
+    const { data: jobs } = await supabase.from('jobs').select('id, client_name').in('id', jobIds);
+    clientByJob = Object.fromEntries((jobs || []).map((j) => [j.id, (j.client_name || '').trim()]));
+  }
+
   const events = [];
   for (const e of data || []) {
     if (e.visit_status === 'cancelled') continue;
     const ms = toMs(e.starts_at);
     if (ms == null) continue;
     const km = kindMeta(e.kind);
+    const name = eventName(e.title, km.label);
+    const client = clientByJob[e.job_id] || '';
+    const detail = client ? eventDetail(name, client, km.label) : '';
     events.push({
       id: e.id,
       ms,
@@ -147,7 +191,9 @@ export async function load(now = Date.now()) {
       kind: EVENT_KIND_META[e.kind] ? e.kind : 'other',
       label: km.label,
       color: km.color,
-      name: eventName(e.title, km.label),
+      name: client ? (detail ? `${client} · ${detail}` : client) : name,
+      client,
+      detail,
       time: shortTime(ms),
       location: e.location || '',
     });
@@ -158,15 +204,15 @@ export async function load(now = Date.now()) {
 
 // ─── View model ─────────────────────────────────────────────────────
 function buildView(data, now) {
-  const g = monthGrid(now);
-  const events = Array.isArray(data?.events) ? data.events : [];
+  const g = rangeGrid(now);
+  const events = (Array.isArray(data?.events) ? data.events : [])
+    .filter((e) => e.key >= g.start && e.key <= g.end);
 
   const byDay = {};
   for (const e of events) (byDay[e.key] ||= []).push(e);
 
-  const inMonth = events.filter((e) => e.key.startsWith(g.prefix));
   const counts = {};
-  for (const e of inMonth) counts[e.kind] = (counts[e.kind] || 0) + 1;
+  for (const e of events) counts[e.kind] = (counts[e.kind] || 0) + 1;
   const legend = Object.entries(counts)
     .map(([kind, n]) => {
       const km = kind === 'other' ? OTHER_KIND : kindMeta(kind);
@@ -174,134 +220,121 @@ function buildView(data, now) {
     })
     .sort((a, b) => b.n - a.n || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
 
-  const total = inMonth.length;
-  const done = inMonth.filter((e) => e.ms < now).length;
-  const next = events.find((e) => e.ms >= now && e.key <= g.end) || null;
+  const total = events.length;
+  const done = events.filter((e) => e.ms < now).length;
+  const next = events.find((e) => e.ms >= now) || null;
 
   const days = g.days.map((key, i) => ({
     key,
     day: Number(key.slice(8)),
-    inMonth: key.startsWith(g.prefix),
+    inMonth: true,
     isToday: key === g.todayKey,
     isPast: key < g.todayKey,
-    weekend: i % 7 === 0 || i % 7 === 6,
+    focus: key >= g.focusStart && key <= g.focusEnd, // this week
+    pillSize: key >= g.focusStart && key <= g.focusEnd ? 'big' : key > g.focusEnd ? 'two' : 'one',
+    weekend: i % 7 >= 5,
     events: byDay[key] || [],
   }));
 
-  const dayOfMonth = Number(g.todayKey.slice(8));
-  const dayFrac = Math.min(1, Math.max(0, (now - nyMidnightMs(g.todayKey)) / DAY_MS));
-
+  const short = { month: 'short', day: 'numeric' };
   return {
-    monthName: keyLabel(g.first, { month: 'long' }),
-    dayOfMonth,
-    dim: g.dim,
-    progress: Math.min(100, ((dayOfMonth - 1 + dayFrac) / g.dim) * 100),
-    todayDow: new Date(`${g.todayKey}T12:00:00Z`).getUTCDay(),
-    weeks: g.weeks,
+    rangeLabel: `${keyLabel(g.start, short)} – ${keyLabel(g.end, short)}`,
+    todayDow: g.dow,
     days,
     legend,
     total,
     done,
     ahead: total - done,
     next,
-    todayCount: (byDay[g.todayKey] || []).length,
   };
 }
 
-function nextWhen(e, now) {
-  const days = daysFromToday(e.key, now);
-  const clock = formatNyTime(e.ms);
-  if (days === 0) return `Today · ${clock}`;
-  if (days === 1) return `Tomorrow · ${clock}`;
-  return `${keyLabel(e.key, { weekday: 'short', month: 'short', day: 'numeric' })} · ${clock}`;
-}
-
-function nextIn(e, now) {
-  const mins = Math.max(0, Math.round((e.ms - now) / 60_000));
-  if (mins < 1) return 'now';
-  if (mins < 60) return `in ${mins} min`;
-  if (mins < 24 * 60) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m && h < 6 ? `in ${h}h ${m}m` : `in ${Math.round(mins / 60)}h`;
-  }
-  return `in ${plural(Math.max(1, daysFromToday(e.key, now)), 'day', 'days')}`;
-}
-
-// How many pills fit whole in a day cell. Rows are equal, but today's
-// thicker border makes its body a couple px shorter — use the smallest body
-// so no cell ever shows a half-cut pill.
-function usePillCapacity(weeks) {
-  const ref = useRef(null);
-  const [cap, setCap] = useState(3);
+// How many pills fit whole in each day cell. Rows have different heights
+// and each week uses its own pill size, so it's worked out per cell from its
+// own body height and the matching probe pill.
+function useCellCaps(ref, days) {
+  const [caps, setCaps] = useState({});
   useLayoutEffect(() => {
     const grid = ref.current;
     if (!grid) return undefined;
     const measure = () => {
-      const bodies = grid.querySelectorAll('[data-cell-body]');
-      const probe = grid.querySelector('[data-pill-probe]');
-      if (!bodies.length || !probe) return;
-      const pill = probe.getBoundingClientRect().height;
-      if (!pill) return;
-      const gap = parseFloat(getComputedStyle(bodies[0]).rowGap) || 0;
-      let avail = Infinity;
-      for (const b of bodies) avail = Math.min(avail, b.getBoundingClientRect().height);
-      const fit = Math.max(0, Math.floor((avail + gap + 0.01) / (pill + gap)));
-      setCap((c) => (c === fit ? c : fit));
+      const probe = {};
+      for (const el of grid.querySelectorAll('[data-pill-probe]')) {
+        probe[el.dataset.pillProbe] = el.getBoundingClientRect().height;
+      }
+      if (!probe.big || !probe.two || !probe.one) return;
+      const next = {};
+      for (const b of grid.querySelectorAll('[data-cell-body]')) {
+        const pill = probe[b.dataset.size] || probe.one;
+        const gap = parseFloat(getComputedStyle(b).rowGap) || 0;
+        next[b.dataset.key] = Math.max(0, Math.floor((b.getBoundingClientRect().height + gap + 0.01) / (pill + gap)));
+      }
+      setCaps((prev) => {
+        const same = Object.keys(next).length === Object.keys(prev).length
+          && Object.keys(next).every((k) => prev[k] === next[k]);
+        return same ? prev : next;
+      });
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(grid);
+    grid.querySelectorAll('[data-cell-body]').forEach((b) => ro.observe(b));
+    document.fonts?.ready?.then(measure).catch(() => {});
     return () => ro.disconnect();
-  }, [weeks]);
-  return [ref, cap];
+  }, [ref, days]);
+  return caps;
 }
 
-// ─── Pieces ─────────────────────────────────────────────────────────
-function MonthCard({ monthName, dayOfMonth, dim, progress, reduce }) {
-  return (
-    <div className={`${CARD} relative overflow-hidden flex-shrink-0 w-[clamp(260px,22vw,420px)] px-7 py-2 flex flex-col justify-center`}>
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ background: `linear-gradient(135deg, ${ORANGE}24 0%, ${ORANGE}00 65%)` }}
-      />
-      <div className="relative flex items-baseline justify-between gap-3">
-        <p className="font-black leading-none tracking-tight text-[#111] whitespace-nowrap text-[clamp(26px,4vh,46px)]">{monthName}</p>
-        <span className={`${T.meta} whitespace-nowrap leading-none`}>
-          Day <span className="font-black text-[#111]">{dayOfMonth}</span> of {dim}
-        </span>
-      </div>
-      <div className="relative mt-2 h-1.5 rounded-full bg-black/[0.07] overflow-hidden">
-        <motion.div
-          className="h-full rounded-full bg-omega-orange"
-          initial={reduce ? false : { width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 1, delay: 0.2, ease: EASE }}
-        />
-      </div>
-    </div>
-  );
+// Pixel heights for the last-week and next-week rows: the cell chrome (day
+// number, padding) plus as many pills as that week's busiest weekday has.
+function useOuterRows(ref, days) {
+  const [rows, setRows] = useState(null);
+  useLayoutEffect(() => {
+    const grid = ref.current;
+    if (!grid) return undefined;
+    const busiest = (from) => Math.max(1, ...days.slice(from, from + 7)
+      .filter((_, i) => i !== SUN)
+      .map((d) => d.events.length));
+    const measure = () => {
+      const pill = (size) => grid.querySelector(`[data-pill-probe="${size}"]`)?.getBoundingClientRect().height || 0;
+      const bodies = [...grid.querySelectorAll('[data-cell-body]')];
+      if (!bodies.length || !pill('one') || !pill('two')) return;
+      const gap = parseFloat(getComputedStyle(bodies[0]).rowGap) || 0;
+      const chrome = Math.max(...bodies.map((b) => b.parentElement.getBoundingClientRect().height - b.getBoundingClientRect().height));
+      const need = (n, h) => Math.ceil(chrome + n * h + (n - 1) * gap + 1);
+      const rowGap = parseFloat(getComputedStyle(grid).rowGap) || 0;
+      const max = (grid.clientHeight - 2 * rowGap) * OUTER_MAX;
+      const top = Math.min(need(busiest(0), pill('one')), max);
+      const bottom = Math.min(need(busiest(14), pill('two')), max);
+      setRows((prev) => (prev && prev[0] === top && prev[1] === bottom ? prev : [top, bottom]));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(grid);
+    document.fonts?.ready?.then(measure).catch(() => {});
+    return () => ro.disconnect();
+  }, [ref, days]);
+  return rows ? `${rows[0]}px minmax(0,1fr) ${rows[1]}px` : ROWS;
 }
 
-// Bottom strip: the month's total, then what each color means (with how
-// many of each this month). Moved down from the header so the grid and the
-// Next-up card own the top of the screen.
-function LegendStrip({ total, done, ahead, legend }) {
+// Bottom strip, all one small size: the dates on screen and their totals,
+// then what each color means (with how many of each).
+function LegendStrip({ rangeLabel, total, done, ahead, legend }) {
   return (
-    <div className={`${CARD} flex-shrink-0 mt-2 px-7 py-1.5 flex items-center gap-7 min-w-0`}>
-      <div className="flex items-baseline gap-2.5 flex-shrink-0">
-        <CountUp value={total} className="font-black tabular-nums leading-none text-[#111] text-[clamp(22px,3.4vh,38px)]" />
-        <span className={`${SIZE.legend} font-bold text-omega-slate whitespace-nowrap`}>
-          {total === 1 ? 'event' : 'events'}{total ? ` · ${ahead} ahead · ${done} done` : ' this month'}
-        </span>
-      </div>
+    <div className={`${CARD} flex-shrink-0 mt-2 px-6 py-2 flex items-center gap-6 min-w-0 ${SIZE.legend}`}>
+      <p className="flex-shrink-0 whitespace-nowrap font-semibold text-omega-slate">
+        <span className="font-extrabold text-[#111]">{rangeLabel}</span>
+        {' · '}
+        <span className="font-extrabold text-[#111]">{total}</span> {total === 1 ? 'event' : 'events'}
+        {total ? ` · ${ahead} ahead · ${done} done` : ''}
+      </p>
       {legend.length > 0 && <div className="w-px self-stretch bg-black/10 flex-shrink-0" />}
-      <div className="flex-1 min-w-0 flex items-center gap-x-7 gap-y-1 flex-wrap">
+      <div className="flex-1 min-w-0 flex items-center gap-x-6 gap-y-1 flex-wrap">
         {legend.map((k) => (
-          <div key={k.kind} className={`flex items-center gap-2.5 whitespace-nowrap ${SIZE.legend}`}>
-            <span className="w-[0.7em] h-[0.7em] rounded-full flex-shrink-0" style={{ background: k.color }} />
+          <div key={k.kind} className="flex items-center gap-2 whitespace-nowrap">
+            <span className="w-[0.75em] h-[0.75em] rounded-full flex-shrink-0" style={{ background: k.color }} />
             <span className="font-bold text-[#111]">{k.label}</span>
-            <span className="font-black tabular-nums text-omega-stone">{k.n}</span>
+            <span className="font-bold tabular-nums text-omega-stone">{k.n}</span>
           </div>
         ))}
       </div>
@@ -309,64 +342,48 @@ function LegendStrip({ total, done, ahead, legend }) {
   );
 }
 
-// One row so the header stays short and the grid gets the height:
-// "NEXT UP / in 1h 26m" | event name | when · kind.
-function NextCard({ next, now, todayCount, reduce }) {
-  return (
-    <div className={`${CARD} relative overflow-hidden flex-1 min-w-0 px-7 py-2 flex items-center gap-6`}>
-      {next && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: `linear-gradient(135deg, ${next.color}26 0%, ${next.color}00 70%)` }}
-        />
-      )}
-      <div className="relative flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <span className="relative flex w-2.5 h-2.5 flex-shrink-0">
-            {next && !reduce && <span className="absolute inset-0 rounded-full bg-omega-orange opacity-60 animate-ping" />}
-            <span className={`relative w-2.5 h-2.5 rounded-full ${next ? 'bg-omega-orange' : 'bg-omega-fog'}`} />
-          </span>
-          <p className={`${T.eyebrow} whitespace-nowrap`}>Next up{todayCount > 0 ? ` · ${todayCount} today` : ''}</p>
-        </div>
-        {next && (
-          <p className={`mt-1 font-extrabold uppercase tracking-wider text-omega-orange whitespace-nowrap ${SIZE.eyebrow}`}>
-            {nextIn(next, now)}
-          </p>
-        )}
-      </div>
-      <div className="relative w-px self-stretch my-1 bg-black/10 flex-shrink-0" />
-      <div className="relative flex-1 min-w-0 flex items-baseline gap-5">
-        <p className="min-w-0 truncate font-black leading-tight text-[#111] text-[clamp(20px,3.2vh,36px)]">
-          {next ? next.name : 'All clear'}
-        </p>
-        <span className={`flex-shrink-0 inline-flex items-center gap-2.5 whitespace-nowrap ${SIZE.label} font-semibold text-omega-slate`}>
-          {next && <span className="w-3 h-3 rounded-full flex-shrink-0 self-center" style={{ background: next.color }} />}
-          {next ? `${nextWhen(next, now)} · ${next.label}` : 'No more events this month'}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function Pill({ e, past, isNext, onToday, reduce }) {
-  // On today's orange cell the pills turn white and the "next" ring dark.
-  const ring = onToday ? '#111111' : ORANGE;
+function Pill({ e, past, isNext, size = 'one', reduce }) {
+  const ring = ORANGE;
   const tip = [`${e.label}${e.time ? ` · ${formatNyTime(e.ms)}` : ''}`, e.name, e.location].filter(Boolean).join('\n');
+  const time = e.time && (
+    <span className="font-black tabular-nums leading-none flex-shrink-0" style={{ color: shade(e.color, 0.35) }}>
+      {e.time}
+    </span>
+  );
   return (
     <motion.div
-      className={`${PILL} ${past ? 'opacity-50' : ''}`}
+      className={`${PILL_CLASS[size] || PILL} ${past ? 'opacity-50' : ''}`}
       title={tip}
-      style={{ background: onToday ? '#FFFFFF' : `${e.color}1F`, boxShadow: isNext ? `inset 0 0 0 2px ${ring}` : undefined }}
+      style={{ background: `${e.color}1F`, boxShadow: isNext ? `inset 0 0 0 2px ${ring}` : undefined }}
       animate={isNext && !reduce ? { boxShadow: [`inset 0 0 0 2px ${ring}`, `inset 0 0 0 2px ${ring}33`] } : undefined}
       transition={isNext ? { duration: 1.2, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' } : undefined}
     >
       <span className="absolute left-0 inset-y-0 w-[5px]" style={{ background: e.color }} />
-      {e.time && (
-        <span className="font-black tabular-nums leading-none flex-shrink-0" style={{ color: shade(e.color, 0.35) }}>
-          {e.time}
-        </span>
+      {size !== 'one' ? (
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-[0.35em] min-w-0 leading-[1.05]">
+            {time}
+            <span className="font-bold text-[#111] truncate min-w-0">{e.client || e.name}</span>
+          </div>
+          <p className="text-[0.82em] font-semibold text-omega-slate leading-[1.15] truncate">
+            {e.client ? (e.detail || e.label) : e.label}
+          </p>
+        </div>
+      ) : (
+        <>
+          {time}
+          <span className="leading-tight truncate min-w-0">
+            {e.client ? (
+              <>
+                <span className="font-bold text-[#111]">{e.client}</span>
+                {e.detail && <span className="font-semibold text-omega-slate"> · {e.detail}</span>}
+              </>
+            ) : (
+              <span className="font-bold text-[#111]">{e.name}</span>
+            )}
+          </span>
+        </>
       )}
-      <span className="font-bold text-[#111] leading-tight truncate min-w-0">{e.name}</span>
     </motion.div>
   );
 }
@@ -376,8 +393,8 @@ function DayNumber({ d, reduce }) {
   if (d.isToday) {
     return (
       <motion.span
-        className={`inline-flex items-center justify-center rounded-full bg-white text-omega-orange px-2.5 h-full min-w-[clamp(26px,3vh,34px)] font-black tabular-nums leading-none whitespace-nowrap ${SIZE.day}`}
-        animate={reduce ? undefined : { boxShadow: ['0 0 0 0 rgba(255,255,255,0.7)', '0 0 0 8px rgba(255,255,255,0)'] }}
+        className={`inline-flex items-center justify-center rounded-full bg-omega-orange text-white px-2.5 h-full min-w-[clamp(26px,3vh,34px)] font-black tabular-nums leading-none whitespace-nowrap ${SIZE.day}`}
+        animate={reduce ? undefined : { boxShadow: [`0 0 0 0 ${ORANGE}66`, `0 0 0 8px ${ORANGE}00`] }}
         transition={{ duration: 2.4, repeat: Infinity, ease: 'easeOut' }}
       >
         {label}
@@ -391,24 +408,27 @@ function DayNumber({ d, reduce }) {
   );
 }
 
-function DayCell({ d, index, cap, nextId, now, reduce }) {
-  if (index % 7 === 0) return <SundayCell d={d} index={index} reduce={reduce} />;
+function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
+  if (index % 7 === SUN) return <SundayCell d={d} index={index} reduce={reduce} />;
   const n = d.events.length;
   const shown = n > cap ? d.events.slice(0, cap) : d.events;
   const more = n - shown.length;
 
+  // This week: white card with an orange edge. Last and next week stay
+  // quiet.
   const look = d.isToday
-    ? 'border-2 border-omega-orange bg-omega-orange shadow-card-hover'
-    : !d.inMonth
-      ? 'border border-dashed border-black/[0.09] bg-transparent'
+    ? 'border-2 border-omega-orange shadow-card-hover'
+    : d.focus
+      ? `border-2 border-omega-orange/30 shadow-card ${d.weekend ? 'bg-[#F3F2EC]' : 'bg-white'}`
       : d.weekend
         ? 'border border-black/[0.05] bg-[#F3F2EC]'
-        : 'border border-black/[0.05] bg-white shadow-card';
-  const fade = !d.inMonth ? 'opacity-40' : d.isPast ? 'opacity-60' : '';
+        : `border border-black/[0.05] ${d.isPast ? 'bg-white/60' : 'bg-white/80'}`;
+  const fade = d.isPast ? 'opacity-50' : '';
 
   return (
     <motion.div
       className={`relative min-h-0 min-w-0 rounded-2xl flex flex-col px-2 pt-1 pb-1.5 ${look}`}
+      style={d.isToday ? { background: TODAY_BG } : undefined}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
@@ -420,12 +440,12 @@ function DayCell({ d, index, cap, nextId, now, reduce }) {
             +{more} more
           </span>
         ) : d.isToday ? (
-          <span className={`flex-shrink-0 pr-1 font-black uppercase tracking-wider text-white ${SIZE.label}`}>Today</span>
+          <span className={`flex-shrink-0 pr-1 font-black uppercase tracking-wider text-omega-orange ${SIZE.label}`}>Today</span>
         ) : null}
       </div>
-      <div data-cell-body className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[2px] overflow-hidden ${fade}`}>
+      <div data-cell-body data-key={d.key} data-size={d.pillSize} className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[2px] overflow-hidden ${fade}`}>
         {shown.map((e) => (
-          <Pill key={e.id} e={e} past={d.isToday && e.ms < now} isNext={e.id === nextId} onToday={d.isToday} reduce={reduce} />
+          <Pill key={e.id} e={e} past={d.isToday && e.ms < now} isNext={e.id === nextId} size={d.pillSize} reduce={reduce} />
         ))}
       </div>
     </motion.div>
@@ -435,20 +455,21 @@ function DayCell({ d, index, cap, nextId, now, reduce }) {
 // Thin Sunday column: just the day number and one colored dot per event.
 function SundayCell({ d, index, reduce }) {
   const look = d.isToday
-    ? 'border-2 border-omega-orange bg-omega-orange'
-    : !d.inMonth
-      ? 'border border-dashed border-black/[0.09] bg-transparent'
+    ? 'border-2 border-omega-orange'
+    : d.focus
+      ? 'border-2 border-omega-orange/30 bg-[#F3F2EC]'
       : 'border border-black/[0.05] bg-[#F3F2EC]';
-  const fade = !d.inMonth ? 'opacity-40' : d.isPast ? 'opacity-60' : '';
+  const fade = d.isPast ? 'opacity-50' : '';
   return (
     <motion.div
       className={`relative min-h-0 min-w-0 rounded-2xl flex flex-col items-center pt-1 pb-1.5 ${look}`}
+      style={d.isToday ? { background: TODAY_BG } : undefined}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
     >
       <div className={`flex-shrink-0 h-[clamp(24px,2.7vh,30px)] flex items-center ${fade}`}>
-        <span className={`font-black tabular-nums leading-none ${SIZE.day} ${d.isToday ? 'text-white' : d.inMonth ? 'text-omega-slate' : 'text-omega-fog'}`}>
+        <span className={`font-black tabular-nums leading-none ${SIZE.day} ${d.isToday ? 'text-omega-orange' : 'text-omega-slate'}`}>
           {d.day}
         </span>
       </div>
@@ -461,19 +482,23 @@ function SundayCell({ d, index, reduce }) {
   );
 }
 
-function MonthGrid({ days, weeks, nextId, now, reduce }) {
-  const [ref, cap] = usePillCapacity(weeks);
+function MonthGrid({ days, nextId, now, reduce }) {
+  const ref = useRef(null);
+  const rows = useOuterRows(ref, days);
+  const caps = useCellCaps(ref, days);
   return (
     <div
       ref={ref}
       className="relative flex-1 min-h-0 grid gap-1.5"
-      style={{ gridTemplateColumns: COLUMNS, gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}
+      style={{ gridTemplateColumns: COLUMNS, gridTemplateRows: rows }}
     >
       {days.map((d, i) => (
-        <DayCell key={d.key} d={d} index={i} cap={cap} nextId={nextId} now={now} reduce={reduce} />
+        <DayCell key={d.key} d={d} index={i} cap={caps[d.key]} nextId={nextId} now={now} reduce={reduce} />
       ))}
       <div aria-hidden className="absolute left-0 top-0 invisible pointer-events-none">
-        <div data-pill-probe className={PILL}>10a Probe</div>
+        <div data-pill-probe="one" className={PILL}>10a Probe</div>
+        <div data-pill-probe="two" className={PILL_TWO}>10a Probe</div>
+        <div data-pill-probe="big" className={PILL_BIG}>10a Probe</div>
       </div>
     </div>
   );
@@ -486,31 +511,26 @@ export default function CalendarSlide({ data, now = Date.now() }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex gap-4 flex-shrink-0 h-[clamp(58px,6.8vh,76px)]">
-        <MonthCard
-          monthName={view.monthName}
-          dayOfMonth={view.dayOfMonth}
-          dim={view.dim}
-          progress={view.progress}
-          reduce={reduce}
-        />
-        <NextCard next={view.next} now={now} todayCount={view.todayCount} reduce={reduce} />
-      </div>
-
-      <div className="grid gap-1.5 flex-shrink-0 mt-2 mb-1" style={{ gridTemplateColumns: COLUMNS }}>
+      <div className="grid gap-1.5 flex-shrink-0 mb-1" style={{ gridTemplateColumns: COLUMNS }}>
         {WEEKDAYS.map((w, i) => (
           <p
             key={w}
-            className={`font-extrabold uppercase tracking-wider truncate ${SIZE.week} ${i === 0 ? 'text-center' : 'px-3'} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
+            className={`font-extrabold uppercase tracking-wider truncate ${SIZE.week} ${i === SUN ? 'text-center' : 'px-3'} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
           >
             {w}
           </p>
         ))}
       </div>
 
-      <MonthGrid days={view.days} weeks={view.weeks} nextId={view.next?.id} now={now} reduce={reduce} />
+      <MonthGrid days={view.days} nextId={view.next?.id} now={now} reduce={reduce} />
 
-      <LegendStrip total={view.total} done={view.done} ahead={view.ahead} legend={view.legend} />
+      <LegendStrip
+        rangeLabel={view.rangeLabel}
+        total={view.total}
+        done={view.done}
+        ahead={view.ahead}
+        legend={view.legend}
+      />
     </div>
   );
 }
