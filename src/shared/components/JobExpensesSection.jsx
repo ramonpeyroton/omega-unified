@@ -76,13 +76,18 @@ export default function JobExpensesSection({ job, user }) {
     if (!file) return null;
     setUploading(true);
     try {
-      const path = `expenses/${job.id}/${Date.now()}-${file.name}`;
-      const { error } = await supabase.storage.from('job-expenses').upload(path, file, { upsert: true });
+      // Same bucket/folder as Quick Receipts (ReceiptCaptureModal) — there is
+      // no 'job-expenses' bucket in Supabase.
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+      const path = `receipts/${job.id}/${Date.now()}-${safeName}`;
+      const { error } = await supabase.storage
+        .from('job-documents')
+        .upload(path, file, { upsert: false, contentType: file.type || undefined });
       if (error) throw error;
-      const { data } = supabase.storage.from('job-expenses').getPublicUrl(path);
+      const { data } = supabase.storage.from('job-documents').getPublicUrl(path);
       return data?.publicUrl || null;
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Upload failed (bucket "job-expenses" needed)' });
+      setToast({ type: 'error', message: err.message || 'Upload failed' });
       return null;
     } finally {
       setUploading(false);
