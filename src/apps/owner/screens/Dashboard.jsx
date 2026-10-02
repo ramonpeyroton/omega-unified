@@ -121,6 +121,14 @@ function lastMonthLabel(lastStart) {
   return lastStart.toLocaleDateString('en-US', { month: 'short' });
 }
 
+// Pipeline stages listed in the Active Jobs table.
+const ACTIVE_TABLE_STAGES = new Set(['contract_signed', 'awaiting_kickoff', 'in_progress', 'completed']);
+const STAGE_TAG = {
+  contract_signed:  { label: 'Signed',    cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+  awaiting_kickoff: { label: 'Kickoff',   cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+  completed:        { label: 'Completed', cls: 'bg-green-50 text-green-700 border-green-200' },
+};
+
 // Margin % thresholds — Profitable / At Risk / Loss bucketing.
 function marginBucket(marginPct) {
   if (marginPct == null) return { label: 'No Costing', cls: 'bg-gray-100 text-gray-500 border-gray-200' };
@@ -362,9 +370,11 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
         }
         const activeJobsLast = activeJobsStartedIn(lastStart, lastEnd);
 
-        // ─── Active Jobs table (in_progress only) ───────────────
+        // ─── Active Jobs table: every job from Contract Signed onward ─
+        // (signed / in progress / completed — Ramon, Oct/26). Running
+        // jobs first, completed at the bottom; each group by contract value.
         const inProgressJobs = jobs
-          .filter((j) => j.pipeline_status === 'in_progress')
+          .filter((j) => ACTIVE_TABLE_STAGES.has(j.pipeline_status))
           .map((j) => {
             const jobExpenses = expenses.filter((e) => e.job_id === j.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
             const cost = costsByJob[j.id];
@@ -404,11 +414,12 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               profit,
               contractValue,
               spent: fin.cost,
+              stage: j.pipeline_status,
               raw: j,
             };
           })
-          .sort((a, b) => (b.contractValue || 0) - (a.contractValue || 0))
-          .slice(0, 6);
+          .sort((a, b) => ((a.stage === 'completed') - (b.stage === 'completed'))
+            || (b.contractValue || 0) - (a.contractValue || 0));
 
         // ─── Sales Pipeline funnel ─────────────────────────────
         function fromLeadDate(j) {
@@ -959,13 +970,11 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
             <div className="px-5 py-3.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-omega-charcoal">Active Jobs</h2>
-                <p className="text-xs text-omega-stone mt-0.5">In-progress projects ranked by contract value</p>
+                <p className="text-xs text-omega-stone mt-0.5">Contract signed onward — running jobs first, by contract value</p>
               </div>
-              {data.inProgressJobs.length === 6 && (
-                <span className="text-[11px] font-bold text-omega-stone uppercase tracking-wider">
-                  Top 6 of {data.activeJobsCount}
-                </span>
-              )}
+              <span className="text-[11px] font-bold text-omega-stone uppercase tracking-wider">
+                {data.inProgressJobs.length} jobs
+              </span>
             </div>
             <div className="p-5">
             {data.inProgressJobs.length === 0 ? (
@@ -974,21 +983,20 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[700px]">
+                <table className="w-full text-sm min-w-[600px]">
                   <thead>
                     <tr className="text-[10px] font-bold uppercase tracking-wider text-omega-stone">
                       <th className="text-left py-2 px-2">Job / Client</th>
                       <th className="text-left py-2 px-2">Type</th>
                       <th className="text-left py-2 px-2 w-[160px]">Progress</th>
                       <th className="text-right py-2 px-2">Spent</th>
-                      <th className="text-left py-2 px-2">Status</th>
                       <th className="text-right py-2 px-2">Margin</th>
                       <th className="w-6"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.inProgressJobs.map((j) => {
-                      const bucket = marginBucket(j.margin);
+                      const tag = STAGE_TAG[j.stage];
                       return (
                         <tr
                           key={j.id}
@@ -996,8 +1004,13 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                           className="border-t border-gray-100 hover:bg-omega-cloud/40 cursor-pointer"
                         >
                           <td className="py-2.5 px-2">
-                            <p className="font-bold text-omega-charcoal text-sm truncate max-w-[220px]">
-                              {j.client_name || 'Untitled'}
+                            <p className="font-bold text-omega-charcoal text-sm truncate max-w-[220px] flex items-center gap-1.5">
+                              <span className="truncate">{j.client_name || 'Untitled'}</span>
+                              {tag && (
+                                <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${tag.cls}`}>
+                                  {tag.label}
+                                </span>
+                              )}
                             </p>
                             {j.address && (
                               <p className="text-[11px] text-omega-stone truncate max-w-[220px]">{j.address}</p>
@@ -1029,15 +1042,6 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
                             <p className="text-[11px] text-omega-stone tabular-nums">
                               {j.contractValue > 0 ? `of ${fmtMoney(j.contractValue)}` : 'no contract value'}
                             </p>
-                          </td>
-                          <td
-                            className="py-2.5 px-2"
-                            onClick={(e) => { e.stopPropagation(); onSelectJob?.(j.raw, 'financials'); }}
-                            title="Open Financials"
-                          >
-                            <span className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${bucket.cls} hover:ring-2 hover:ring-omega-orange/30`}>
-                              {bucket.label}
-                            </span>
                           </td>
                           <td
                             className="py-2.5 px-2 text-right text-sm font-bold text-omega-charcoal tabular-nums hover:text-omega-orange hover:underline"
@@ -1254,13 +1258,13 @@ function MobileOwnerDashboard({ data, bounds, revenueDelta, profitDelta, closeRa
             <h2 className="text-sm font-bold text-omega-charcoal flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-omega-orange" /> Active Jobs
             </h2>
-            <span className="text-xs font-bold text-omega-stone">{data.activeJobsCount} total</span>
+            <span className="text-xs font-bold text-omega-stone">{data.inProgressJobs.length} total</span>
           </div>
           {data.inProgressJobs.length === 0 ? (
             <p className="text-xs text-omega-stone text-center py-6">No jobs in progress.</p>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {data.inProgressJobs.slice(0, 5).map((j) => {
+              {data.inProgressJobs.map((j) => {
                 const bucket = marginBucket(j.margin);
                 return (
                   <li
