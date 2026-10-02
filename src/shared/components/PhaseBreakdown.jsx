@@ -2,14 +2,16 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, CheckCircle2, Circle,
   MessageSquare, MessageCircle, Phone, ThumbsUp, ThumbsDown, AlertTriangle,
-  Pencil, Trash2, Plus, Check,
+  Pencil, Trash2, Plus, Check, CalendarDays, HardHat, Sparkles, Loader2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { templateFor, progressFromPhaseData, normalizeService } from '../config/phaseBreakdown';
+import { templateForJob, progressFromPhaseData } from '../config/phaseBreakdown';
+import { generatePhasesFromEstimate } from '../lib/phaseGenerator';
 import PhasePhotos from './PhasePhotos';
 import ContactMessageModal from './ContactMessageModal';
 import { subConfirmTemplate, waDeepLink } from '../lib/twilio';
 import { logAudit } from '../lib/audit';
+import { subDisplayNames, subInlineLabel } from '../lib/subcontractor';
 
 // Roles allowed to contact subs directly from the phase header.
 // Sales/marketing/screen are read-only; admin has global access.
@@ -17,16 +19,32 @@ const CAN_CONTACT_SUBS = new Set(['manager', 'owner', 'operations', 'admin']);
 // Same roles can mark item verification status (Pass/Fail/Fix).
 const CAN_VERIFY = CAN_CONTACT_SUBS;
 // Roles allowed to edit the phase breakdown structure (rename phases,
-// add/remove items, add/remove phases). Everyone else sees the same
-// list read-only and can still toggle done/undone.
-const CAN_EDIT_PHASES = new Set(['sales', 'operations', 'owner', 'admin']);
+// add/remove items, add/remove phases, build it from the estimate).
+// Everyone else sees the same list read-only and can still toggle
+// done/undone. Ramon (marketing) and Rafaela (receptionist) joined 02/10.
+const CAN_EDIT_PHASES = new Set(['sales', 'operations', 'owner', 'admin', 'marketing', 'receptionist']);
+// Roles that plan each phase: which sub does it + start / end date. Ramon's
+// list (02/10): Ramon (marketing), Attila (sales), Inácio (owner) and Rafaela
+// (receptionist). The dates feed the office TV's Jobs Calendar
+// (apps/marketing/screens/tv/JobsCalendarSlide.jsx). Everyone else sees the
+// plan read-only.
+const CAN_SCHEDULE = new Set(['marketing', 'sales', 'owner', 'receptionist', 'operations', 'admin']);
+
+// 'YYYY-MM-DD' → 'Oct 5'. Noon keeps the date from sliding a day.
+function shortDay(key) {
+  if (!key) return '';
+  return new Date(`${key}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 /**
  * Phase breakdown with checkboxes. Persists `phase_data` JSONB on `jobs`.
  * If the job has no phase_data yet (or service changed), seeds from template.
  */
 export default function PhaseBreakdown({ job, onJobUpdated, user }) {
-  const template = useMemo(() => templateFor(job.service), [job.service]);
+  // Services with a template seed themselves the first time the tab opens;
+  // the rest start empty and get an "Add phase breakdown automatically"
+  // button that builds the phases from the estimate.
+  const template = useMemo(() => templateForJob(job.service), [job.service]);
   const [phaseData, setPhaseData] = useState(() => deriveInitial(job, template));
   const [openIds, setOpenIds] = useState(() => {
     // Auto-expand the phase that's currently being worked on: the LAST
@@ -55,6 +73,10 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   const [subsByPhase, setSubsByPhase] = useState({});
   const canContact = CAN_CONTACT_SUBS.has(user?.role);
   const canEdit = CAN_EDIT_PHASES.has(user?.role);
+  const canSchedule = CAN_SCHEDULE.has(user?.role);
+  // Every sub on file — the per-phase "who does it" dropdown, and the phone
+  // number behind the Contact button when the phase has a sub picked.
+  const [subs, setSubs] = useState([]);
   const [pickerFor, setPickerFor] = useState(null); // {phase, assignments} or null
   const [contactFor, setContactFor] = useState(null); // {sub, phase, channel} or null
 
@@ -63,6 +85,8 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   // and "+ Add item" / "+ Add phase" buttons appear. Checkbox toggling stays
   // on so a user can mark progress mid-edit if they want.
   const [editing, setEditing] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState(null);
 
   useEffect(() => {
     if (!canContact || !job?.id) return;
@@ -85,6 +109,30 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     })();
     return () => { cancelled = true; };
   }, [job?.id, canContact]);
+
+  useEffect(() => {
+    if (!canSchedule && !canContact) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('subcontractors')
+        .select('id, name, contact_name, trade, phone')
+        .order('name');
+      if (!cancelled && !error) setSubs(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, [canSchedule, canContact]);
+
+  // Who to call about a phase: legacy job_subs rows (keyed by phase name)
+  // plus the sub picked on the phase itself, when we have a phone for it.
+  function assignmentsFor(ph) {
+    const list = [...(subsByPhase[ph.name] || subsByPhase[ph.id] || [])];
+    const sub = ph.sub_id ? subs.find((s) => s.id === ph.sub_id) : null;
+    if (sub?.phone && !list.some((a) => a.sub_phone === sub.phone)) {
+      list.unshift({ id: sub.id, sub_name: subInlineLabel(sub), sub_phone: sub.phone });
+    }
+    return list;
+  }
 
   // Persist seed if we generated a new one
   useEffect(() => {
@@ -116,6 +164,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     const { data, error } = await supabase.from('jobs').update({ phase_data: next }).eq('id', job.id).select().single();
     setSaving(false);
     if (!error && data) onJobUpdated?.(data);
+    return error;
   }
 
   // Set a verification status on an item (pass | fail | fix | null).
@@ -159,7 +208,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
       } catch { /* non-fatal */ }
 
       // WhatsApp the assigned sub (if any) with a pre-filled message.
-      const assignments = subsByPhase[phase.name] || subsByPhase[phase.id] || [];
+      const assignments = assignmentsFor(phase);
       if (assignments.length > 0) {
         const sub = assignments[0];
         const body =
@@ -302,6 +351,66 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     });
   }
 
+  // ─── Phase plan: who does it + when ──────────────────────────────
+  // Stored on the phase inside phase_data: sub_id + sub_name (the name is
+  // kept so the TV can label the bar without a lookup), start_date and
+  // end_date as 'YYYY-MM-DD'. An end before the start is pulled up to it.
+  function setSchedule(phaseIdx, patch) {
+    const phase = phaseData.phases[phaseIdx];
+    if (!phase) return;
+    const merged = { ...phase, ...patch };
+    for (const k of ['start_date', 'end_date']) if (merged[k] === '') merged[k] = null;
+    if (merged.start_date && merged.end_date && merged.end_date < merged.start_date) {
+      merged.end_date = merged.start_date;
+    }
+    setPhaseData((prev) => {
+      const next = { ...prev, phases: prev.phases.map((p, pi) => (pi === phaseIdx ? merged : p)) };
+      scheduleSave(next);
+      return next;
+    });
+    logAudit({
+      user, action: 'phase.schedule', entityType: 'job', entityId: job.id,
+      details: {
+        phase: phase.name,
+        start_date: merged.start_date || null,
+        end_date: merged.end_date || null,
+        sub: merged.sub_name || null,
+      },
+    });
+  }
+
+  function pickSub(phaseIdx, subId) {
+    const sub = subs.find((s) => s.id === subId);
+    setSchedule(phaseIdx, {
+      sub_id: sub?.id || null,
+      sub_name: sub ? subDisplayNames(sub).primary : null,
+    });
+  }
+
+  // Empty breakdown → build it from the estimate (AI). Only offered while
+  // the job has no phases, so it never overwrites anything.
+  async function generateFromEstimate() {
+    if (generating || phaseData.phases.length) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const phases = await generatePhasesFromEstimate(job);
+      const next = { ...phaseData, phases };
+      const saveError = await persist(next);
+      if (saveError) throw saveError;
+      setPhaseData(next);
+      setOpenIds(new Set([phases[0].id]));
+      logAudit({
+        user, action: 'phase.generate', entityType: 'job', entityId: job.id,
+        details: { phases: phases.length, items: phases.reduce((n, ph) => n + ph.items.length, 0) },
+      });
+    } catch (err) {
+      setGenError(err?.message || 'Could not build the phases. Try again.');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   function toggleOpen(id) {
     setOpenIds((prev) => {
       const next = new Set(prev);
@@ -312,14 +421,42 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
 
   const { totalDone, totalItems, progress, currentPhaseName } = progressFromPhaseData(phaseData);
 
-  // Empty state — only when there's no template AND no phase_data AND
-  // the current user can't edit (so there's nothing to do here). When
-  // they CAN edit, drop them straight into edit mode with an "Add phase"
-  // affordance so they can build the breakdown from scratch.
-  if (!template && !phaseData.phases.length && !canEdit) {
+  // Empty breakdown (the service has no template and nobody built one yet).
+  // Editors get the "build it from the estimate" button, or can start by
+  // hand; everyone else just sees that there's nothing yet.
+  const isEmpty = !phaseData.phases.length;
+  if (isEmpty && !canEdit) {
     return (
       <div className="text-sm text-omega-stone p-4 bg-omega-cloud rounded-lg">
-        No phase breakdown template for service "{job.service || '—'}".
+        No phases yet for this job.
+      </div>
+    );
+  }
+  if (isEmpty && !editing) {
+    return (
+      <div className="rounded-xl border-2 border-dashed border-gray-200 bg-omega-cloud/60 px-5 py-8 text-center">
+        <Sparkles className="w-7 h-7 text-omega-orange mx-auto" />
+        <p className="mt-2 font-bold text-omega-charcoal">No phases yet</p>
+        <p className="mt-1 text-sm text-omega-stone max-w-md mx-auto">
+          Build this job's phases and checklists from its estimate. You can add, rename or delete anything afterwards.
+        </p>
+        <button
+          onClick={generateFromEstimate}
+          disabled={generating}
+          className="mt-4 inline-flex items-center gap-2 px-5 h-11 rounded-xl bg-omega-orange hover:bg-omega-dark disabled:opacity-60 text-white text-sm font-bold transition"
+        >
+          {generating
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Reading the estimate…</>
+            : <><Sparkles className="w-4 h-4" /> Add phase breakdown automatically</>}
+        </button>
+        {genError && <p className="mt-3 text-sm text-red-600 max-w-md mx-auto">{genError}</p>}
+        <button
+          onClick={() => setEditing(true)}
+          disabled={generating}
+          className="block mx-auto mt-3 text-xs font-semibold text-omega-stone hover:text-omega-orange hover:underline underline-offset-2 disabled:opacity-50"
+        >
+          or add phases by hand
+        </button>
       </div>
     );
   }
@@ -365,8 +502,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           const open = openIds.has(ph.id);
           const done = ph.items.every((it) => it.done);
           const doneCount = ph.items.filter((it) => it.done).length;
-          // `job_subs` keys assignments by phase *name*; fall back to legacy id.
-          const assignments = subsByPhase[ph.name] || subsByPhase[ph.id] || [];
+          const assignments = assignmentsFor(ph);
           return (
             <div key={ph.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
               <div className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-omega-cloud transition-colors">
@@ -416,6 +552,14 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
                   </button>
                 )}
               </div>
+
+              <PhasePlan
+                phase={ph}
+                subs={subs}
+                canSchedule={canSchedule}
+                onPickSub={(id) => pickSub(phaseIdx, id)}
+                onDates={(patch) => setSchedule(phaseIdx, patch)}
+              />
 
               {open && (
                 <div className="px-3 pb-3 pt-1 space-y-1.5 border-t border-gray-100">
@@ -528,6 +672,76 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           auditAction={`sub.contact.${contactFor.channel}`}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Phase plan: sub + start → end, under each phase header ─────
+const PLAN_INPUT = 'h-10 sm:h-9 px-2.5 rounded-lg border border-gray-200 bg-white text-base sm:text-sm text-omega-charcoal focus:border-omega-orange focus:outline-none';
+
+function PhasePlan({ phase, subs, canSchedule, onPickSub, onDates }) {
+  const start = phase.start_date || '';
+  const end = phase.end_date || '';
+
+  if (!canSchedule) {
+    if (!start && !end && !phase.sub_name) return null;
+    return (
+      <div className="px-3 sm:pl-[3.1rem] pb-2.5 -mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-omega-stone">
+        {(start || end) && (
+          <span className="inline-flex items-center gap-1.5">
+            <CalendarDays className="w-3.5 h-3.5" /> {start ? shortDay(start) : '—'} → {end ? shortDay(end) : '—'}
+          </span>
+        )}
+        {phase.sub_name && (
+          <span className="inline-flex items-center gap-1.5">
+            <HardHat className="w-3.5 h-3.5" /> {phase.sub_name}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // A sub that was removed from the list stays selectable under its saved
+  // name, so the dropdown never blanks out on its own.
+  const known = !phase.sub_id || subs.some((s) => s.id === phase.sub_id);
+  return (
+    <div className="px-3 sm:pl-[3.1rem] pb-3 -mt-0.5 flex flex-wrap items-center gap-2">
+      <label className="flex items-center gap-2 flex-1 min-w-[220px]">
+        <HardHat className="w-4 h-4 text-omega-stone flex-shrink-0" />
+        <span className="sr-only">Subcontractor for {phase.name}</span>
+        <select
+          value={phase.sub_id || ''}
+          onChange={(e) => onPickSub(e.target.value || null)}
+          className={`${PLAN_INPUT} flex-1 min-w-0`}
+        >
+          <option value="">No sub assigned</option>
+          {!known && <option value={phase.sub_id}>{phase.sub_name || 'Removed sub'}</option>}
+          {subs.map((s) => (
+            <option key={s.id} value={s.id}>
+              {subInlineLabel(s)}{s.trade ? ` · ${s.trade}` : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex items-center gap-2">
+        <CalendarDays className="w-4 h-4 text-omega-stone flex-shrink-0" />
+        <input
+          type="date"
+          aria-label={`${phase.name} start date`}
+          value={start}
+          onChange={(e) => onDates({ start_date: e.target.value })}
+          className={PLAN_INPUT}
+        />
+        <span className="text-sm text-omega-stone">→</span>
+        <input
+          type="date"
+          aria-label={`${phase.name} end date`}
+          value={end}
+          min={start || undefined}
+          onChange={(e) => onDates({ end_date: e.target.value })}
+          className={PLAN_INPUT}
+        />
+      </div>
     </div>
   );
 }

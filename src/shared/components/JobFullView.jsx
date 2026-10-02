@@ -399,6 +399,8 @@ export default function JobFullView({
   const TABS = readOnlyBasic
     ? [
         { id: 'daily',   label: 'Daily Logs', icon: FileText },
+        // Rafaela plans each phase (sub + dates) for the office TV calendar.
+        user?.role === 'receptionist' && { id: 'phases',    label: 'Phases',    icon: HardHat },
         user?.role === 'receptionist' && { id: 'documents', label: 'Documents', icon: FolderClosed },
         { id: 'details', label: 'Details',    icon: Info },
       ].filter(Boolean)

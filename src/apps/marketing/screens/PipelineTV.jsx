@@ -1,6 +1,7 @@
 // Office TV (1920×1080) — a slideshow, one area of the company per slide,
 // 40 s each: Sales pipeline → This month's calendar → Projects (cost vs
-// contract) → Bills to pay. Lives in Ramon's Marketing app at /tv. Only the
+// contract) → Bills to pay → Jobs calendar (each job's phases, day by
+// day). Lives in Ramon's Marketing app at /tv. Only the
 // office team sees this screen, so money is shown — except receivables:
 // Inácio asked (02/10) that client payments / amounts due never show here,
 // so the Receivables slide (./tv/ReceivablesSlide.jsx) and the "payment
@@ -12,7 +13,7 @@
 // + realtime), and live toasts when something good happens (new lead,
 // estimate approved, job started, bill paid).
 //
-// Keys: → / ← next / previous · Space or Enter pause · 1-4 jump to a slide.
+// Keys: → / ← next / previous · Space or Enter pause · 1-5 jump to a slide.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -29,8 +30,9 @@ import * as Sales from './tv/SalesSlide';
 import * as Calendar from './tv/CalendarSlide';
 import * as Projects from './tv/ProjectsSlide';
 import * as Bills from './tv/BillsSlide';
+import * as JobsCalendar from './tv/JobsCalendarSlide';
 
-const SLIDES = [Sales, Calendar, Projects, Bills];
+const SLIDES = [Sales, Calendar, Projects, Bills, JobsCalendar];
 const SLIDE_MS = 40_000;
 const REFRESH_MS = 60_000;
 const TOAST_MS = 9_000;

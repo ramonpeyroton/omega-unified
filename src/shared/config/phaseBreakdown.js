@@ -7,6 +7,8 @@
 // the first time it is opened. Subsequent edits persist in `phase_data` and
 // the template is not re-applied.
 
+import { parseJobServices } from '../data/services';
+
 function p(id, name, items) {
   return {
     id,
@@ -551,6 +553,35 @@ export function templateFor(service) {
   const key = normalizeService(service);
   if (!key) return null;
   return JSON.parse(JSON.stringify(PHASE_TEMPLATES[key]));
+}
+
+// Template for a job's whole `service` value (comma-separated ids). One
+// service → its template. Several, all with templates → one Permit phase,
+// then each service's own phases named "Kitchen — Cabinets, …", then one
+// Final phase; the Permit / Final checklists merge without repeats. null
+// when there's no service or any of them has no template — those jobs get
+// their phases from the estimate instead (shared/lib/phaseGenerator.js).
+export function templateForJob(service) {
+  const keys = [...new Set(parseJobServices(service).map(normalizeService))];
+  if (!keys.length || keys.some((k) => !k)) return null;
+  if (keys.length === 1) return templateFor(keys[0]);
+
+  const tpls = keys.map((k) => ({ key: k, phases: JSON.parse(JSON.stringify(PHASE_TEMPLATES[k])) }));
+  const merged = (phaseId) => {
+    const found = tpls.map((t) => t.phases.find((ph) => ph.id === phaseId)).filter(Boolean);
+    if (!found.length) return null;
+    const labels = [...new Set(found.flatMap((ph) => ph.items.map((it) => it.label)))];
+    return p(phaseId, found[0].name, labels);
+  };
+  const middle = tpls.flatMap(({ key, phases }) => phases
+    .filter((ph) => ph.id !== 'permit' && ph.id !== 'final')
+    .map((ph) => ({
+      ...ph,
+      id: `${key}_${ph.id}`,
+      name: `${SERVICE_LABELS[key]} — ${ph.name}`,
+      items: ph.items.map((it) => ({ ...it, id: `${key}_${it.id}` })),
+    })));
+  return [merged('permit'), ...middle, merged('final')].filter(Boolean);
 }
 
 // Given phase_data, compute { totalDone, totalItems, progress, currentPhaseName }.

@@ -576,6 +576,46 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-02 (Jobs Calendar na TV + plano por etapa na aba Phases)** — Ramon + Claude (Opus 5.5).
+
+Pedido: ver quais obras estão ativas no tempo (rodam 8–15 ao mesmo tempo).
+Ramon aprovou por prints antes de codar.
+
+- **Aba Phases (`PhaseBreakdown.jsx`)**: cada etapa ganhou **sub** (dropdown
+  da tabela `subcontractors`) + **início → término**. Fica dentro de
+  `jobs.phase_data.phases[i]` (`sub_id`, `sub_name`, `start_date`,
+  `end_date` como 'YYYY-MM-DD') — **sem migration**. Término antes do início
+  é puxado pro início. Editam: marketing (Ramon), sales (Attila), owner
+  (Inácio), receptionist (Rafaela), operations, admin (`CAN_SCHEDULE`);
+  manager (Gabriel) vê só leitura. Rafaela ganhou a aba Phases no
+  `JobFullView`. Ramon e Rafaela também entraram em `CAN_EDIT_PHASES`
+  (adicionar/apagar etapas). Sub com telefone aparece no botão de contato.
+- **Botão "Add phase breakdown automatically"** (só com a aba vazia):
+  serviços sem modelo (Building Plans, Survey, Roofing, Partial/Full Reno,
+  New Construction, mistura com eles, ou sem serviço) → Claude (Haiku via
+  `/api/ai-proxy`) lê o estimate aprovado (senão o mais recente; sem
+  estimate, o questionário) e monta etapas + checklist
+  (`src/shared/lib/phaseGenerator.js`). Preço nunca vai no prompt.
+  Serviços com modelo continuam se preenchendo sozinhos ao abrir a aba.
+- **Multi-serviço**: `templateForJob()` em `config/phaseBreakdown.js` junta
+  os modelos — um Permit, as etapas de cada serviço ("Kitchen — …"), um
+  Final. Obras que já têm etapas não mudam.
+- **TV — tela 5/5 `tv/JobsCalendarSlide.jsx` ("Jobs Calendar")**: dia a dia,
+  janela móvel de 28 dias com **hoje sempre na 7ª coluna**; uma linha por
+  obra `contract_signed`/`in_progress` com etapa datada; barra dividida
+  por etapa (cinza ✓ feita · verde forte agora · verde claro próximas ·
+  rosa etapa atrasada · listrado amarelo não começou · hachura vermelha =
+  obra passou do término). Obras sem datas aparecem no rodapé. O
+  Calendar dos roles (`shared/components/Calendar/`) **não mudou**.
+- Preview local sem login e sem gravar no banco (não commitado, em
+  `.git/info/exclude`): `jobs-calendar-preview.html?view=tv` /
+  `?view=phases&role=X&job=<nome>` (`src/jobsCalendarPreview.jsx`).
+- **Pendente**: testar a geração por IA em produção (local não tem a
+  chave). No dia do deploy nenhuma etapa tinha data → a tela da TV mostra
+  "No phases scheduled yet" até alguém preencher.
+
+---
+
 **2026-10-02 (TV do escritório vira slideshow — 5 telas × 40s)** — Ramon + Claude (Opus 5.5).
 
 Pedido do Inácio: a TV (`/tv`, app Marketing do Ramon) passa a girar entre
