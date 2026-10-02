@@ -1,9 +1,14 @@
 // TV slide 3 — Projects. The money life of every job in execution
 // (pipeline_status = 'in_progress'): signed contract value vs what is
-// already committed — subcontractor agreements (agreed total, with what was
-// paid) + Office purchases (Material / Fuel / Van / Return) + any other
-// job_expenses category on its own line. Ghost payments are left out on
-// purpose. Read-only: nothing here writes to the database.
+// already committed to it:
+//   · subcontractor agreements — the agreed total, with what was paid;
+//   · every receipt logged on the job (job_expenses), one line per category
+//     (Material, Fuel, Van, Labor, Permit…); Returns are a credit;
+//   · the manual cost fields of the job's Financials tab (job_costs), so the
+//     TV matches that tab's Total Cost. Manual "Sub Cost" only counts the
+//     part above the agreements, so a synced value isn't counted twice.
+// Ghost payments are left out on purpose (Ramon, 02/10). Read-only: nothing
+// here writes to the database.
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -22,18 +27,23 @@ export const meta = {
   title: 'Projects',
   eyebrow: 'Jobs in progress · cost vs contract',
   icon: HardHat,
-  tables: ['jobs', 'contracts', 'subcontractor_agreements', 'sub_payments', 'job_expenses'],
+  tables: ['jobs', 'contracts', 'subcontractor_agreements', 'sub_payments', 'job_expenses', 'job_costs'],
 };
-
-// job_expenses categories that roll up into the single "Office" line.
-const OFFICE_CATEGORIES = new Set(['Material', 'Fuel', 'Van', 'Return']);
 
 // Bar / dot color per kind of cost line.
 const KIND = {
-  sub:     { hex: '#6366F1' },
-  office:  { hex: ORANGE },
-  expense: { hex: '#64748B' },
+  sub:     { hex: '#6366F1' }, // subcontractor agreements
+  receipt: { hex: ORANGE },    // receipts logged on the job
+  manual:  { hex: '#64748B' }, // typed in the job's Financials tab
+  credit:  { hex: '#10B981' }, // returns (negative receipts)
 };
+
+// Manual cost fields of job_costs → line label.
+const MANUAL_FIELDS = [
+  ['material_cost', 'Material (manual)'],
+  ['labor_cost', 'Labor (manual)'],
+  ['other_costs', 'Other (manual)'],
+];
 
 const OVER_HEX = '#9F1239'; // second lap of the gauge when a job is past 100%
 const NONE_HEX = '#B8B6B0';
@@ -175,12 +185,20 @@ export async function load(now = Date.now()) {
   if (!jobs.length) return { jobs: [], loadedAt: now };
   const ids = jobs.map((j) => j.id);
 
-  const [contracts, agreements, expenses] = await Promise.all([
+  const [contracts, agreements, expenses, manualRows] = await Promise.all([
     selectIn('contracts', 'id, job_id, estimate_id, estimate_ids, total_amount, signed_at', 'job_id', ids,
       (q) => q.not('signed_at', 'is', null)),
     loadAgreements(ids),
     selectIn('job_expenses', 'job_id, category, amount', 'job_id', ids),
+    selectIn('job_costs', 'job_id, material_cost, labor_cost, sub_cost, other_costs, other_costs_description, updated_at', 'job_id', ids),
   ]);
+
+  // Latest job_costs row per job — same row the Financials tab shows.
+  const manualByJob = {};
+  manualRows.forEach((r) => {
+    const prev = manualByJob[r.job_id];
+    if (!prev || (toMs(r.updated_at) ?? 0) > (toMs(prev.updated_at) ?? 0)) manualByJob[r.job_id] = r;
+  });
 
   const payments = agreements.length
     ? await selectIn('sub_payments', 'agreement_id, due_amount, paid_amount', 'agreement_id', agreements.map((a) => a.id))
@@ -230,18 +248,46 @@ export async function load(now = Date.now()) {
         line.amount += committed;
         line.paid += paid;
       });
-      lines.push(...Object.values(bySub));
+      const subLines = Object.values(bySub);
+      lines.push(...subLines);
 
-      // Office + every other expense category on its own line.
+      // Receipts: one line per category, with how many receipts it sums.
+      // Returns are stored negative, so they come out as a credit line.
       const byCategory = {};
       expenses.filter((e) => e.job_id === job.id).forEach((e) => {
         const cat = (e.category || '').trim() || 'Other';
-        const key = OFFICE_CATEGORIES.has(cat) ? 'Office' : cat;
-        byCategory[key] = (byCategory[key] || 0) + num(e.amount);
+        const c = (byCategory[cat] ||= { amount: 0, n: 0 });
+        c.amount += num(e.amount);
+        c.n += 1;
       });
-      Object.entries(byCategory).forEach(([label, amount]) => {
-        lines.push({ key: `exp:${label}`, kind: label === 'Office' ? 'office' : 'expense', label, amount, paid: null });
+      Object.entries(byCategory).forEach(([cat, { amount, n }]) => {
+        if (!amount) return;
+        lines.push({
+          key: `exp:${cat}`,
+          kind: amount < 0 ? 'credit' : 'receipt',
+          label: cat === 'Return' ? 'Returns' : cat,
+          secondary: plural(n, 'receipt', 'receipts'),
+          amount,
+          paid: null,
+        });
       });
+
+      // Manual fields from the Financials tab. Sub Cost there is usually the
+      // agreements total synced by hand — only the excess is new money.
+      const manual = manualByJob[job.id];
+      if (manual) {
+        MANUAL_FIELDS.forEach(([field, label]) => {
+          const amount = num(manual[field]);
+          if (!amount) return;
+          const desc = field === 'other_costs' ? (manual.other_costs_description || '').trim() : '';
+          lines.push({ key: `manual:${field}`, kind: 'manual', label: desc ? `${desc} (manual)` : label, secondary: 'Financials tab', amount, paid: null });
+        });
+        const agreedSubs = subLines.reduce((s, l) => s + l.amount, 0);
+        const subExtra = num(manual.sub_cost) - agreedSubs;
+        if (subExtra > 0) {
+          lines.push({ key: 'manual:sub_cost', kind: 'manual', label: 'Subs (manual)', secondary: 'Financials tab', amount: subExtra, paid: null });
+        }
+      }
 
       lines.sort((a, b) => b.amount - a.amount);
       const spent = lines.reduce((s, l) => s + l.amount, 0);
@@ -321,8 +367,8 @@ function buildView(data) {
       contractTotal,
       cost: jobs.reduce((s, j) => s + j.spent, 0),
       subs: sumKind('sub'),
-      office: sumKind('office'),
-      other: sumKind('expense'),
+      receipts: sumKind('receipt') + sumKind('credit'),
+      manual: sumKind('manual'),
       costWithoutContract,
       margin,
       marginRatio,
@@ -419,7 +465,8 @@ function Gauge({ job, size, numClass, capClass, delay, reduce }) {
 // `thick`: true for the roomy cards, or a height class for the grid cards.
 function CostBar({ line, scale, delay, reduce, thick }) {
   const hex = KIND[line.kind].hex;
-  const w = (v) => `${Math.max(0, Math.min(1, scale ? v / scale : 0)) * 100}%`;
+  // Credits (returns) are negative: the bar shows their size, in green.
+  const w = (v) => `${Math.max(0, Math.min(1, scale ? Math.abs(v) / scale : 0)) * 100}%`;
   const grow = (target, d) => ({
     initial: reduce ? false : { width: 0 },
     animate: { width: target },
@@ -439,6 +486,11 @@ function CostBar({ line, scale, delay, reduce, thick }) {
   );
 }
 
+// Returns are a credit: green amount.
+function amountTone(line) {
+  return line.amount < 0 ? 'text-emerald-600' : 'text-[#111]';
+}
+
 // size: 'lg' (wide cards, full dollars + company name), 'md' (tall cards),
 // 'cq' (grid cards, sized to the card).
 function CostLine({ line, scale, size, delay, reduce }) {
@@ -447,14 +499,16 @@ function CostLine({ line, scale, size, delay, reduce }) {
       <div className="flex-shrink-0">
         <div className="flex items-baseline gap-[2.5cqmin] min-w-0">
           <p className={`flex-1 min-w-0 truncate leading-tight font-semibold text-[#111] ${CQ.text}`}>{line.label}</p>
-          <p className={`flex-shrink-0 whitespace-nowrap leading-tight font-black tabular-nums text-[#111] ${CQ.text}`}>{usdShort(line.amount)}</p>
+          <p className={`flex-shrink-0 whitespace-nowrap leading-tight font-black tabular-nums ${amountTone(line)} ${CQ.text}`}>{usdShort(line.amount)}</p>
         </div>
         <div className="mt-[1.4cqmin] flex items-center gap-[2.5cqmin] min-w-0">
           <div className="flex-1 min-w-0">
             <CostBar line={line} scale={scale} delay={delay} reduce={reduce} thick={CQ.bar} />
           </div>
-          {line.paid != null && (
-            <span className={`${CQ.small} flex-shrink-0 whitespace-nowrap leading-tight font-semibold text-omega-stone`}>paid {usdTight(line.paid)}</span>
+          {(line.paid != null || line.secondary) && (
+            <span className={`${CQ.small} flex-shrink-0 whitespace-nowrap leading-tight font-semibold text-omega-stone`}>
+              {line.paid != null ? `paid ${usdTight(line.paid)}` : line.secondary}
+            </span>
           )}
         </div>
       </div>
@@ -462,7 +516,7 @@ function CostLine({ line, scale, size, delay, reduce }) {
   }
 
   const money = size === 'lg' ? usd : usdShort;
-  const amountClass = 'font-black tabular-nums text-[#111] text-[clamp(14px,2vh,21px)]';
+  const amountClass = `font-black tabular-nums text-[clamp(14px,2vh,21px)] ${amountTone(line)}`;
 
   // Tall cards are narrow: the paid amount moves next to the bar so the
   // trade name keeps the whole first row.
@@ -512,7 +566,7 @@ function CostLine({ line, scale, size, delay, reduce }) {
 // of filling it from the top (single-job layout).
 function CostList({ job, size, delay, reduce, cols = 1, center = false }) {
   const [ref, hidden] = useFitCount([job.lines, size, cols]);
-  const scale = job.contract || Math.max(0, ...job.lines.map((l) => l.amount));
+  const scale = job.contract || Math.max(0, ...job.lines.map((l) => Math.abs(l.amount)));
   const cq = size === 'cq';
   const eyebrow = cq ? CQ.eyebrow : `${T.eyebrow} leading-tight`;
   return (
@@ -793,8 +847,9 @@ function Legend() {
       {dot(TONE.bad.hex, '90%+')}
       <span className="w-px h-5 bg-black/10" />
       {bar(KIND.sub.hex, 'Subs')}
-      {bar(KIND.office.hex, 'Office')}
-      {bar(KIND.expense.hex, 'Other')}
+      {bar(KIND.receipt.hex, 'Receipts')}
+      {bar(KIND.manual.hex, 'Manual')}
+      {bar(KIND.credit.hex, 'Returns')}
     </div>
   );
 }
@@ -828,8 +883,8 @@ export default function ProjectsSlide({ data }) {
   // Two biggest buckets — a third doesn't fit the tile at 1080p.
   const costSub = [
     { n: totals.subs, text: 'subs' },
-    { n: totals.office, text: 'office' },
-    { n: totals.other, text: 'other' },
+    { n: totals.receipts, text: 'receipts' },
+    { n: totals.manual, text: 'manual' },
   ].filter((b) => b.n).sort((a, b) => b.n - a.n).slice(0, 2)
     .map((b) => `${usdShort(b.n)} ${b.text}`).join(' · ');
 
