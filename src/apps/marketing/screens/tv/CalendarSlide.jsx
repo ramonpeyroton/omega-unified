@@ -25,6 +25,10 @@ export const meta = {
 };
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// Nobody works Sunday and Saturday is a half day: Sunday is a thin strip
+// (day number + a dot per event), Saturday is narrower, and the weekdays
+// get the width so their events can be big.
+const COLUMNS = 'minmax(0,0.24fr) repeat(5, minmax(0,1fr)) minmax(0,0.62fr)';
 const OTHER_KIND = { label: 'Event', color: '#6B7280' };
 const KIND_ORDER = [...Object.keys(EVENT_KIND_META), 'other'];
 // Legend only — the two delivery labels are too long for a 4-up legend.
@@ -38,13 +42,13 @@ const SIZE = {
   eyebrow: 'text-[clamp(11px,1.5vh,16px)]',
   meta:    'text-[clamp(12px,1.7vh,18px)]',
   label:   'text-[clamp(14px,2vh,22px)]',
-  pill:    'text-[clamp(14px,1.9vh,22px)]',
-  day:     'text-[clamp(16px,2.6vh,30px)]',
+  pill:    'text-[clamp(15px,2.4vh,28px)]',
+  day:     'text-[clamp(16px,2.5vh,28px)]',
   week:    'text-[clamp(13px,1.9vh,22px)]',
   legend:  'text-[clamp(14px,2.1vh,24px)]',
 };
 
-const PILL = `relative flex-shrink-0 flex items-center gap-[0.4em] h-[1.3em] rounded-lg pl-[0.55em] pr-[0.4em] overflow-hidden ${SIZE.pill}`;
+const PILL = `relative flex-shrink-0 flex items-center gap-[0.4em] h-[1.2em] rounded-lg pl-[0.55em] pr-[0.4em] overflow-hidden ${SIZE.pill}`;
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
 
@@ -256,24 +260,24 @@ function usePillCapacity(weeks) {
 // ─── Pieces ─────────────────────────────────────────────────────────
 function MonthCard({ monthName, dayOfMonth, dim, progress, reduce }) {
   return (
-    <div className={`${CARD} relative overflow-hidden flex-shrink-0 w-[clamp(270px,24vw,460px)] px-7 py-2 flex flex-col justify-center`}>
+    <div className={`${CARD} relative overflow-hidden flex-shrink-0 w-[clamp(260px,22vw,420px)] px-7 py-2 flex flex-col justify-center`}>
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: `linear-gradient(135deg, ${ORANGE}24 0%, ${ORANGE}00 65%)` }}
       />
-      <p className="relative font-black leading-none tracking-tight text-[#111] whitespace-nowrap text-[clamp(30px,5.2vh,58px)]">{monthName}</p>
-      <div className="relative mt-2 flex items-center gap-3">
-        <div className="flex-1 h-2 rounded-full bg-black/[0.07] overflow-hidden">
-          <motion.div
-            className="h-full rounded-full bg-omega-orange"
-            initial={reduce ? false : { width: 0 }}
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 1, delay: 0.2, ease: EASE }}
-          />
-        </div>
+      <div className="relative flex items-baseline justify-between gap-3">
+        <p className="font-black leading-none tracking-tight text-[#111] whitespace-nowrap text-[clamp(26px,4vh,46px)]">{monthName}</p>
         <span className={`${T.meta} whitespace-nowrap leading-none`}>
           Day <span className="font-black text-[#111]">{dayOfMonth}</span> of {dim}
         </span>
+      </div>
+      <div className="relative mt-2 h-1.5 rounded-full bg-black/[0.07] overflow-hidden">
+        <motion.div
+          className="h-full rounded-full bg-omega-orange"
+          initial={reduce ? false : { width: 0 }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 1, delay: 0.2, ease: EASE }}
+        />
       </div>
     </div>
   );
@@ -284,7 +288,7 @@ function MonthCard({ monthName, dayOfMonth, dim, progress, reduce }) {
 // Next-up card own the top of the screen.
 function LegendStrip({ total, done, ahead, legend }) {
   return (
-    <div className={`${CARD} flex-shrink-0 mt-2.5 px-7 py-2.5 flex items-center gap-7 min-w-0`}>
+    <div className={`${CARD} flex-shrink-0 mt-2 px-7 py-1.5 flex items-center gap-7 min-w-0`}>
       <div className="flex items-baseline gap-2.5 flex-shrink-0">
         <CountUp value={total} className="font-black tabular-nums leading-none text-[#111] text-[clamp(22px,3.4vh,38px)]" />
         <span className={`${SIZE.legend} font-bold text-omega-slate whitespace-nowrap`}>
@@ -305,47 +309,41 @@ function LegendStrip({ total, done, ahead, legend }) {
   );
 }
 
+// One row so the header stays short and the grid gets the height:
+// "NEXT UP / in 1h 26m" | event name | when · kind.
 function NextCard({ next, now, todayCount, reduce }) {
   return (
-    <div className={`${CARD} relative overflow-hidden flex-1 min-w-0 px-7 py-2 flex flex-col justify-center`}>
+    <div className={`${CARD} relative overflow-hidden flex-1 min-w-0 px-7 py-2 flex items-center gap-6`}>
       {next && (
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ background: `linear-gradient(135deg, ${next.color}26 0%, ${next.color}00 70%)` }}
         />
       )}
-      <div className="relative flex items-center gap-2.5 min-w-0">
-        <span className="relative flex w-2.5 h-2.5 flex-shrink-0">
-          {next && !reduce && <span className="absolute inset-0 rounded-full bg-omega-orange opacity-60 animate-ping" />}
-          <span className={`relative w-2.5 h-2.5 rounded-full ${next ? 'bg-omega-orange' : 'bg-omega-fog'}`} />
-        </span>
-        <p className={`${T.eyebrow} truncate min-w-0`}>
-          Next up{todayCount > 0 ? ` · ${todayCount} today` : ''}
-        </p>
+      <div className="relative flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex w-2.5 h-2.5 flex-shrink-0">
+            {next && !reduce && <span className="absolute inset-0 rounded-full bg-omega-orange opacity-60 animate-ping" />}
+            <span className={`relative w-2.5 h-2.5 rounded-full ${next ? 'bg-omega-orange' : 'bg-omega-fog'}`} />
+          </span>
+          <p className={`${T.eyebrow} whitespace-nowrap`}>Next up{todayCount > 0 ? ` · ${todayCount} today` : ''}</p>
+        </div>
         {next && (
-          <p className={`ml-auto flex-shrink-0 font-extrabold uppercase tracking-wider text-omega-orange whitespace-nowrap ${SIZE.eyebrow}`}>
+          <p className={`mt-1 font-extrabold uppercase tracking-wider text-omega-orange whitespace-nowrap ${SIZE.eyebrow}`}>
             {nextIn(next, now)}
           </p>
         )}
       </div>
-      {next ? (
-        <>
-          <div className="relative flex items-baseline gap-5 min-w-0 mt-1">
-            <p className="min-w-0 truncate font-black leading-tight text-[#111] text-[clamp(20px,3.2vh,36px)]">{next.name}</p>
-            <span className={`flex-shrink-0 inline-flex items-center gap-2.5 whitespace-nowrap ${SIZE.label} font-semibold text-omega-slate`}>
-              <span className="w-3 h-3 rounded-full flex-shrink-0 self-center" style={{ background: next.color }} />
-              {nextWhen(next, now)} · {next.label}
-            </span>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="relative flex items-baseline gap-5 min-w-0 mt-1">
-            <p className="min-w-0 truncate font-black leading-tight text-[#111] text-[clamp(20px,3.2vh,36px)]">All clear</p>
-            <span className={`${SIZE.label} font-semibold text-omega-slate truncate`}>No more events this month</span>
-          </div>
-        </>
-      )}
+      <div className="relative w-px self-stretch my-1 bg-black/10 flex-shrink-0" />
+      <div className="relative flex-1 min-w-0 flex items-baseline gap-5">
+        <p className="min-w-0 truncate font-black leading-tight text-[#111] text-[clamp(20px,3.2vh,36px)]">
+          {next ? next.name : 'All clear'}
+        </p>
+        <span className={`flex-shrink-0 inline-flex items-center gap-2.5 whitespace-nowrap ${SIZE.label} font-semibold text-omega-slate`}>
+          {next && <span className="w-3 h-3 rounded-full flex-shrink-0 self-center" style={{ background: next.color }} />}
+          {next ? `${nextWhen(next, now)} · ${next.label}` : 'No more events this month'}
+        </span>
+      </div>
     </div>
   );
 }
@@ -394,6 +392,7 @@ function DayNumber({ d, reduce }) {
 }
 
 function DayCell({ d, index, cap, nextId, now, reduce }) {
+  if (index % 7 === 0) return <SundayCell d={d} index={index} reduce={reduce} />;
   const n = d.events.length;
   const shown = n > cap ? d.events.slice(0, cap) : d.events;
   const more = n - shown.length;
@@ -414,7 +413,7 @@ function DayCell({ d, index, cap, nextId, now, reduce }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
     >
-      <div className={`relative flex-shrink-0 h-[clamp(26px,3vh,34px)] flex items-center justify-between gap-2 ${fade}`}>
+      <div className={`relative flex-shrink-0 h-[clamp(24px,2.7vh,30px)] flex items-center justify-between gap-2 ${fade}`}>
         <DayNumber d={d} reduce={reduce} />
         {more > 0 ? (
           <span className={`flex-shrink-0 rounded-full px-2.5 py-0.5 border border-black/[0.08] font-bold leading-tight whitespace-nowrap ${SIZE.meta} ${d.isToday ? 'bg-white text-omega-orange' : 'bg-omega-cloud text-omega-slate'}`}>
@@ -424,9 +423,38 @@ function DayCell({ d, index, cap, nextId, now, reduce }) {
           <span className={`flex-shrink-0 pr-1 font-black uppercase tracking-wider text-white ${SIZE.label}`}>Today</span>
         ) : null}
       </div>
-      <div data-cell-body className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[3px] overflow-hidden ${fade}`}>
+      <div data-cell-body className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[2px] overflow-hidden ${fade}`}>
         {shown.map((e) => (
           <Pill key={e.id} e={e} past={d.isToday && e.ms < now} isNext={e.id === nextId} onToday={d.isToday} reduce={reduce} />
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+// Thin Sunday column: just the day number and one colored dot per event.
+function SundayCell({ d, index, reduce }) {
+  const look = d.isToday
+    ? 'border-2 border-omega-orange bg-omega-orange'
+    : !d.inMonth
+      ? 'border border-dashed border-black/[0.09] bg-transparent'
+      : 'border border-black/[0.05] bg-[#F3F2EC]';
+  const fade = !d.inMonth ? 'opacity-40' : d.isPast ? 'opacity-60' : '';
+  return (
+    <motion.div
+      className={`relative min-h-0 min-w-0 rounded-2xl flex flex-col items-center pt-1 pb-1.5 ${look}`}
+      initial={reduce ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
+    >
+      <div className={`flex-shrink-0 h-[clamp(24px,2.7vh,30px)] flex items-center ${fade}`}>
+        <span className={`font-black tabular-nums leading-none ${SIZE.day} ${d.isToday ? 'text-white' : d.inMonth ? 'text-omega-slate' : 'text-omega-fog'}`}>
+          {d.day}
+        </span>
+      </div>
+      <div className={`flex-1 min-h-0 mt-1 flex flex-col items-center gap-1.5 overflow-hidden ${fade}`}>
+        {d.events.slice(0, 4).map((e) => (
+          <span key={e.id} title={e.name} className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: e.color }} />
         ))}
       </div>
     </motion.div>
@@ -438,8 +466,8 @@ function MonthGrid({ days, weeks, nextId, now, reduce }) {
   return (
     <div
       ref={ref}
-      className="relative flex-1 min-h-0 grid grid-cols-7 gap-1.5"
-      style={{ gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}
+      className="relative flex-1 min-h-0 grid gap-1.5"
+      style={{ gridTemplateColumns: COLUMNS, gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}
     >
       {days.map((d, i) => (
         <DayCell key={d.key} d={d} index={i} cap={cap} nextId={nextId} now={now} reduce={reduce} />
@@ -458,7 +486,7 @@ export default function CalendarSlide({ data, now = Date.now() }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex gap-4 flex-shrink-0 h-[clamp(68px,8.5vh,96px)]">
+      <div className="flex gap-4 flex-shrink-0 h-[clamp(58px,6.8vh,76px)]">
         <MonthCard
           monthName={view.monthName}
           dayOfMonth={view.dayOfMonth}
@@ -469,11 +497,11 @@ export default function CalendarSlide({ data, now = Date.now() }) {
         <NextCard next={view.next} now={now} todayCount={view.todayCount} reduce={reduce} />
       </div>
 
-      <div className="grid grid-cols-7 gap-1.5 flex-shrink-0 mt-2 mb-1">
+      <div className="grid gap-1.5 flex-shrink-0 mt-2 mb-1" style={{ gridTemplateColumns: COLUMNS }}>
         {WEEKDAYS.map((w, i) => (
           <p
             key={w}
-            className={`px-3 font-extrabold uppercase tracking-wider ${SIZE.week} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
+            className={`font-extrabold uppercase tracking-wider truncate ${SIZE.week} ${i === 0 ? 'text-center' : 'px-3'} ${i === view.todayDow ? 'text-omega-orange' : 'text-omega-slate'}`}
           >
             {w}
           </p>
