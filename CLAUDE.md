@@ -590,6 +590,8 @@ Ramon aprovou por prints antes de codar.
   também guarda `start_date`/`end_date`/`sub_id`/`sub_name` como resumo.
   Ler sempre via `planRows()` de `src/shared/lib/phasePlan.js` (entende o
   formato antigo de 1 sub). Término antes do início é puxado pro início.
+  No modo Edit as etapas reordenam arrastando a alça ⋮⋮ (`@dnd-kit`; o
+  destino é a etapa sob o cursor — `phaseCollision`).
   Editam: marketing (Ramon), sales (Attila), owner
   (Inácio), receptionist (Rafaela), operations, admin (`CAN_SCHEDULE`);
   manager (Gabriel) vê só leitura. Rafaela ganhou a aba Phases no

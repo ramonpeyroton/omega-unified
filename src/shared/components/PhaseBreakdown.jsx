@@ -2,8 +2,16 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, CheckCircle2, Circle,
   MessageSquare, MessageCircle, Phone, ThumbsUp, ThumbsDown, AlertTriangle,
-  Pencil, Trash2, Plus, Check, CalendarDays, HardHat, Sparkles, Loader2,
+  Pencil, Trash2, Plus, Check, CalendarDays, HardHat, Sparkles, Loader2, GripVertical,
 } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, closestCenter, pointerWithin, useSensor, useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '../lib/supabase';
 import { templateForJob, progressFromPhaseData } from '../config/phaseBreakdown';
 import { generatePhasesFromEstimate } from '../lib/phaseGenerator';
@@ -88,6 +96,12 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   const [editing, setEditing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState(null);
+
+  // Edit mode: drag a phase by its grip to change the order.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     if (!canContact || !job?.id) return;
@@ -312,6 +326,23 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     });
   }
 
+  function reorderPhases({ active, over }) {
+    if (!over || active.id === over.id) return;
+    const from = phaseData.phases.findIndex((p) => p.id === active.id);
+    const to = phaseData.phases.findIndex((p) => p.id === over.id);
+    if (from < 0 || to < 0) return;
+    const moved = phaseData.phases[from];
+    setPhaseData((prev) => {
+      const next = { ...prev, phases: arrayMove(prev.phases, from, to) };
+      scheduleSave(next);
+      return next;
+    });
+    logAudit({
+      user, action: 'phase.reorder', entityType: 'job', entityId: job.id,
+      details: { phase: moved?.name, from: from + 1, to: to + 1 },
+    });
+  }
+
   function renameItem(phaseIdx, itemIdx, label) {
     setPhaseData((prev) => {
       const phases = prev.phases.map((p, pi) => {
@@ -527,6 +558,8 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
       )}
 
       {/* Phases */}
+      <DndContext sensors={sensors} collisionDetection={phaseCollision} onDragEnd={reorderPhases}>
+      <SortableContext items={phaseData.phases.map((p) => p.id)} strategy={verticalListSortingStrategy}>
       <div className="space-y-2">
         {phaseData.phases.map((ph, phaseIdx) => {
           const open = openIds.has(ph.id);
@@ -534,8 +567,10 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           const doneCount = ph.items.filter((it) => it.done).length;
           const assignments = assignmentsFor(ph);
           return (
-            <div key={ph.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+            <SortablePhase key={ph.id} id={ph.id} name={ph.name} editing={editing}>
+              {(grip) => (<>
               <div className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-omega-cloud transition-colors">
+                {grip}
                 <button
                   onClick={() => toggleOpen(ph.id)}
                   className="flex items-center gap-2 text-left flex-shrink-0"
@@ -660,7 +695,8 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
                   )}
                 </div>
               )}
-            </div>
+              </>)}
+            </SortablePhase>
           );
         })}
         {editing && (
@@ -672,6 +708,8 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           </button>
         )}
       </div>
+      </SortableContext>
+      </DndContext>
 
       {/* Picker: which sub + SMS/WhatsApp ─────────────────────── */}
       {pickerFor && (
@@ -705,6 +743,51 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           auditAction={`sub.contact.${contactFor.channel}`}
         />
       )}
+    </div>
+  );
+}
+
+// Drop target = the phase under the pointer. An open phase can be very tall,
+// so its center (closestCenter's yardstick) stays far from where the user is
+// pointing. Keyboard drags have no pointer — those fall back to the center.
+function phaseCollision(args) {
+  const hits = pointerWithin(args);
+  return hits.length ? hits : closestCenter(args);
+}
+
+// ─── One phase card; in edit mode its grip drags it to a new spot ─
+// Only the grip starts a drag, so typing in the inputs never moves the card.
+function SortablePhase({ id, name, editing, children }) {
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef,
+    transform, transition, isDragging,
+  } = useSortable({ id, disabled: !editing });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    position: 'relative',
+    zIndex: isDragging ? 30 : undefined,
+  };
+  const grip = editing ? (
+    <button
+      ref={setActivatorNodeRef}
+      {...listeners}
+      {...attributes}
+      type="button"
+      className="p-1.5 -ml-1.5 rounded text-omega-fog hover:text-omega-stone hover:bg-omega-cloud cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
+      title="Drag to reorder phase"
+      aria-label={`Drag to reorder ${name}`}
+    >
+      <GripVertical className="w-4 h-4" />
+    </button>
+  ) : null;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`border rounded-lg overflow-hidden bg-white ${isDragging ? 'border-omega-orange shadow-card-hover' : 'border-gray-200'}`}
+    >
+      {children(grip)}
     </div>
   );
 }
