@@ -576,6 +576,25 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-03 (Completed × Lost — regra dos status finais)** — Ramon + Claude (Opus 5.5).
+
+- **Regra do Ramon:** Lost = passou pelo estimate e não aprovou ·
+  Disqualified = nunca virou cliente · cliente que fechou vai In Progress →
+  **Completed e fica em Completed** (não jogar em Lost pra limpar o quadro).
+- `src/shared/lib/jobGuards.js` → `hasSignedContract()`: Pipeline (drag) e
+  seletor de status do card **bloqueiam** Lost/Disqualified quando a obra
+  tem contrato assinado.
+- Kanban: coluna Completed mostra só as **10 mais recentes** (igual Lost /
+  Disqualified); as antigas ficam em My Leads.
+- **Completed + `in_pipeline = false` = arquivado** (só no banco): os 5
+  `legacy_import` de 11/05 (Amit Trivet, Anthony Senseman, Felicia Bianca,
+  Gregg Wysocki, Michael Madden) que entraram como "completed" sem nunca
+  terem sido clientes. O dashboard do Owner ignora esses.
+- SQL passado pro Ramon: Louis Gjeloshi e Yuliya Stanislavsky (contrato
+  assinado, jogados em Lost em 02/10) → `completed`, `in_pipeline = true`.
+
+---
+
 **2026-10-02 (Jobs Calendar na TV + plano por etapa na aba Phases)** — Ramon + Claude (Opus 5.5).
 
 Pedido: ver quais obras estão ativas no tempo (rodam 8–15 ao mesmo tempo).

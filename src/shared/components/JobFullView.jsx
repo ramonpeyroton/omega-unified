@@ -24,6 +24,7 @@ import MaterialsSection from './MaterialsSection';
 import JobSubcontractorsSection from './JobSubcontractorsSection';
 import JobCoverPhotoUpload from './JobCoverPhotoUpload';
 import LostMoveModal from './LostMoveModal';
+import { hasSignedContract, SIGNED_JOB_OFF_BOARD_MSG } from '../lib/jobGuards';
 import { logAudit } from '../lib/audit';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES } from '../config/phaseBreakdown';
 import { formatPhoneInput, toE164 } from '../lib/phone';
@@ -1328,9 +1329,15 @@ function PipelineStatusPicker({ currentKey, user, jobId, jobName, onMoved, palet
     }
   }
 
-  function moveTo(nextKey) {
+  async function moveTo(nextKey) {
     if (nextKey === currentKey) { setOpen(false); return; }
     if (PICKER_PIN_GATED.has(nextKey)) {
+      // A client with a signed contract finishes in Completed, never Lost.
+      if (await hasSignedContract(jobId)) {
+        setOpen(false);
+        window.alert(SIGNED_JOB_OFF_BOARD_MSG);
+        return;
+      }
       // Hold the move for the Lost modal. The picker dropdown closes so
       // the modal isn't visually competing with it.
       setPendingKey(nextKey);

@@ -27,6 +27,7 @@ import Toast from './Toast';
 import JobFullView from './JobFullView';
 import DeleteJobModal from './DeleteJobModal';
 import LostMoveModal from './LostMoveModal';
+import { hasSignedContract, SIGNED_JOB_OFF_BOARD_MSG } from '../lib/jobGuards';
 import { PIPELINE_STEP_LABEL, PIPELINE_COLORS, PIPELINE_ORDER, OFF_BOARD_STAGES } from '../config/phaseBreakdown';
 import { logAudit } from '../lib/audit';
 import { notify } from '../lib/notifications';
@@ -826,12 +827,24 @@ export default function PipelineKanban({
       const seenIds = new Set(main.map((j) => j.id));
       const merged = main.concat(recentOffBoard.filter((r) => !seenIds.has(r.id)));
 
+      // Completed keeps only its 10 most recent cards on the board, like
+      // Lost / Disqualified — finished jobs stay Completed (never get moved
+      // to Lost just to clear the column). Older ones stay in My Leads.
+      const recentCompleted = new Set(
+        merged
+          .filter((j) => j.pipeline_status === 'completed')
+          .sort((a, b) => String(b.stage_entered_at || b.updated_at || '').localeCompare(String(a.stage_entered_at || a.updated_at || '')))
+          .slice(0, 10)
+          .map((j) => j.id),
+      );
+      const board = merged.filter((j) => j.pipeline_status !== 'completed' || recentCompleted.has(j.id));
+
       // Always sort client-side too. In legacy mode (migration 028
       // missing) Supabase ordered only by created_at, so any rows that
       // happened to already have a pipeline_position get bucketed
       // correctly here.
-      setJobs(sortJobsForKanban(merged));
-      loadVisitTimes(merged.map((j) => j.id));
+      setJobs(sortJobsForKanban(board));
+      loadVisitTimes(board.map((j) => j.id));
       setEstimates(e || []);
       setSubs(s || []);
       // Load this user's read pointers in a separate query so a missing
@@ -1106,6 +1119,11 @@ export default function PipelineKanban({
     // `confirmPendingMove`. Reordering inside the Lost column isn't a
     // move into Lost, so it saves straight away.
     if (PIN_GATED_PHASES.has(targetCol) && previous !== targetCol) {
+      // A client with a signed contract finishes in Completed, never Lost.
+      if (await hasSignedContract(activeJobId)) {
+        setToast({ type: 'error', message: SIGNED_JOB_OFF_BOARD_MSG });
+        return;
+      }
       setPendingMove({ activeJobId, previous, targetCol, newPosition, job });
       return;
     }

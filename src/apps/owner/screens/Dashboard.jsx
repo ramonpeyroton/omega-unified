@@ -236,7 +236,12 @@ export default function Dashboard({ user, onSelectJob, onNavigate }) {
 
         if (!active) return;
 
-        const jobs       = jobsResp.data || [];
+        // Completed + off the board (in_pipeline = false) = archived: the
+        // old spreadsheet rows imported as "completed" that never became
+        // clients (Ramon, 03/10). They stay in the database only.
+        const jobs       = (jobsResp.data || []).filter(
+          (j) => !(j.pipeline_status === 'completed' && j.in_pipeline === false),
+        );
         const estimates  = estimatesResp.data || [];
         const expenses   = expensesResp.data || [];
         const events     = eventsResp.data || [];
