@@ -70,27 +70,9 @@ export async function sendMessage({ to, body, channel = 'sms', meta, user } = {}
 
 // ─── Message templates ─────────────────────────────────────────────
 
-/**
- * Build the "please confirm" message a Manager/Owner sends to a sub for
- * a specific phase. Keeps phrasing neutral and professional, includes
- * the key job facts and a call for confirmation.
- */
-export function subConfirmTemplate({ sub, phase, job }) {
-  const lines = [];
-  // Address the contact person by name when we have it ("Hi Pedro,..."),
-  // not the LLC. Falls back to the company name if contact is missing.
-  const greetName = (sub?.contact_name || sub?.name || '').trim();
-  lines.push(`Hi ${greetName}, this is Omega Development.`);
-  if (phase?.name)      lines.push(`Phase: ${phase.name}`);
-  if (job?.client_name) lines.push(`Client: ${job.client_name}`);
-  if (job?.address)     lines.push(`Address: ${job.address}`);
-  if (job?.service)     lines.push(`Service: ${job.service}`);
-  lines.push('');
-  lines.push('Can you confirm your availability for this work? Reply YES to confirm or call us if you need to discuss timing.');
-  lines.push('');
-  lines.push('Thanks!');
-  return lines.join('\n');
-}
+// The "please confirm" message to a sub lives in subMessages.js now, in the
+// sub's primary language. Re-exported so existing imports keep working.
+export { subConfirmTemplate } from './subMessages';
 
 /**
  * Build a generic client-update message (Operations / Brenda reaching

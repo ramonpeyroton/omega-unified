@@ -5,12 +5,13 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import { subDisplayNames } from '../../../shared/lib/subcontractor';
+import { SUB_LANGUAGES, subLanguage, subLanguageLabel } from '../../../shared/lib/subMessages';
 
 const SPECIALTIES = ['Plumbing', 'Electrical', 'Tile', 'Framing', 'Drywall', 'Painting', 'Roofing', 'HVAC', 'Flooring', 'Landscaping', 'Concrete', 'Masonry', 'Millwork', 'Glazing', 'General'];
 
 function SubModal({ sub, onSave, onClose }) {
   const [form, setForm] = useState(
-    sub || { contact_name: '', name: '', phone: '', email: '', specialty: '' }
+    sub || { contact_name: '', name: '', phone: '', email: '', specialty: '', preferred_language: 'en' }
   );
   const [saving, setSaving] = useState(false);
 
@@ -56,6 +57,15 @@ function SubModal({ sub, onSave, onClose }) {
               <option value="">Select specialty</option>
               {SPECIALTIES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-omega-slate uppercase tracking-wider mb-1.5">Primary Language</label>
+            <select value={form.preferred_language || 'en'} onChange={(e) => setForm((f) => ({ ...f, preferred_language: e.target.value }))}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-omega-orange transition-colors bg-white">
+              {SUB_LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+            <p className="text-[11px] text-omega-stone mt-1">Every message the app sends this sub goes in this language.</p>
           </div>
         </div>
 
@@ -187,7 +197,12 @@ export default function Subcontractors({ onBack }) {
                       {secondary && (
                         <p className="text-[11px] text-omega-stone truncate">{secondary}</p>
                       )}
-                      {sub.specialty && <span className="text-xs font-medium text-omega-orange">{sub.specialty}</span>}
+                      <div className="flex items-center gap-2">
+                        {sub.specialty && <span className="text-xs font-medium text-omega-orange">{sub.specialty}</span>}
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-omega-stone" title={`Messages go in ${subLanguageLabel(sub)}`}>
+                          {SUB_LANGUAGES.find((l) => l.value === subLanguage(sub))?.short}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-1">

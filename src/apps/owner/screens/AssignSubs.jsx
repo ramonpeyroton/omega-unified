@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import { subDisplayNames, subInlineLabel } from '../../../shared/lib/subcontractor';
+import { subAssignedMessage } from '../../../shared/lib/subMessages';
 
 // ── Tools per phase keyword ───────────────────────────────────────────────────
 const PHASE_TOOLS = {
@@ -44,37 +45,14 @@ function getToolsForPhase(phaseName) {
 }
 
 // ── WhatsApp message builder ──────────────────────────────────────────────────
-function buildSubWhatsApp(subPhone, subName, phaseName, tasks, jobAddress, startDate, startTime) {
-  const phone = (subPhone || '').replace(/\D/g, '');
+// Written in the sub's primary language (shared/lib/subMessages.js).
+// The tool list stays in English (PHASE_TOOLS above).
+function buildSubWhatsApp(sub, phaseName, tasks, jobAddress, startDate, startTime) {
+  const phone = (sub?.phone || '').replace(/\D/g, '');
   if (!phone) return null;
-  const taskList = (tasks || [])
-    .filter((t) => !t.startsWith('__'))
-    .map((t) => `• ${t}`)
-    .join('\n');
   const tools = getToolsForPhase(phaseName);
   const toolList = tools.split(',').map((t) => `• ${t.trim()}`).join('\n');
-  const dateStr = startDate ? `📅 Start: ${startDate}${startTime ? ` at ${startTime}` : ''}` : '';
-
-  const msg = `Hi ${subName}! 👷
-
-You've been assigned to a project with Omega Development.
-
-📍 Location: ${jobAddress}${dateStr ? `\n${dateStr}` : ''}
-🔨 Phase: ${phaseName}
-
-Your scope of work:
-${taskList || '• Tasks will be provided on site'}
-
-🧰 Tools to bring:
-${toolList}
-
-Please confirm your availability by replying.
-Thank you for being part of the Omega team! 🏗️
-
-— Omega Development
-📞 203-451-4846
-🌐 omeganyct.com`;
-
+  const msg = subAssignedMessage({ sub, phaseName, tasks, toolList, jobAddress, startDate, startTime });
   return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 }
 
@@ -251,7 +229,7 @@ export default function AssignSubs({ job, phases, onNavigate }) {
                   const isAssigned = assignments[selectedPhase]?.sub_name === sub.name;
                   const phase = phases.find((p) => p.phase === selectedPhase);
                   const waUrl = isAssigned
-                    ? buildSubWhatsApp(sub.phone, sub.name, selectedPhase, phase?.tasks, job.address)
+                    ? buildSubWhatsApp(sub, selectedPhase, phase?.tasks, job.address)
                     : null;
 
                   const { primary, secondary } = subDisplayNames(sub);

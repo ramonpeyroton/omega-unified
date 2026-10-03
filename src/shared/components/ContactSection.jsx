@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { MessageSquare, MessageCircle, Phone, User, Users, Mail, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import ContactMessageModal from './ContactMessageModal';
-import { subConfirmTemplate, clientMessageTemplate, normalizePhone } from '../lib/twilio';
+import { clientMessageTemplate, normalizePhone } from '../lib/twilio';
+import { subConfirmTemplate, findSubByPhone } from '../lib/subMessages';
 import { TEMPLATES, fillTemplate } from '../data/messageTemplates';
 
 /**
@@ -24,11 +25,17 @@ export default function ContactSection({ job, user }) {
     (async () => {
       setLoading(true);
       try {
-        const { data } = await supabase
-          .from('job_subs')
-          .select('id, phase, phase_index, sub_name, sub_phone')
-          .eq('job_id', job.id);
-        if (!cancelled) setRows(data || []);
+        const [{ data }, { data: onFile }] = await Promise.all([
+          supabase.from('job_subs').select('id, phase, phase_index, sub_name, sub_phone').eq('job_id', job.id),
+          supabase.from('subcontractors').select('phone, contact_name, preferred_language'),
+        ]);
+        // job_subs rows only carry name + phone; the sub on file (matched by
+        // phone) gives the contact name and the language to write in.
+        const withLang = (data || []).map((r) => {
+          const s = findSubByPhone(onFile, r.sub_phone);
+          return { ...r, contact_name: s?.contact_name || null, preferred_language: s?.preferred_language || null };
+        });
+        if (!cancelled) setRows(withLang);
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);
     })();
@@ -60,7 +67,7 @@ export default function ContactSection({ job, user }) {
       name: sub.sub_name,
       channel,
       body: subConfirmTemplate({
-        sub:   { name: sub.sub_name },
+        sub,
         phase: { name: phaseName },
         job,
       }),

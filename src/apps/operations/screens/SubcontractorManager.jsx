@@ -502,7 +502,7 @@ export default function SubcontractorManager({ user }) {
                 </div>
               ))}
               <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-omega-stone uppercase">Preferred Language</label>
+                <label className="text-xs font-semibold text-omega-stone uppercase">Primary Language</label>
                 <select
                   value={subForm.preferred_language || 'en'}
                   onChange={(e) => setSubForm({ ...subForm, preferred_language: e.target.value })}
@@ -513,7 +513,7 @@ export default function SubcontractorManager({ user }) {
                   <option value="es">Español</option>
                 </select>
                 <p className="text-[10px] text-omega-stone mt-1">
-                  Sub-facing pages (Accept/Reject) will translate to this language. The internal app stays English.
+                  Every message the app sends this sub (SMS, WhatsApp, offer page) goes in this language. The internal app stays English.
                 </p>
               </div>
               <div className="sm:col-span-2">
@@ -657,7 +657,7 @@ export default function SubcontractorManager({ user }) {
                 </div>
               ))}
               <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-omega-stone uppercase">Preferred Language</label>
+                <label className="text-xs font-semibold text-omega-stone uppercase">Primary Language</label>
                 <select
                   value={editForm.preferred_language || 'en'}
                   onChange={(e) => setEditForm({ ...editForm, preferred_language: e.target.value })}
@@ -976,7 +976,7 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
             value={sub.general_liability_expiry ? new Date(sub.general_liability_expiry).toLocaleDateString() : null}
           />
           <Field
-            label="Preferred language"
+            label="Primary language"
             value={(() => {
               switch (sub.preferred_language) {
                 case 'pt': return 'Português (PT-BR)';

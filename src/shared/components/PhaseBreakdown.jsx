@@ -19,7 +19,8 @@ import { planRows, blankPlanRow, withPlanRows } from '../lib/phasePlan';
 import { nyDateKey } from '../lib/stageAge';
 import PhasePhotos from './PhasePhotos';
 import ContactMessageModal from './ContactMessageModal';
-import { subConfirmTemplate, waDeepLink } from '../lib/twilio';
+import { waDeepLink } from '../lib/twilio';
+import { subConfirmTemplate, subReworkMessage, findSubByPhone } from '../lib/subMessages';
 import { logAudit } from '../lib/audit';
 import { subDisplayNames, subInlineLabel } from '../lib/subcontractor';
 
@@ -133,7 +134,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     (async () => {
       const { data, error } = await supabase
         .from('subcontractors')
-        .select('id, name, contact_name, trade, phone')
+        .select('id, name, contact_name, trade, phone, preferred_language')
         .order('name');
       if (!cancelled && !error) setSubs(data || []);
     })();
@@ -142,14 +143,23 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
 
   // Who to call about a phase: legacy job_subs rows (keyed by phase name)
   // plus every sub planned on the phase itself, when we have a phone.
+  // Each one carries contact_name + preferred_language so the message to
+  // the sub is written in its primary language (shared/lib/subMessages.js);
+  // legacy rows find their sub on file by phone.
   function assignmentsFor(ph) {
-    const list = [...(subsByPhase[ph.name] || subsByPhase[ph.id] || [])];
+    const list = (subsByPhase[ph.name] || subsByPhase[ph.id] || []).map((row) => {
+      const onFile = findSubByPhone(subs, row.sub_phone);
+      return { ...row, contact_name: onFile?.contact_name || null, preferred_language: onFile?.preferred_language || null };
+    });
     const planned = planRows(ph)
       .map((r) => (r.sub_id ? subs.find((s) => s.id === r.sub_id) : null))
       .filter((s) => s?.phone);
     for (const sub of planned.reverse()) {
       if (!list.some((a) => a.sub_phone === sub.phone)) {
-        list.unshift({ id: sub.id, sub_name: subInlineLabel(sub), sub_phone: sub.phone });
+        list.unshift({
+          id: sub.id, sub_name: subInlineLabel(sub), sub_phone: sub.phone,
+          contact_name: sub.contact_name, preferred_language: sub.preferred_language,
+        });
       }
     }
     return list;
@@ -235,12 +245,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
       const assignments = assignmentsFor(phase);
       if (assignments.length > 0) {
         const sub = assignments[0];
-        const body =
-          `Hi ${sub.sub_name || ''}, quick note from Omega field:\n\n` +
-          `Job: ${job.client_name || 'client'}\n` +
-          `Phase: ${phase.name}\n` +
-          `Item needing ${nextStatus === 'fail' ? 'rework' : 'a fix'}: ${item.label}\n\n` +
-          `Please reach out so we can coordinate. Thanks!`;
+        const body = subReworkMessage({ sub, job, phase, item, kind: nextStatus });
         const url = waDeepLink(sub.sub_phone, body);
         if (url) {
           // Open the user's WhatsApp with the message pre-filled. Using
@@ -809,7 +814,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
           channel={contactFor.channel}
           setChannel={(ch) => setContactFor((prev) => prev ? { ...prev, channel: ch } : prev)}
           initialBody={subConfirmTemplate({
-            sub:   { name: contactFor.sub.sub_name },
+            sub:   contactFor.sub,
             phase: { name: contactFor.phase.name },
             job,
           })}
