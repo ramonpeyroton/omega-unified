@@ -910,6 +910,27 @@ function ClientsTab({ user, accounts }) {
         </div>
       )}
 
+      {/* Contracts section — for managing milestones. Comes before the
+          received list (Ramon, 03/10). */}
+      <div>
+        <p className="text-[11px] font-semibold text-omega-stone uppercase tracking-wider mb-3 px-1">
+          All Contracts ({contractRows.length})
+        </p>
+        {contractRows.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
+            <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
+            <p className="text-sm font-semibold">No signed contracts yet.</p>
+            <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sortedContractRows.map((r) => (
+              <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Received payments flat list */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -945,26 +966,6 @@ function ClientsTab({ user, accounts }) {
                 </div>
                 <ChevronRight className="w-4 h-4 text-omega-stone flex-shrink-0" />
               </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Contracts section — for managing milestones */}
-      <div>
-        <p className="text-[11px] font-semibold text-omega-stone uppercase tracking-wider mb-3 px-1">
-          All Contracts ({contractRows.length})
-        </p>
-        {contractRows.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
-            <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-            <p className="text-sm font-semibold">No signed contracts yet.</p>
-            <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sortedContractRows.map((r) => (
-              <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
             ))}
           </div>
         )}
