@@ -1,21 +1,22 @@
 // MobileMoreSheet — the "More" (•••) overflow menu for the Manager mobile
-// bottom bar. The bar keeps Today / Jobs / Receipts / Logs; everything else
-// Gabriel reaches (Pipeline, Materials, Calendar, Warehouse, Alerts) lives
-// here, plus Profile + Sign Out. Same pattern as the Owner sheet.
+// bottom bar. The bar keeps Receipts / Jobs / Today / Calendar (Ramon,
+// 03/10); Daily Logs, Alerts, Pipeline, Materials and Warehouse live here,
+// plus Profile + Sign Out. Same pattern as the Owner sheet.
 
 import { useState, useEffect } from 'react';
 import {
-  X, GitBranch, ShoppingCart, Calendar, Package, LogOut,
+  X, GitBranch, ShoppingCart, Package, LogOut, MessageCircle, Bell,
 } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 const ITEMS = [
-  { id: 'pipeline',      label: 'Pipeline',  icon: GitBranch },
-  { id: 'materials-run', label: 'Materials', icon: ShoppingCart },
-  { id: 'calendar',      label: 'Calendar',  icon: Calendar },
-  { id: 'warehouse',     label: 'Warehouse', icon: Package },
+  { id: 'daily-logs',    label: 'Daily Logs', icon: MessageCircle },
+  { id: 'notifications', label: 'Alerts',     icon: Bell },
+  { id: 'pipeline',      label: 'Pipeline',   icon: GitBranch },
+  { id: 'materials-run', label: 'Materials',  icon: ShoppingCart },
+  { id: 'warehouse',     label: 'Warehouse',  icon: Package },
 ];
 
 export default function MobileMoreSheet({ open, onClose, onNavigate, user, onLogout }) {

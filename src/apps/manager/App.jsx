@@ -14,7 +14,7 @@ import PhaseView from './screens/PhaseView';
 import PunchList from './screens/PunchList';
 import Notifications from './screens/Notifications';
 import Warehouse from './screens/Warehouse';
-import JobOfTheDay from './screens/JobOfTheDay';
+import FieldToday from './screens/FieldToday';
 import QuickReceipts from './screens/QuickReceipts';
 import Sidebar from './components/Sidebar';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
@@ -95,14 +95,14 @@ function MobileRedirect() {
 
 // ─── Route components ─────────────────────────────────────────────
 
+// Today = Joel's central (03/10): where each sub is, from the Phases plan.
 function TodayRoute({ user }) {
   const navigate = useNavigate();
   return (
-    <JobOfTheDay
+    <FieldToday
       user={user}
-      onNavigate={(id) => navigateForId(navigate, id)}
-      onSelectJob={(job) => navigate(`/jobs/${job.id}/phase-board`, { state: { from: '/' } })}
-      onOpenFullJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/' } })}
+      onOpenJob={(job) => navigate(`/jobs/${job.id}/phase-board`, { state: { from: '/' } })}
+      onOpenAlertJob={(job, tab = 'daily') => navigate(`/jobs/${job.id}?tab=${tab}`, { state: { from: '/' } })}
     />
   );
 }

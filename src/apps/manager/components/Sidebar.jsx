@@ -25,11 +25,10 @@ const NAV = [
 // "More" sheet for the rest (Pipeline, Materials, Calendar, Warehouse,
 // Alerts). On desktop everything stays in the sidebar (NAV).
 const BOTTOM_BAR = [
-  { id: 'today',         label: 'Today',    icon: Sun },
-  { id: 'dashboard',     label: 'Jobs',     icon: HardHat },
   { id: 'receipts',      label: 'Receipts', icon: Receipt },
-  { id: 'daily-logs',    label: 'Logs',     icon: MessageCircle },
-  { id: 'notifications', label: 'Alerts',   icon: Bell },
+  { id: 'dashboard',     label: 'Jobs',     icon: HardHat },
+  { id: 'today',         label: 'Today',    icon: Sun },
+  { id: 'calendar',      label: 'Calendar', icon: Calendar },
   { id: 'more',          label: 'More',     icon: MoreHorizontal },
 ];
 

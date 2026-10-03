@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, LogOut, Sun, Moon, HardHat, RefreshCw, Package, Sun as SunIcon, ShoppingCart, Calendar, MapPin, Navigation, Image as ImageIcon } from 'lucide-react';
+import { Bell, LogOut, Sun, Moon, HardHat, RefreshCw, Package, Sun as SunIcon, ShoppingCart, Calendar, MapPin, Navigation, Image as ImageIcon, Phone, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import Logo from '../components/Logo';
@@ -7,6 +7,8 @@ import ProgressRing from '../components/ProgressRing';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { serviceBadgeLabel } from '../../../shared/data/services';
 import { progressFromPhaseData } from '../../../shared/config/phaseBreakdown';
+import { formatPhoneInput } from '../../../shared/lib/phone';
+import { waDeepLink } from '../../../shared/lib/twilio';
 
 // Drop a trailing ZIP from the address for DISPLAY only (the full address,
 // zip included, is still handed to Google Maps for accurate routing).
@@ -112,6 +114,30 @@ function JobCard({ job, phases, onClick, materialsPending = 0 }) {
         )}
       </div>
 
+      {/* Call / WhatsApp the client straight from the list (Ramon, 03/10). */}
+      {job.client_phone && (
+        <div className="mt-3 flex gap-2">
+          <a
+            href={`tel:${String(job.client_phone).replace(/[^\d+]/g, '')}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 inline-flex items-center justify-center gap-2 h-11 rounded-xl bg-omega-charcoal text-white text-sm font-semibold"
+          >
+            <Phone className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{formatPhoneInput(job.client_phone).replace(/^\+1 /, '')}</span>
+          </a>
+          {waDeepLink(job.client_phone, '') && (
+            <a
+              href={waDeepLink(job.client_phone, '')}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl bg-[#25D366] text-white text-sm font-semibold"
+            >
+              <MessageCircle className="w-4 h-4" /> WhatsApp
+            </a>
+          )}
+        </div>
+      )}
     </button>
   );
 }
