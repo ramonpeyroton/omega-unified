@@ -12,7 +12,9 @@ import { supabase } from './supabase';
 import { callAnthropicShared } from './anthropic';
 import { serviceBadgeLabel } from '../data/services';
 
-const MAX_PHASES = 12;
+// A full reno or new build runs 14-18 phases. At 12 the AI's list got cut
+// and lost its last phases, Final Inspection included (Ramon, 03/10).
+const MAX_PHASES = 20;
 const MAX_ITEMS = 14;
 const MAX_SOURCE_CHARS = 14_000;
 
@@ -55,7 +57,7 @@ ${source}
 """
 
 Rules:
-- 4 to ${MAX_PHASES} phases, in build order. Start with "Permit Application & Approval" unless the scope clearly needs no permit. End with "Final Inspection & Walkthrough".
+- As many phases as the scope really needs, from 4 up to ${MAX_PHASES}, in build order. Start with "Permit Application & Approval" unless the scope clearly needs no permit. End with "Final Inspection & Walkthrough".
 - Phase names: short (max 28 characters), like "Demo & Debris Removal", "Framing", "Rough-In", "Drywall & Paint".
 - 3 to ${MAX_ITEMS} checklist items per phase, max 70 characters each, written as finished milestones the way a field checklist reads: "Footing holes dug", "Rough electrical inspection passed", "Shower tile installed".
 - Only work that is in scope. Skip disclaimers, exclusions, prices, and work the client or others will do themselves.
@@ -78,8 +80,9 @@ function parsePhases(text) {
         .filter(Boolean)
         .slice(0, MAX_ITEMS),
     }))
-    .filter((ph) => ph.name && ph.items.length)
-    .slice(0, MAX_PHASES);
+    .filter((ph) => ph.name && ph.items.length);
+  // Over the cap: drop from the middle, never the last phase (the final inspection).
+  if (phases.length > MAX_PHASES) phases.splice(MAX_PHASES - 1, phases.length - MAX_PHASES);
   if (!phases.length) throw new Error('The AI answer had no phase list. Try again.');
   const stamp = Date.now().toString(36);
   return phases.map((ph, i) => {
@@ -105,6 +108,6 @@ export async function generatePhasesFromEstimate(job) {
     sourceLabel = 'questionnaire answers';
     source = answers.slice(0, MAX_SOURCE_CHARS);
   }
-  const text = await callAnthropicShared(buildPrompt(job, sourceLabel, source), 4000, { prefill: '{' });
+  const text = await callAnthropicShared(buildPrompt(job, sourceLabel, source), 8000, { prefill: '{' });
   return parsePhases(text);
 }

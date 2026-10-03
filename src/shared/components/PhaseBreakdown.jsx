@@ -75,6 +75,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     return new Set([target].filter(Boolean));
   });
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const saveTimer = useRef(null);
 
   // ─── Sub assignments (for the "Contact Subs" button per phase) ───
@@ -183,6 +184,9 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
     setSaving(true);
     const { data, error } = await supabase.from('jobs').update({ phase_data: next }).eq('id', job.id).select().single();
     setSaving(false);
+    // A failed save used to vanish silently: the change showed on screen
+    // and was gone on the next open. Now it says so.
+    setSaveFailed(!!error);
     if (!error && data) onJobUpdated?.(data);
     return error;
   }
@@ -570,6 +574,18 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
         </div>
       </div>
       {saving && <p className="text-[12px] text-[#8A8A85]">Saving…</p>}
+      {saveFailed && !saving && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-[14px] text-red-700">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1 min-w-0">Couldn't save your last change. Check the connection and try again.</span>
+          <button
+            onClick={() => persist(phaseData)}
+            className="h-8 px-3 rounded-lg bg-white border border-red-200 font-semibold hover:bg-red-100 transition"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {editing && phaseData.phases.length === 0 && (
         <div className="text-sm text-[#5F5F5B] bg-[#FAFAF9] border border-[#E7E7E4] rounded-xl p-4">
           No phases yet. Use <strong>Add phase</strong> below to start.
@@ -756,9 +772,11 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
             </SortablePhase>
           );
         })}
-        {editing && (
+        {/* Always there for editors — outside edit mode it switches edit on
+            too, so nobody has to find the Edit pill first to add a phase. */}
+        {canEdit && (
           <button
-            onClick={addPhase}
+            onClick={() => { setEditing(true); addPhase(); }}
             className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed border-gray-300 text-sm font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange transition"
           >
             <Plus className="w-4 h-4" /> Add phase
