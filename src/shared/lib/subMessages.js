@@ -147,3 +147,80 @@ ${L.assignThanks}
 📞 203-451-4846
 🌐 omeganyct.com`;
 }
+
+// ─── Job schedule (Phases → "Send schedule to subs") ───────────────
+// One SMS per sub with every phase + date it has on the job. Goes out
+// from the Twilio number, which can't take replies — so it's signed by
+// the owner and closes asking the sub to answer on his cell.
+
+const WEEKDAYS = {
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  pt: ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'],
+  es: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
+};
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// 'YYYY-MM-DD' → "Mon 10/5" (en) · "seg 05/10" (pt) · "lun 05/10" (es)
+function dayText(key, lang) {
+  const [y, m, d] = key.split('-').map(Number);
+  const wd = WEEKDAYS[lang][new Date(y, m - 1, d).getDay()];
+  if (lang === 'en') return `${wd} ${m}/${d}`;
+  return `${wd} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+}
+
+const S = {
+  en: {
+    open: (n, s, client, svc) => `Hi ${n}! This is ${s} from Omega Development. Here is your schedule for the ${client} job${svc ? ` (${svc})` : ''}:`,
+    range: (a, b) => `${a} – ${b}`,
+    tbd: 'date TBD',
+    confirm: 'Please confirm these dates.',
+    noReply: (p) => `⚠️ Please don't reply to this message, this number doesn't receive replies. Text or call me on my cell: ${p}.`,
+    thanks: 'Thanks!',
+  },
+  pt: {
+    open: (n, s, client, svc) => `Olá ${n}! Aqui é o ${s}, da Omega Development. Segue sua agenda na obra da ${client}${svc ? ` (${svc})` : ''}:`,
+    range: (a, b) => `${a} a ${b}`,
+    tbd: 'data a definir',
+    confirm: 'Por favor, confirme essas datas.',
+    noReply: (p) => `⚠️ Não responda esta mensagem, este número não recebe respostas. Fale comigo no meu celular: ${p}.`,
+    thanks: 'Obrigado!',
+  },
+  es: {
+    open: (n, s, client, svc) => `¡Hola ${n}! Le escribe ${s}, de Omega Development. Esta es su agenda en la obra de ${client}${svc ? ` (${svc})` : ''}:`,
+    range: (a, b) => `${a} al ${b}`,
+    tbd: 'fecha por definir',
+    confirm: 'Por favor confirme estas fechas.',
+    noReply: (p) => `⚠️ No responda a este mensaje, este número no recibe respuestas. Comuníquese conmigo a mi celular: ${p}.`,
+    thanks: '¡Gracias!',
+  },
+};
+
+export function prettyPhone(raw) {
+  const d = digits(raw);
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(raw || '').trim();
+}
+
+/**
+ * @param entries [{ phase, start_date, end_date }] — this sub's slots
+ * @param signer  name that signs (the owner)
+ * @param replyPhone the signer's cell, where the sub should answer
+ */
+export function subScheduleMessage({ sub, job, entries, signer, replyPhone, lang }) {
+  const lg = WEEKDAYS[lang] ? lang : subLanguage(sub);
+  const L = S[lg];
+  const lines = [L.open(greetName(sub), signer, job?.client_name || '', job?.service ? serviceText(job.service) : ''), ''];
+  if (job?.address) lines.push(`📍 ${job.address}`, '');
+  for (const e of entries) {
+    let when = L.tbd;
+    if (e.start_date && e.end_date && e.end_date !== e.start_date) {
+      when = L.range(dayText(e.start_date, lg), dayText(e.end_date, lg));
+    } else if (e.start_date || e.end_date) {
+      when = dayText(e.start_date || e.end_date, lg);
+    }
+    lines.push(`• ${cap(when)}: ${e.phase}`);
+  }
+  lines.push('', L.confirm);
+  if (replyPhone) lines.push(L.noReply(prettyPhone(replyPhone)));
+  lines.push('', L.thanks, `${signer} — Omega Development`);
+  return lines.join('\n');
+}

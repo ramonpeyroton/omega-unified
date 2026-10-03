@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, MoreVertical, Clock3,
   MessageSquare, MessageCircle, Phone, ThumbsUp, ThumbsDown, AlertTriangle,
-  Pencil, Trash2, Plus, Check, HardHat, Sparkles, Loader2, GripVertical,
+  Pencil, Trash2, Plus, Check, HardHat, Sparkles, Loader2, GripVertical, Send,
 } from 'lucide-react';
 import {
   DndContext, PointerSensor, KeyboardSensor, closestCenter, pointerWithin, useSensor, useSensors,
@@ -19,6 +19,7 @@ import { planRows, blankPlanRow, withPlanRows } from '../lib/phasePlan';
 import { nyDateKey } from '../lib/stageAge';
 import PhasePhotos from './PhasePhotos';
 import ContactMessageModal from './ContactMessageModal';
+import SubScheduleModal from './SubScheduleModal';
 import { waDeepLink } from '../lib/twilio';
 import { subConfirmTemplate, subReworkMessage, findSubByPhone } from '../lib/subMessages';
 import { logAudit } from '../lib/audit';
@@ -91,6 +92,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   const [subs, setSubs] = useState([]);
   const [pickerFor, setPickerFor] = useState(null); // {phase, assignments} or null
   const [contactFor, setContactFor] = useState(null); // {sub, phase, channel} or null
+  const [scheduleOpen, setScheduleOpen] = useState(false); // "Send schedule to subs"
 
   // Edit mode toggle — only meaningful for roles in CAN_EDIT_PHASES.
   // When on: phase names become inputs, items get delete + edit affordances,
@@ -535,6 +537,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
   // Which phase is "now": the first one with an unchecked item (same rule as
   // progressFromPhaseData's currentPhaseName).
   const currentIdx = phaseData.phases.findIndex((p) => (p.items || []).some((it) => !it.done));
+  const hasPlannedSubs = phaseData.phases.some((p) => planRows(p).some((r) => r.sub_id || r.sub_name));
   const todayKey = nyDateKey(Date.now());
 
   return (
@@ -563,6 +566,15 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
               <span className="text-[24px] sm:text-[28px] font-extrabold text-[#141413] tracking-[-0.02em] tabular-nums">{progress}%</span>
             </div>
           </div>
+          {(canSchedule || canContact) && hasPlannedSubs && (
+            <button
+              onClick={() => setScheduleOpen(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-[#DADAD6] text-[13px] font-semibold text-[#3A3A37] hover:border-omega-orange hover:text-omega-orange transition flex-shrink-0"
+              title="Text each sub its phases and dates"
+            >
+              <Send className="w-4 h-4" /> <span className="hidden sm:inline">Send schedule</span>
+            </button>
+          )}
           {canEdit && (
             <button
               onClick={() => setEditing((v) => !v)}
@@ -790,6 +802,16 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
       </div>
       </SortableContext>
       </DndContext>
+
+      {scheduleOpen && (
+        <SubScheduleModal
+          job={job}
+          phases={phaseData.phases}
+          subs={subs}
+          user={user}
+          onClose={() => setScheduleOpen(false)}
+        />
+      )}
 
       {/* Picker: which sub + SMS/WhatsApp ─────────────────────── */}
       {pickerFor && (
