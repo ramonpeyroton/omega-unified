@@ -17,6 +17,7 @@ import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
+import { sectionsTotal, itemsTotal } from '../lib/estimatePricing';
 import { StepBadge } from './JobFullView';
 
 // Stable IDs make sections + items addressable by @dnd-kit. Older
@@ -31,6 +32,8 @@ function ensureIds(sections) {
   return (sections || []).map((s) => ({
     id: s.id || newId(),
     title: s.title || '',
+    // Section price — only used in "Price by Section" mode.
+    ...(s.price !== undefined ? { price: s.price } : {}),
     items: (s.items || []).map((it) => ({ id: it.id || newId(), ...it })),
   }));
 }
@@ -99,6 +102,13 @@ function parsePlanRows(message) {
   return out;
 }
 
+// The three price formats the seller picks before filling the estimate.
+const PRICE_MODE_CARDS = [
+  { key: 'breakdown', icon: '📋', title: 'Breakdown Price', hint: 'Client sees each line item with its price' },
+  { key: 'section',   icon: '📑', title: 'Price by Section', hint: 'Client sees one price per section — items listed without prices' },
+  { key: 'single',    icon: '💰', title: 'Single Price', hint: 'Client sees only the grand total — no item or section prices' },
+];
+
 function emptyItem()    { return { id: newId(), description: '', scope: '', price: 0 }; }
 function emptySection() { return { id: newId(), title: 'Section 1', items: [emptyItem()] }; }
 
@@ -134,7 +144,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
 
   // Price display mode — must be chosen before the form unlocks for new estimates.
   // 'breakdown': client sees each line item with price (default)
+  // 'section':   one price per section (typed on the section), items without prices
   // 'single':    client sees only the grand total, no per-item prices
+  // See shared/lib/estimatePricing.js — every client document follows it.
   const [displayMode, setDisplayMode] = useState(null); // null = not yet chosen
 
   // Show the Acorn Finance "Need Flexible Payments?" card on the customer's
@@ -227,6 +239,20 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     // Default to TRUE when the column is absent (pre-migration rows) or
     // explicitly true. Only honor an explicit `false`.
     setShowFinancing(row?.show_financing !== false);
+  }
+
+  // Switching INTO "Price by Section" seeds each section that has no
+  // price yet with the sum of its item prices, so the total doesn't
+  // change under the seller's feet. Prices are never deleted when the
+  // mode changes — item prices and section prices are kept side by
+  // side, and the mode only decides which ones count.
+  function changeDisplayMode(next) {
+    if (next === 'section' && displayMode !== 'section') {
+      setSections((prev) => prev.map((s) => (
+        Number(s.price) > 0 ? s : { ...s, price: itemsTotal(s) }
+      )));
+    }
+    setDisplayMode(next);
   }
 
   // ─── Section / item helpers ───────────────────────────────────────
@@ -349,8 +375,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   }
 
   // ─── Totals ───────────────────────────────────────────────────────
-  const total = sections.reduce((acc, sec) =>
-    acc + (sec.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
+  // Section prices in "Price by Section" mode, item prices otherwise.
+  const priceBySection = displayMode === 'section';
+  const total = sectionsTotal(sections, displayMode);
 
   // ─── Payment plan editor handlers ─────────────────────────────────
   // Editing the rows keeps the customer-facing message text in sync so
@@ -456,6 +483,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     // that means the seller has typed something we should not lose.
     const hasUserContent =
       sections.length > 1 ||
+      Number(sections[0]?.price) > 0 ||
       (sections[0]?.items || []).some((it) => it.description?.trim() || it.scope?.trim() || Number(it.price) > 0) ||
       (sections[0]?.title && sections[0].title !== 'Section 1');
     if (hasUserContent) {
@@ -510,6 +538,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         customer_message: current.customer_message,
         payment_plan: current.payment_plan,
         total_amount: current.total_amount,
+        // Same price format as the option it copies — without it a
+        // "Price by Section" copy would reopen as Breakdown at $0.
+        display_mode: current.display_mode,
         status: 'draft',
         group_id: groupId,
         option_label: nextLabel,
@@ -869,44 +900,28 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         </p>
 
         {/* Price display mode */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-          <button
-            type="button"
-            onClick={() => setDisplayMode('breakdown')}
-            className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-              displayMode === 'breakdown'
-                ? 'border-omega-orange bg-omega-pale'
-                : 'border-gray-200 hover:border-omega-orange/50 bg-white'
-            }`}
-          >
-            <span className={`mt-0.5 text-lg leading-none ${displayMode === 'breakdown' ? 'opacity-100' : 'opacity-40'}`}>📋</span>
-            <span>
-              <span className="block text-sm font-bold text-omega-charcoal">Breakdown Price</span>
-              <span className="block text-[11px] text-omega-stone mt-0.5">Client sees each line item with its price</span>
-            </span>
-            {displayMode === 'breakdown' && (
-              <span className="ml-auto mt-0.5 w-4 h-4 rounded-full bg-omega-orange flex-shrink-0 inline-flex items-center justify-center text-white text-[10px] font-black">✓</span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDisplayMode('single')}
-            className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-              displayMode === 'single'
-                ? 'border-omega-orange bg-omega-pale'
-                : 'border-gray-200 hover:border-omega-orange/50 bg-white'
-            }`}
-          >
-            <span className={`mt-0.5 text-lg leading-none ${displayMode === 'single' ? 'opacity-100' : 'opacity-40'}`}>💰</span>
-            <span>
-              <span className="block text-sm font-bold text-omega-charcoal">Single Price</span>
-              <span className="block text-[11px] text-omega-stone mt-0.5">Client sees only the grand total — no itemized list</span>
-            </span>
-            {displayMode === 'single' && (
-              <span className="ml-auto mt-0.5 w-4 h-4 rounded-full bg-omega-orange flex-shrink-0 inline-flex items-center justify-center text-white text-[10px] font-black">✓</span>
-            )}
-          </button>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          {PRICE_MODE_CARDS.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => changeDisplayMode(m.key)}
+              className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                displayMode === m.key
+                  ? 'border-omega-orange bg-omega-pale'
+                  : 'border-gray-200 hover:border-omega-orange/50 bg-white'
+              }`}
+            >
+              <span className={`mt-0.5 text-lg leading-none ${displayMode === m.key ? 'opacity-100' : 'opacity-40'}`}>{m.icon}</span>
+              <span>
+                <span className="block text-sm font-bold text-omega-charcoal">{m.title}</span>
+                <span className="block text-[11px] text-omega-stone mt-0.5">{m.hint}</span>
+              </span>
+              {displayMode === m.key && (
+                <span className="ml-auto mt-0.5 w-4 h-4 rounded-full bg-omega-orange flex-shrink-0 inline-flex items-center justify-center text-white text-[10px] font-black">✓</span>
+              )}
+            </button>
+          ))}
         </div>
 
         {/* Other quick actions — shown once form is usable */}
@@ -1073,7 +1088,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             <StepBadge n={2} />
             <div>
               <h2 className="text-lg font-bold text-omega-charcoal">Estimate Sections &amp; Line Items</h2>
-              <p className="text-xs text-omega-stone mt-0.5">Organize the work into sections. Add items, scope and pricing.</p>
+              <p className="text-xs text-omega-stone mt-0.5">
+                {priceBySection
+                  ? 'Organize the work into sections. Give each section one price — the items describe the scope.'
+                  : 'Organize the work into sections. Add items, scope and pricing.'}
+              </p>
             </div>
           </div>
           <div className="text-right self-start">
@@ -1099,7 +1118,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
                   key={sec.id}
                   section={sec}
                   sectionIndex={sIdx + 1}
+                  priceBySection={priceBySection}
                   onTitle={(v) => updateSection(sIdx, { title: v })}
+                  onPrice={(v) => updateSection(sIdx, { price: v })}
                   onMoveUp={() => moveSection(sIdx, -1)}
                   onMoveDown={() => moveSection(sIdx, +1)}
                   onRemove={() => removeSection(sIdx)}
@@ -1349,7 +1370,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
               onClick={handleSend}
               disabled={saving || sending || total <= 0}
               title={
-                total <= 0 ? 'Add at least one priced item before sending'
+                total <= 0 ? (priceBySection ? 'Add a price to at least one section before sending' : 'Add at least one priced item before sending')
                 : isInBundle ? `All ${bundleMembers.length} service proposals will be sent in one email`
                 : isMultiOption ? `All ${options.length} options will be sent in one email`
                 : ''
@@ -1403,7 +1424,7 @@ function SaveStatus({ saving, estimate }) {
   );
 }
 
-function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
+function SectionCard({ section, sectionIndex = 1, priceBySection, onTitle, onPrice, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
   // Whole-section sortable: the section card itself reorders within
   // the parent SortableContext when its grip is dragged.
   const {
@@ -1426,7 +1447,7 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
       {...attributes}
       className="bg-white rounded-xl border border-gray-200 overflow-hidden"
     >
-      <div className="px-3 py-2.5 bg-omega-pale/40 border-b border-omega-orange/20 flex items-center gap-2">
+      <div className="px-3 py-2.5 bg-omega-pale/40 border-b border-omega-orange/20 flex items-center gap-2 flex-wrap sm:flex-nowrap">
         {/* Section grip — the only spot wired to dnd-kit's listeners.
             Inputs and other buttons are NOT activators so typing in
             the title doesn't accidentally start a drag. */}
@@ -1444,8 +1465,25 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
           value={section.title}
           onChange={(e) => onTitle(e.target.value)}
           placeholder="Section title"
-          className="flex-1 bg-transparent text-sm font-bold text-omega-charcoal focus:outline-none"
+          className="flex-1 min-w-0 bg-transparent text-sm font-bold text-omega-charcoal focus:outline-none"
         />
+        {/* "Price by Section" — the one price the client sees for this
+            section. Items below are listed without prices. On a phone it
+            drops to its own line so the title stays readable. */}
+        {priceBySection && (
+          <div className="relative w-full order-last sm:order-none sm:w-40 flex-shrink-0">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-omega-stone font-bold text-sm">$</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={Number(section.price) ? section.price : ''}
+              onChange={(e) => onPrice(Number(e.target.value) || 0)}
+              placeholder="Section price"
+              aria-label="Section price"
+              className="w-full pl-6 pr-2.5 py-1.5 rounded-lg border border-omega-orange/40 bg-white text-sm tabular-nums text-right font-semibold focus:border-omega-orange focus:outline-none"
+            />
+          </div>
+        )}
         <button onClick={onMoveUp} disabled={disableUp}   className="p-1 rounded text-omega-stone hover:text-omega-charcoal disabled:opacity-30" title="Move up"><ChevronUp className="w-4 h-4" /></button>
         <button onClick={onMoveDown} disabled={disableDown} className="p-1 rounded text-omega-stone hover:text-omega-charcoal disabled:opacity-30" title="Move down"><ChevronDown className="w-4 h-4" /></button>
         <button onClick={onRemove} className="p-1 rounded text-red-500 hover:bg-red-50" title="Remove section"><Trash2 className="w-4 h-4" /></button>
@@ -1466,6 +1504,7 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
               // "1.1", "1.2", "2.1" — matches the redesign mockup so the
               // seller can refer to a specific line by section + position.
               label={`${sectionIndex}.${iIdx + 1}`}
+              showPrice={!priceBySection}
               onChange={(patch) => onUpdateItem(iIdx, patch)}
               onRemove={() => onRemoveItem(iIdx)}
             />
@@ -1485,7 +1524,7 @@ function SectionCard({ section, sectionIndex = 1, onTitle, onMoveUp, onMoveDown,
   );
 }
 
-function ItemRow({ item, label, onChange, onRemove }) {
+function ItemRow({ item, label, showPrice = true, onChange, onRemove }) {
   const {
     attributes, listeners, setNodeRef, setActivatorNodeRef,
     transform, transition, isDragging,
@@ -1503,7 +1542,11 @@ function ItemRow({ item, label, onChange, onRemove }) {
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className="px-4 py-3 grid grid-cols-1 md:grid-cols-[20px_44px_1fr_1.5fr_140px_auto] gap-3 items-start"
+      className={`px-4 py-3 grid grid-cols-1 gap-3 items-start ${
+        showPrice
+          ? 'md:grid-cols-[20px_44px_1fr_1.5fr_140px_auto]'
+          : 'md:grid-cols-[20px_44px_1fr_1.5fr_auto]'
+      }`}
     >
       {/* Drag grip — left of the section.position label. Same pattern
           as the section header: only this button activates dnd. */}
@@ -1543,20 +1586,24 @@ function ItemRow({ item, label, onChange, onRemove }) {
           className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-omega-orange focus:outline-none font-mono leading-relaxed"
         />
       </div>
-      <div>
-        <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Price</label>
-        <div className="relative mt-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone font-bold">$</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={item.price === 0 ? '' : item.price}
-            onChange={(e) => onChange({ price: Number(e.target.value) || 0 })}
-            placeholder="0.00"
-            className="w-full pl-7 pr-3 py-2 rounded-lg border border-gray-200 text-sm tabular-nums focus:border-omega-orange focus:outline-none text-right font-semibold"
-          />
+      {/* Hidden in "Price by Section" mode — the price lives on the
+          section header there. */}
+      {showPrice && (
+        <div>
+          <label className="text-[10px] font-semibold text-omega-stone uppercase tracking-wider">Price</label>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone font-bold">$</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={item.price === 0 ? '' : item.price}
+              onChange={(e) => onChange({ price: Number(e.target.value) || 0 })}
+              placeholder="0.00"
+              className="w-full pl-7 pr-3 py-2 rounded-lg border border-gray-200 text-sm tabular-nums focus:border-omega-orange focus:outline-none text-right font-semibold"
+            />
+          </div>
         </div>
-      </div>
+      )}
       <div className="flex items-end">
         <button
           onClick={onRemove}

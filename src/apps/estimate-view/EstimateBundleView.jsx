@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../shared/lib/supabase';
+import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 
 // Public, auth-less page the customer lands on when they receive a
@@ -13,13 +14,6 @@ const ORANGE = '#E8732A';
 
 function money(n) {
   return `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function estimateTotal(est) {
-  if (est?.total_amount != null) return Number(est.total_amount) || 0;
-  const sections = Array.isArray(est?.sections) ? est.sections : [];
-  return sections.reduce((acc, s) =>
-    acc + (s.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
 }
 
 export default function EstimateBundleView() {
@@ -173,15 +167,21 @@ export default function EstimateBundleView() {
               {sections.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid #f3f4f6' }}>
                   {sections.map((sec, sIdx) => {
-                    const singlePrice = est.display_mode === 'single';
+                    // 'breakdown' = price per item · 'section' = price per section · 'single' = total only
+                    const mode = priceMode(est.display_mode);
                     return (
                     <div key={sIdx} style={{ marginBottom: sIdx < sections.length - 1 ? 16 : 0 }}>
-                      <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', fontWeight: 700, marginBottom: 8 }}>{sec.title}</div>
+                      <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', fontWeight: 700, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                        <span>{sec.title}</span>
+                        {mode === 'section' && (
+                          <span style={{ fontSize: 14, color: '#2C2C2A', fontWeight: 800, letterSpacing: 0, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{money(sectionPrice(sec, mode))}</span>
+                        )}
+                      </div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                             <th style={{ textAlign: 'left', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11 }}>Item</th>
-                            {!singlePrice && <th style={{ textAlign: 'right', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Price</th>}
+                            {mode === 'breakdown' && <th style={{ textAlign: 'right', padding: '4px 0', color: '#6b6b6b', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Price</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -191,7 +191,7 @@ export default function EstimateBundleView() {
                                 <div style={{ fontWeight: 600 }}>{item.description || '—'}</div>
                                 {item.scope && <div style={{ color: '#6b6b6b', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>{item.scope}</div>}
                               </td>
-                              {!singlePrice && (
+                              {mode === 'breakdown' && (
                                 <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                                   {money(item.price)}
                                 </td>

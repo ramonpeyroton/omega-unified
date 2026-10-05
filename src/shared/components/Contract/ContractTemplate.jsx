@@ -29,6 +29,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Send, Lock, PencilLine, Undo2 } from 'lucide-react';
+import { sectionMode, sectionPrice } from '../../lib/estimatePricing';
 
 // Subset of CSS properties we replicate inline when serializing the
 // contract DOM for DocuSign. Listed explicitly so the payload stays
@@ -324,25 +325,37 @@ ${clone.outerHTML}
 // Pull line items out of the estimate. EstimateBuilder persists `sections`
 // on the row, but legacy estimates may still have `line_items`. Support
 // both shapes so the contract Schedule A always has something to print.
+//
+// Schedule A follows the estimate's price format (shared/lib/estimatePricing):
+// 'breakdown' prints a price on each item, 'section' prints one price on
+// each section header, 'single' prints no prices (only the contract total).
 function readScheduleA(estimate) {
   if (Array.isArray(estimate?.sections) && estimate.sections.length) {
-    return estimate.sections.map((s) => ({
-      title: s.title || 'Untitled section',
-      items: (s.items || []).map((it) => ({
-        description: it.description || it.item || '',
-        scope: it.scope || '',
-        price: Number(it.price) || 0,
-      })).filter((it) => it.description || it.scope || it.price),
-    })).filter((s) => s.items.length);
+    return estimate.sections.map((s) => {
+      const mode = sectionMode(s, estimate.display_mode);
+      return {
+        title: s.title || 'Untitled section',
+        mode,
+        price: sectionPrice(s, mode),
+        items: (s.items || []).map((it) => ({
+          description: it.description || it.item || '',
+          scope: it.scope || '',
+          price: Number(it.price) || 0,
+        })).filter((it) => it.description || it.scope || (mode === 'breakdown' && it.price)),
+      };
+    }).filter((s) => s.items.length || (s.mode === 'section' && s.price));
   }
   if (Array.isArray(estimate?.line_items) && estimate.line_items.length) {
+    const items = estimate.line_items.map((li) => ({
+      description: li.description || li.item || '',
+      scope: li.scope || '',
+      price: Number(li.price) || 0,
+    }));
     return [{
       title: 'Description of Work',
-      items: estimate.line_items.map((li) => ({
-        description: li.description || li.item || '',
-        scope: li.scope || '',
-        price: Number(li.price) || 0,
-      })),
+      mode: 'breakdown',
+      price: items.reduce((sum, it) => sum + it.price, 0),
+      items,
     }];
   }
   return [];
@@ -460,10 +473,7 @@ export default function ContractTemplate({
   const totalAmount = useMemo(() => {
     const fromEstimate = Number(estimate?.total_amount) || 0;
     if (fromEstimate > 0) return fromEstimate;
-    const sumFromSchedule = schedule.reduce(
-      (acc, s) => acc + s.items.reduce((sum, it) => sum + (it.price || 0), 0),
-      0
-    );
+    const sumFromSchedule = schedule.reduce((acc, s) => acc + (s.price || 0), 0);
     if (sumFromSchedule > 0) return sumFromSchedule;
     return Array.isArray(paymentPlan)
       ? paymentPlan.reduce((s, p) => s + (Number(p?.amount) || 0), 0)
@@ -917,10 +927,16 @@ export default function ContractTemplate({
             <div className="space-y-5">
               {schedule.map((sec, si) => (
                 <div key={si} className="border border-gray-100 rounded-xl overflow-hidden">
-                  <div className="bg-gray-50 px-5 py-2.5 border-b border-gray-100">
+                  <div className="bg-gray-50 px-5 py-2.5 border-b border-gray-100 flex items-center justify-between gap-6">
                     <h3 className="font-bold uppercase text-[10px] tracking-[0.15em] text-gray-500">
                       {sec.title}
                     </h3>
+                    {/* Price by Section — one price per section, none on the items. */}
+                    {sec.mode === 'section' && (
+                      <p className="text-right tabular-nums font-bold text-[13px] text-gray-900 whitespace-nowrap">
+                        {fmtMoney(sec.price)}
+                      </p>
+                    )}
                   </div>
                   <div className="divide-y divide-gray-50">
                     {sec.items.map((it, ii) => (
@@ -935,9 +951,11 @@ export default function ContractTemplate({
                             </p>
                           )}
                         </div>
-                        <div className="text-right tabular-nums font-semibold text-[13px] text-gray-900 min-w-[90px] pt-px">
-                          {fmtMoney(it.price)}
-                        </div>
+                        {sec.mode === 'breakdown' && (
+                          <div className="text-right tabular-nums font-semibold text-[13px] text-gray-900 min-w-[90px] pt-px">
+                            {fmtMoney(it.price)}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

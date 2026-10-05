@@ -9,6 +9,7 @@ import StatusBadge from './StatusBadge';
 import ContractTemplate, { buildContractDocFromDom } from './Contract/ContractTemplate';
 import InvoiceTemplate from './Contract/InvoiceTemplate';
 import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus } from '../lib/finance';
+import { priceMode, sectionMode, sectionPrice } from '../lib/estimatePricing';
 import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
 import { notify } from '../lib/notifications';
@@ -117,12 +118,18 @@ function buildPickedEstimate({ estimates, pickedIds, planSourceId }) {
     const labelTag = e.option_label || e.bundle_label || numberTag;
     const total = Number(e.total_amount) || 0;
     mergedTotal += total;
+    // Each merged section keeps its source estimate's price format so the
+    // contract / invoice show prices exactly the way that estimate did,
+    // even when estimates with different formats feed one contract.
+    const mode = priceMode(e.display_mode);
     let pushed = false;
     if (Array.isArray(e.sections) && e.sections.length) {
       e.sections.forEach((s) => {
         mergedSections.push({
           title: list.length > 1 ? `[${labelTag}] ${s.title || ''}`.trim() : (s.title || ''),
           items: Array.isArray(s.items) ? s.items : [],
+          price: sectionPrice(s, mode),
+          price_mode: mode,
         });
         pushed = true;
       });
@@ -135,6 +142,7 @@ function buildPickedEstimate({ estimates, pickedIds, planSourceId }) {
           scope: li.scope || '',
           price: Number(li.price ?? li.total ?? li.unit_price ?? 0),
         })),
+        price_mode: 'breakdown',
       });
       pushed = true;
     }
@@ -146,6 +154,8 @@ function buildPickedEstimate({ estimates, pickedIds, planSourceId }) {
           scope: e.header_description || e.customer_message || '',
           price: total,
         }],
+        price: total,
+        price_mode: mode === 'single' ? 'single' : 'breakdown',
       });
     }
   });
@@ -1056,10 +1066,24 @@ export default function EstimateFlow({ job, user, onBack }) {
                     step works for any vintage of estimate. */}
                 {Array.isArray(estimate.sections) && estimate.sections.length > 0 ? (
                   <div className="space-y-4">
-                    {estimate.sections.map((sec, si) => (
+                    {estimate.sections.some((sec) => sectionMode(sec, estimate.display_mode) === 'single') && (
+                      <p className="text-xs text-omega-stone">
+                        <span className="font-semibold text-omega-charcoal">Single Price</span> — the client only sees the total. Item prices below are internal; the contract and invoices don't show them.
+                      </p>
+                    )}
+                    {estimate.sections.map((sec, si) => {
+                      // Price by Section: the section price is what counts —
+                      // item prices aren't part of that format.
+                      const mode = sectionMode(sec, estimate.display_mode);
+                      return (
                       <div key={si} className="rounded-xl border border-gray-200 overflow-hidden">
-                        <div className="px-4 py-2 bg-omega-cloud text-xs font-bold uppercase tracking-wider text-omega-charcoal">
-                          {sec.title || `Section ${si + 1}`}
+                        <div className="px-4 py-2 bg-omega-cloud text-xs font-bold uppercase tracking-wider text-omega-charcoal flex items-center justify-between gap-4">
+                          <span>{sec.title || `Section ${si + 1}`}</span>
+                          {mode === 'section' && (
+                            <span className="text-sm normal-case tracking-normal tabular-nums whitespace-nowrap">
+                              ${sectionPrice(sec, mode).toLocaleString()}
+                            </span>
+                          )}
                         </div>
                         <div className="divide-y divide-gray-100">
                           {(sec.items || []).length === 0 && (
@@ -1073,14 +1097,17 @@ export default function EstimateFlow({ job, user, onBack }) {
                                   <p className="text-xs text-omega-stone mt-1 whitespace-pre-line leading-snug">{it.scope}</p>
                                 )}
                               </div>
-                              <p className="text-sm font-semibold text-omega-charcoal tabular-nums whitespace-nowrap">
-                                ${Number(it.price ?? 0).toLocaleString()}
-                              </p>
+                              {mode !== 'section' && (
+                                <p className="text-sm font-semibold text-omega-charcoal tabular-nums whitespace-nowrap">
+                                  ${Number(it.price ?? 0).toLocaleString()}
+                                </p>
+                              )}
                             </div>
                           ))}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {estimate.total_amount != null && (
                       <div className="flex justify-between items-center bg-omega-charcoal text-white rounded-xl px-5 py-3 font-bold">
                         <span className="uppercase text-xs tracking-wider">Estimate Total</span>

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
+import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 
 // Public, auth-less page that renders a single estimate.
@@ -85,8 +86,9 @@ export default function EstimateView() {
   if (!estimate) return null;
 
   const sections = Array.isArray(estimate.sections) ? estimate.sections : [];
-  const total = estimate.total_amount ?? sections.reduce((acc, s) =>
-    acc + (s.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
+  const total = estimateTotal(estimate);
+  // 'breakdown' = price per item · 'section' = price per section · 'single' = total only
+  const mode = priceMode(estimate.display_mode);
 
   const companyLines = [company?.address, company?.phone, company?.email].filter(Boolean);
   const customerLines = [job?.client_name, job?.address, job?.client_phone, job?.client_email].filter(Boolean);
@@ -215,18 +217,24 @@ export default function EstimateView() {
             </div>
           )}
 
-          {sections.map((sec, i) => {
-            const singlePrice = estimate.display_mode === 'single';
-            return (
+          {sections.map((sec, i) => (
             <div key={i} style={{ marginTop: 24 }}>
-              <div style={{ background: '#2C2C2A', color: 'white', padding: '10px 16px', fontSize: 14, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', textAlign: 'center' }}>
-                {sec.title}
-              </div>
+              {mode === 'section' ? (
+                // Price by Section — the section's one price sits on its header.
+                <div style={{ background: '#2C2C2A', color: 'white', padding: '10px 16px', fontSize: 14, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                  <span>{sec.title}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: 0, whiteSpace: 'nowrap' }}>{money(sectionPrice(sec, mode))}</span>
+                </div>
+              ) : (
+                <div style={{ background: '#2C2C2A', color: 'white', padding: '10px 16px', fontSize: 14, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', textAlign: 'center' }}>
+                  {sec.title}
+                </div>
+              )}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e5e5e5', background: '#fafafa' }}>
                     <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b' }}>Description</th>
-                    {!singlePrice && <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Price</th>}
+                    {mode === 'breakdown' && <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Price</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -236,14 +244,13 @@ export default function EstimateView() {
                         <div style={{ fontWeight: 700, marginBottom: 4 }}>{it.description}</div>
                         <div style={{ color: '#555', fontSize: 12, whiteSpace: 'pre-line', lineHeight: 1.6 }}>{it.scope}</div>
                       </td>
-                      {!singlePrice && <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(it.price)}</td>}
+                      {mode === 'breakdown' && <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(it.price)}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            );
-          })}
+          ))}
 
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 28 }}>
             <tbody>

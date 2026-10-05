@@ -1,4 +1,5 @@
 import { forwardRef, useMemo } from 'react';
+import { sectionMode, sectionPrice } from '../../lib/estimatePricing';
 
 // Per-installment invoice. Cópia simplificada do estimate (sem
 // assinatura, sem checkboxes) que a Brenda envia pro cliente quando
@@ -29,15 +30,35 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
   { job, estimate, milestone, contract, company, installmentNumber, totalInstallments },
   ref
 ) {
+  // Rows follow the estimate's price format (shared/lib/estimatePricing):
+  // 'breakdown' = price on every item · 'section' = a section row carrying
+  // the section price, its items listed below without prices · 'single' =
+  // no prices at all (the contract total is in the Project box).
   const lineItems = useMemo(() => {
     const items = [];
     if (Array.isArray(estimate?.sections)) {
+      // Once any section carries its own price, every section gets a
+      // title row — otherwise the items of a merged Breakdown estimate
+      // would read as part of the section-priced block above them.
+      const withSectionRows = estimate.sections.some(
+        (sec) => sectionMode(sec, estimate.display_mode) === 'section'
+      );
       estimate.sections.forEach((sec) => {
+        const mode = sectionMode(sec, estimate.display_mode);
+        if (withSectionRows) {
+          items.push({
+            kind: 'section',
+            description: sec.title || 'Section',
+            price: sectionPrice(sec, mode),
+            showPrice: mode === 'section',
+          });
+        }
         (sec.items || []).forEach((it) =>
           items.push({
             description: it.description || sec.title || '',
             scope: it.scope || '',
             price: Number(it.price) || 0,
+            showPrice: mode === 'breakdown',
           })
         );
       });
@@ -47,11 +68,13 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
           description: li.description || li.item || '',
           scope: li.scope || '',
           price: Number(li.total ?? li.unit_price ?? 0),
+          showPrice: true,
         })
       );
     }
     return items;
   }, [estimate]);
+  const showPriceColumn = lineItems.some((it) => it.showPrice);
 
   const contractTotal = Number(contract?.total_amount || estimate?.total_amount || 0);
   const dueAmount     = Number(milestone?.due_amount || 0);
@@ -155,26 +178,39 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
           <thead>
             <tr style={{ background: '#fafafa', borderBottom: '1px solid #e5e5e5' }}>
               <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b' }}>Description</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Total</th>
+              {showPriceColumn && (
+                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', width: 120 }}>Total</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {lineItems.length === 0 ? (
               <tr>
-                <td colSpan={2} style={{ padding: 16, textAlign: 'center', color: '#888' }}>See attached estimate</td>
+                <td colSpan={showPriceColumn ? 2 : 1} style={{ padding: 16, textAlign: 'center', color: '#888' }}>See attached estimate</td>
               </tr>
             ) : lineItems.map((it, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #f1f1f1', verticalAlign: 'top' }}>
-                <td style={{ padding: 12 }}>
-                  <div style={{ fontWeight: 700 }}>{it.description}</div>
-                  {it.scope && (
-                    <div style={{ color: '#555', fontSize: 11, whiteSpace: 'pre-line', lineHeight: 1.6, marginTop: 4 }}>{it.scope}</div>
+              it.kind === 'section' ? (
+                <tr key={i} style={{ background: '#f4f4f2', borderBottom: '1px solid #e5e5e5' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 800, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase' }}>{it.description}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
+                    {it.showPrice ? money(it.price) : ''}
+                  </td>
+                </tr>
+              ) : (
+                <tr key={i} style={{ borderBottom: '1px solid #f1f1f1', verticalAlign: 'top' }}>
+                  <td style={{ padding: 12 }}>
+                    <div style={{ fontWeight: 700 }}>{it.description}</div>
+                    {it.scope && (
+                      <div style={{ color: '#555', fontSize: 11, whiteSpace: 'pre-line', lineHeight: 1.6, marginTop: 4 }}>{it.scope}</div>
+                    )}
+                  </td>
+                  {showPriceColumn && (
+                    <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                      {it.showPrice ? money(it.price) : ''}
+                    </td>
                   )}
-                </td>
-                <td style={{ padding: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                  {money(it.price)}
-                </td>
-              </tr>
+                </tr>
+              )
             ))}
           </tbody>
         </table>

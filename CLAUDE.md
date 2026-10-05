@@ -576,6 +576,29 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-05 (Estimate: 3º formato de preço "Price by Section")** — Ramon + Claude (Opus 5.5).
+
+- "Configure Estimate" no `EstimateBuilder` tem 3 formatos: **Breakdown**
+  (preço em cada item), **Price by Section** (um preço por seção, itens sem
+  preço) e **Single** (só o total). Um formato por estimate — não mistura.
+- `estimates.display_mode = 'section'` (coluna texto da migration 052 —
+  **sem migration nova**); o preço da seção fica em `sections[i].price`.
+- Regra única em `src/shared/lib/estimatePricing.js` (`priceMode`,
+  `sectionPrice`, `sectionsTotal`, `estimateTotal`). Seguem o formato: página
+  do cliente, alternativas (options), bundle, contrato (Schedule A + HTML do
+  DocuSign) e invoice.
+- Trocar de formato não apaga preço: ao entrar em Price by Section, seção sem
+  preço recebe a soma dos itens; os preços dos itens ficam guardados (só não
+  contam nem aparecem).
+- **Fix junto:** Single Price agora vale em todo lugar — antes a página de
+  alternativas, o contrato e a invoice mostravam o preço de cada item.
+- Contrato com vários estimates: cada seção leva o formato do estimate de
+  origem (`price_mode`, posto pelo `buildPickedEstimate` no `EstimateFlow`).
+  A revisão interna (passo 1) mostra os preços dos itens no Single Price, com
+  aviso de que o cliente só vê o total.
+
+---
+
 **2026-10-03 (Completed × Lost — regra dos status finais)** — Ramon + Claude (Opus 5.5).
 
 - **Regra do Ramon:** Lost = passou pelo estimate e não aprovou ·

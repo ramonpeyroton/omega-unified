@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
+import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 
 // Public, auth-less page the customer lands on when they receive a
@@ -24,13 +25,6 @@ function money(n) {
 function fmtEstimateNumber(n) {
   if (n == null || n === '') return '—';
   return `OM-${n}`;
-}
-
-function total(est) {
-  const sections = Array.isArray(est?.sections) ? est.sections : [];
-  if (est?.total_amount != null) return Number(est.total_amount) || 0;
-  return sections.reduce((acc, s) =>
-    acc + (s.items || []).reduce((a, it) => a + (Number(it.price) || 0), 0), 0);
 }
 
 export default function EstimateOptionsView() {
@@ -255,8 +249,11 @@ function Header({ company }) {
 // ─── Option card ─────────────────────────────────────────────────────
 function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLockedOut, disabled, onSelect, onToggleExpand }) {
   const label = estimate.option_label || `Option ${index + 1}`;
-  const estTotal = total(estimate);
+  const estTotal = estimateTotal(estimate);
   const sections = Array.isArray(estimate.sections) ? estimate.sections : [];
+  // Each option follows its own price format — Single Price options
+  // never show item prices here either.
+  const mode = priceMode(estimate.display_mode);
   const borderColor = isSelected ? ORANGE : isLockedOut ? '#e5e5e5' : '#e5e5e5';
   const bg = isSelected ? '#fff8f1' : isLockedOut ? '#fafafa' : 'white';
   const opacity = isLockedOut ? 0.55 : 1;
@@ -336,14 +333,19 @@ function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLocke
         <div style={{ marginBottom: 12 }}>
           {sections.map((s, i) => (
             <div key={i} style={{ marginTop: 12 }}>
-              <div style={{ background: '#2C2C2A', color: 'white', padding: '6px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase' }}>
-                {s.title || `Section ${i + 1}`}
+              <div style={{ background: '#2C2C2A', color: 'white', padding: '6px 10px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>{s.title || `Section ${i + 1}`}</span>
+                {mode === 'section' && (
+                  <span style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: 0, whiteSpace: 'nowrap' }}>{money(sectionPrice(s, mode))}</span>
+                )}
               </div>
               {(s.items || []).map((it, j) => (
                 <div key={j} style={{ padding: 8, borderBottom: '1px solid #f1f1f1', fontSize: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <div style={{ fontWeight: 700, color: '#2C2C2A' }}>{it.description}</div>
-                    <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#2C2C2A', whiteSpace: 'nowrap' }}>{money(it.price)}</div>
+                    {mode === 'breakdown' && (
+                      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#2C2C2A', whiteSpace: 'nowrap' }}>{money(it.price)}</div>
+                    )}
                   </div>
                   {it.scope && <div style={{ color: '#555', fontSize: 11, whiteSpace: 'pre-line', marginTop: 3, lineHeight: 1.5 }}>{it.scope}</div>}
                 </div>
@@ -425,7 +427,7 @@ function MultiOptionSignSection({ options, selectedId, onSelectId, customerName,
     [options, selectedId]
   );
   const selectedLabel = selectedOption?.option_label || 'Option';
-  const selectedTotal = selectedOption ? total(selectedOption) : 0;
+  const selectedTotal = selectedOption ? estimateTotal(selectedOption) : 0;
 
   return (
     <>
@@ -468,7 +470,7 @@ function MultiOptionSignSection({ options, selectedId, onSelectId, customerName,
                   Option {i + 1} — {est.option_label || '—'}
                 </span>
                 <span style={{ fontSize: 14, fontWeight: 900, color: '#2C2C2A', fontVariantNumeric: 'tabular-nums' }}>
-                  {money(total(est))}
+                  {money(estimateTotal(est))}
                 </span>
               </label>
             );
