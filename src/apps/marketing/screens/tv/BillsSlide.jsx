@@ -454,14 +454,15 @@ function BillCard({ bill, vendor, index, reduce }) {
   const chip = dueChip(bill.days);
   const late = bill.days != null && bill.days < 0;
   // Date first and without the weekday: in a ~200px column a long vendor
-  // name must be what truncates, never the due date.
-  const line = [bill.due_date ? `Due ${shortDate(bill.due_date)}` : 'No due date', vendor].filter(Boolean).join(' · ');
+  // name must be what truncates, never the due date. The date and the
+  // due chip are a size up so they read from across the office (Ramon).
+  const due = bill.due_date ? `Due ${shortDate(bill.due_date)}` : 'No due date';
   return (
     <motion.div
       initial={reduce ? false : { opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay: 0.15 + Math.min(index, 10) * 0.05, ease: EASE }}
-      className={`${CARD} relative min-w-0 overflow-hidden flex items-center gap-4 px-5 py-3.5 ${late ? 'ring-2 ring-rose-300' : ''}`}
+      className={`${CARD} relative min-w-0 overflow-hidden flex items-center gap-4 px-5 py-3 ${late ? 'ring-2 ring-rose-300' : ''}`}
     >
       <div
         className="absolute inset-0 pointer-events-none"
@@ -475,14 +476,20 @@ function BillCard({ bill, vendor, index, reduce }) {
       </span>
       <div className="relative flex-1 min-w-0">
         <p className={`${T.eyebrow} truncate`}>{catLabel(bill.category)}</p>
-        <p className={`${T.title} text-[#111] truncate`}>{bill.label || 'Untitled bill'}</p>
-        <p className={`${T.meta} truncate`}>{line}</p>
+        <p className={`${T.title} text-[#111] truncate`} title={bill.label}>{bill.label || 'Untitled bill'}</p>
+        <p className="truncate leading-tight mt-0.5">
+          <span className="font-bold text-[#3F3F3C] text-[clamp(15px,2.25vh,24px)]">{due}</span>
+          {vendor && <span className={T.meta}> · {vendor}</span>}
+        </p>
       </div>
       <div className="relative flex-shrink-0 flex flex-col items-end gap-1.5">
         {bill.amt == null
           ? <p className={`${T.label} text-amber-600 whitespace-nowrap`}>Amount TBD</p>
           : <p className={`${T.stat} text-[#111] whitespace-nowrap`}>{money(bill.amt)}</p>}
-        <Chip tone={chip.tone} text={chip.label} />
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-extrabold leading-tight whitespace-nowrap text-[clamp(13px,1.95vh,21px)] ${chip.tone}`}>
+          <span className="w-2 h-2 rounded-full flex-shrink-0 bg-current" />
+          {chip.label}
+        </span>
       </div>
     </motion.div>
   );
