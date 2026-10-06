@@ -5,7 +5,7 @@
 // order. Read-only on purpose: the TV never materializes recurring templates
 // (the Bills tab does that), it only shows what is already in `bills`.
 
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, Building2, Zap, ShieldCheck, Cpu, Car, Megaphone, Landmark, Briefcase,
@@ -490,25 +490,40 @@ function BillCard({ bill, vendor, index, reduce }) {
 
 function BillList({ bills, vendors, onHidden }) {
   const reduce = useReducedMotion();
-  const ref = useFitChildren([bills]);
+  const ref = useRef(null);
+  const [rows, setRows] = useState(6);
 
-  // Runs after useFitChildren's own layout effect / observer, so the
-  // visibility flags are already set when we count them.
+  // Reads as ONE list: down the left column, then down the right one
+  // (Ramon, Oct/26). So we work out how many card rows fit, render only
+  // 2 × rows bills and let the grid flow by column.
   useLayoutEffect(() => {
     const box = ref.current;
     if (!box) return undefined;
-    const count = () => onHidden([...box.children].filter((el) => el.style.visibility === 'hidden').length);
-    count();
-    const ro = new ResizeObserver(count);
+    const measure = () => {
+      const first = box.firstElementChild;
+      if (!first) return;
+      const cs = getComputedStyle(box);
+      const gap = parseFloat(cs.rowGap) || 0;
+      const inner = box.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      const n = Math.max(1, Math.floor((inner + gap) / (first.offsetHeight + gap)));
+      setRows((r) => (r === n ? r : n));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [bills, onHidden, ref]);
+  }, [bills]);
+
+  const shown = bills.slice(0, rows * 2);
+  useEffect(() => { onHidden(bills.length - shown.length); }, [bills.length, shown.length, onHidden]);
 
   return (
-    // auto-rows-max: with more cards than fit, plain auto rows would shrink
-    // the overflow-hidden cards to nothing instead of letting them overflow.
-    <div ref={ref} className="relative flex-1 min-h-0 overflow-hidden p-[3px] grid grid-cols-2 auto-rows-max gap-4 content-start">
-      {bills.map((b, i) => (
+    <div
+      ref={ref}
+      className="relative flex-1 min-h-0 overflow-hidden p-[3px] grid grid-cols-2 gap-4 content-start"
+      style={{ gridTemplateRows: `repeat(${rows}, max-content)`, gridAutoFlow: 'column' }}
+    >
+      {shown.map((b, i) => (
         <BillCard key={b.id} bill={b} vendor={vendors[b.vendor_id]} index={i} reduce={reduce} />
       ))}
     </div>
