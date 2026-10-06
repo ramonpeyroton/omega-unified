@@ -724,7 +724,6 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
                     </>
                   );
                 })()}
-                )}
               </div>
             </div>
           );
