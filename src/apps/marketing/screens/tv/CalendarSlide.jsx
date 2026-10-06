@@ -34,7 +34,8 @@ const SUN = 6; // column index of Sunday
 // with the day number and a dot per event), so the weekdays get the width
 // and their events can be big.
 const COLUMNS = 'repeat(5, minmax(0,1fr)) minmax(0,0.62fr) minmax(0,0.24fr)';
-const TODAY_BG = '#FCEBDF'; // light orange — today's cell
+const TODAY_BG = '#FFFFFF'; // solid white — today's cell is the strongest card (thick orange edge + glow)
+const TODAY_GLOW = '0 10px 34px rgba(232,115,42,0.28)';
 // Last week and next week are exactly as tall as their busiest day needs
 // (the row ends right under its last event — no gap, no "+N more"); this
 // week takes all the rest. Until that's measured: half / double / half.
@@ -342,7 +343,9 @@ function LegendStrip({ rangeLabel, total, done, ahead, legend }) {
   );
 }
 
-function Pill({ e, past, isNext, size = 'one', reduce }) {
+function Pill({ e, past, isNext, size = 'one', reduce, strong = false }) {
+  const nameWeight = strong ? 'font-bold' : 'font-semibold';
+  const detailColor = strong ? 'text-[#3F3F3C]' : 'text-[#5F5F5B]';
   const ring = ORANGE;
   const tip = [`${e.label}${e.time ? ` · ${formatNyTime(e.ms)}` : ''}`, e.name, e.location].filter(Boolean).join('\n');
   const time = e.time && (
@@ -363,9 +366,9 @@ function Pill({ e, past, isNext, size = 'one', reduce }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-[0.35em] min-w-0 leading-[1.05]">
             {time}
-            <span className="font-semibold tracking-[-0.01em] text-[#141413] truncate min-w-0">{e.client || e.name}</span>
+            <span className={`${nameWeight} tracking-[-0.01em] text-[#141413] truncate min-w-0`}>{e.client || e.name}</span>
           </div>
-          <p className="text-[0.82em] font-normal text-[#5F5F5B] leading-[1.15] truncate">
+          <p className={`text-[0.82em] font-normal ${detailColor} leading-[1.15] truncate`}>
             {e.client ? (e.detail || e.label) : e.label}
           </p>
         </div>
@@ -375,11 +378,11 @@ function Pill({ e, past, isNext, size = 'one', reduce }) {
           <span className="leading-tight truncate min-w-0">
             {e.client ? (
               <>
-                <span className="font-semibold tracking-[-0.01em] text-[#141413]">{e.client}</span>
-                {e.detail && <span className="font-normal text-[#5F5F5B]"> · {e.detail}</span>}
+                <span className={`${nameWeight} tracking-[-0.01em] text-[#141413]`}>{e.client}</span>
+                {e.detail && <span className={`font-normal ${detailColor}`}> · {e.detail}</span>}
               </>
             ) : (
-              <span className="font-semibold tracking-[-0.01em] text-[#141413]">{e.name}</span>
+              <span className={`${nameWeight} tracking-[-0.01em] text-[#141413]`}>{e.name}</span>
             )}
           </span>
         </>
@@ -416,8 +419,11 @@ function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
 
   // This week: white card with an orange edge. Last and next week stay
   // quiet.
+  // Today is the strongest card: solid white, thick orange edge, glow,
+  // and its events stay at full strength even after their time passes
+  // (fading them made today look like a past day — Ramon, Oct/26).
   const look = d.isToday
-    ? 'border-2 border-omega-orange shadow-card-hover'
+    ? 'border-[3px] border-omega-orange z-10'
     : d.focus
       ? `border-2 border-omega-orange/30 shadow-card ${d.weekend ? 'bg-[#F3F2EC]' : 'bg-white'}`
       : d.weekend
@@ -428,7 +434,7 @@ function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
   return (
     <motion.div
       className={`relative min-h-0 min-w-0 rounded-2xl flex flex-col px-2 pt-1 pb-1.5 ${look}`}
-      style={d.isToday ? { background: TODAY_BG } : undefined}
+      style={d.isToday ? { background: TODAY_BG, boxShadow: TODAY_GLOW } : undefined}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
@@ -445,7 +451,7 @@ function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
       </div>
       <div data-cell-body data-key={d.key} data-size={d.pillSize} className={`relative flex-1 min-h-0 mt-1 flex flex-col gap-[2px] overflow-hidden ${fade}`}>
         {shown.map((e) => (
-          <Pill key={e.id} e={e} past={d.isToday && e.ms < now} isNext={e.id === nextId} size={d.pillSize} reduce={reduce} />
+          <Pill key={e.id} e={e} isNext={e.id === nextId} size={d.pillSize} reduce={reduce} strong={d.isToday} />
         ))}
       </div>
     </motion.div>
@@ -455,7 +461,7 @@ function DayCell({ d, index, cap = 1, nextId, now, reduce }) {
 // Thin Sunday column: just the day number and one colored dot per event.
 function SundayCell({ d, index, reduce }) {
   const look = d.isToday
-    ? 'border-2 border-omega-orange'
+    ? 'border-[3px] border-omega-orange z-10'
     : d.focus
       ? 'border-2 border-omega-orange/30 bg-[#F3F2EC]'
       : 'border border-black/[0.05] bg-[#F3F2EC]';
@@ -463,7 +469,7 @@ function SundayCell({ d, index, reduce }) {
   return (
     <motion.div
       className={`relative min-h-0 min-w-0 rounded-2xl flex flex-col items-center pt-1 pb-1.5 ${look}`}
-      style={d.isToday ? { background: TODAY_BG } : undefined}
+      style={d.isToday ? { background: TODAY_BG, boxShadow: TODAY_GLOW } : undefined}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.08 + index * 0.012, ease: EASE }}
