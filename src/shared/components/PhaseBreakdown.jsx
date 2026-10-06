@@ -762,7 +762,7 @@ export default function PhaseBreakdown({ job, onJobUpdated, user }) {
                             onSet={(s) => setVerify(phaseIdx, itemIdx, s)}
                           />
                         )}
-                        {!editing && <PhasePhotos jobId={job.id} phaseId={ph.id} itemId={it.id} user={user} />}
+                        {!editing && <PhasePhotos jobId={job.id} phaseId={ph.id} itemId={it.id} items={items} user={user} />}
                         {editing && (
                           <button
                             onClick={() => removeItem(phaseIdx, itemIdx)}

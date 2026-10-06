@@ -34,6 +34,7 @@ import { compressVideo } from '../lib/videoCompress';
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import Avatar, { colorFromName } from './ui/Avatar';
+import ImageLightbox, { mediaKind, MediaThumb } from './ui/ImageLightbox';
 
 const MAX_FILE_BYTES  = 4 * 1024 * 1024;    // images (post-compression) / PDFs → Supabase
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // videos → Cloudflare R2 via presigned PUT
@@ -552,6 +553,29 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
   }
 
   // Group messages by day for the date separators.
+  // Every photo + video in the chat, oldest first — one sequence for the
+  // full-screen viewer, so 30 site photos sent over several messages flip
+  // through in one go (Ramon, 06/10). key "<msgId>:<i>" → position.
+  const gallery = useMemo(() => {
+    const items = [];
+    const pos = {};
+    for (const m of messages) {
+      (m.attachments || []).forEach((att, i) => {
+        const kind = mediaKind(att?.mime, att?.url);
+        if (!att?.url || !kind) return;
+        pos[`${m.id}:${i}`] = items.length;
+        items.push({
+          url: att.url,
+          kind,
+          caption: m.author_name || '',
+          sub: m.created_at ? `${fmtDayLabel(dayKey(m.created_at))} · ${fmtTime(m.created_at)}` : '',
+        });
+      });
+    }
+    return { items, pos };
+  }, [messages]);
+  const [viewerIdx, setViewerIdx] = useState(null);
+
   const grouped = useMemo(() => {
     const out = [];
     let lastDay = null;
@@ -651,44 +675,50 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
                     {renderBody(m.body, members)}
                   </div>
                 )}
-                {Array.isArray(m.attachments) && m.attachments.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-2">
-                    {m.attachments.map((att, i) => (
-                      att.mime?.startsWith('video/') ? (
-                        // Inline player — NOT wrapped in an <a> so the controls
-                        // (play/seek/fullscreen) work instead of opening a link.
-                        <video
-                          key={i}
-                          src={att.url}
-                          controls
-                          preload="metadata"
-                          className="block rounded-lg overflow-hidden border border-gray-200 max-w-[320px] max-h-60 w-auto bg-black"
-                        />
-                      ) : (
-                        <a
-                          key={i}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block rounded-lg overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors max-w-[320px]"
-                        >
-                          {att.mime?.startsWith('image/') ? (
-                            <img src={att.url} alt={att.name || 'attachment'} className="block max-h-60 w-auto" />
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-omega-charcoal">
+                {Array.isArray(m.attachments) && m.attachments.length > 0 && (() => {
+                  const media = [];
+                  const files = [];
+                  m.attachments.forEach((att, i) => {
+                    const kind = mediaKind(att?.mime, att?.url);
+                    if (att?.url && kind) media.push({ ...att, kind, at: gallery.pos[`${m.id}:${i}`] });
+                    else if (att?.url) files.push({ ...att, i });
+                  });
+                  return (
+                    <>
+                      {media.length > 0 && <MediaMosaic items={media} onOpen={setViewerIdx} />}
+                      {files.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-2">
+                          {files.map((att) => (
+                            <a
+                              key={att.i}
+                              href={att.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 hover:border-omega-orange transition-colors text-xs text-omega-charcoal bg-white"
+                            >
                               <ExternalLink className="w-3.5 h-3.5" /> {att.name || 'File'}
-                            </span>
-                          )}
-                        </a>
-                      )
-                    ))}
-                  </div>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {viewerIdx !== null && gallery.items[viewerIdx] && (
+        <ImageLightbox
+          images={gallery.items}
+          index={viewerIdx}
+          onIndexChange={setViewerIdx}
+          onClose={() => setViewerIdx(null)}
+        />
+      )}
 
       {compress && (
         <div className="flex-shrink-0 px-4 py-2 text-xs text-omega-charcoal bg-omega-pale/60 border-t border-omega-orange/20">
@@ -817,6 +847,53 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Photos / videos of one message ────────────────────────────────
+// 1 → shown on its own · 2 → side by side · 3-4 → 2×2 grid · 5+ → 2×2 with
+// "+N" on the last tile. Any tile opens the full-screen viewer there.
+function MediaMosaic({ items, onOpen }) {
+  const open = (it) => it.at !== undefined && onOpen(it.at);
+  if (items.length === 1) {
+    const it = items[0];
+    return (
+      <button
+        type="button"
+        onClick={() => open(it)}
+        className="mt-1.5 block rounded-lg overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors max-w-[320px]"
+        aria-label={it.kind === 'video' ? 'Play video' : 'Open photo'}
+      >
+        {it.kind === 'video'
+          ? <span className="block w-[280px] max-w-full aspect-video"><MediaThumb item={it} /></span>
+          : <img src={it.url} alt={it.name || 'photo'} className="block max-h-60 w-auto" loading="lazy" />}
+      </button>
+    );
+  }
+  const shown = items.length > 4 ? items.slice(0, 4) : items;
+  const extra = items.length - shown.length;
+  return (
+    <div className={`mt-1.5 grid grid-cols-2 gap-1 ${items.length === 2 ? 'w-[260px]' : 'w-[260px] sm:w-[300px]'} max-w-full`}>
+      {shown.map((it, i) => {
+        const isLast = i === shown.length - 1 && extra > 0;
+        return (
+          <button
+            key={`${it.url}-${i}`}
+            type="button"
+            onClick={() => open(it)}
+            className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors bg-gray-100"
+            aria-label={isLast ? `See ${extra + 1} more` : (it.kind === 'video' ? 'Play video' : 'Open photo')}
+          >
+            <MediaThumb item={it} />
+            {isLast && (
+              <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-xl font-bold">
+                +{extra + 1}
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

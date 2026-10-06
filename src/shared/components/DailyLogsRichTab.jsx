@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import NativeProjectChat from './NativeProjectChat';
+import ImageLightbox, { mediaKind, MediaThumb } from './ui/ImageLightbox';
 
 // Phases that count as "active" for the chat list. Closed / lost jobs
 // stay hidden so the list doesn't fill up with dead conversations.
@@ -427,6 +428,7 @@ export default function DailyLogsRichTab({ job, user, onSwitchJob, standalone = 
 function FilesView({ userName, jobs }) {
   const [files, setFiles]     = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewerIdx, setViewerIdx] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -471,6 +473,22 @@ function FilesView({ userName, jobs }) {
     return () => { active = false; };
   }, [jobs, userName]);
 
+  // Photos + videos open in the full-screen viewer, flipping through all of
+  // them in this list's order; other files still open in a new tab.
+  const media = [];
+  const mediaPos = {};
+  for (const f of files) {
+    const kind = mediaKind(f.mime, f.url);
+    if (!kind) continue;
+    mediaPos[f.key] = media.length;
+    media.push({
+      url: f.url,
+      kind,
+      caption: `${f.client_name} · ${f.author_name}`,
+      sub: new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    });
+  }
+
   if (loading) return <p className="p-6 text-omega-stone text-sm">Loading files…</p>;
   if (files.length === 0) return (
     <div className="flex-1 flex flex-col items-center justify-center text-omega-stone p-6">
@@ -484,17 +502,19 @@ function FilesView({ userName, jobs }) {
       <h2 className="text-lg font-bold text-omega-charcoal mb-4">All shared files</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {files.map((f) => {
-          const isImg = (f.mime || '').startsWith('image/');
+          const at = mediaPos[f.key];
+          const isMedia = at !== undefined;
           return (
             <a
               key={f.key}
               href={f.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => { if (isMedia) { e.preventDefault(); setViewerIdx(at); } }}
               className="block bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-omega-orange hover:shadow-md transition-all"
             >
-              {isImg ? (
-                <img src={f.url} alt="" className="w-full h-32 object-cover" loading="lazy" />
+              {isMedia ? (
+                <span className="block w-full h-32"><MediaThumb item={media[at]} /></span>
               ) : (
                 <div className="w-full h-32 bg-gray-50 flex items-center justify-center">
                   <FolderOpen className="w-8 h-8 text-omega-stone" />
@@ -510,6 +530,14 @@ function FilesView({ userName, jobs }) {
           );
         })}
       </div>
+      {viewerIdx !== null && media[viewerIdx] && (
+        <ImageLightbox
+          images={media}
+          index={viewerIdx}
+          onIndexChange={setViewerIdx}
+          onClose={() => setViewerIdx(null)}
+        />
+      )}
     </div>
   );
 }

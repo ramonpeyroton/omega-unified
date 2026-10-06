@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Camera, X, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Camera, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import ImageLightbox from './ui/ImageLightbox';
 
 const BUCKET = 'phase-photos';
 
@@ -8,15 +9,19 @@ const BUCKET = 'phase-photos';
 // Shows:
 //   [📷] [thumb] [thumb] [+N]
 // - camera icon → opens native file picker (uses rear camera on mobile)
-// - each tiny thumbnail → opens full-screen viewer at that index
+// - each tiny thumbnail → opens the full-screen viewer at that photo, with
+//   every photo of the whole PHASE in the sequence (all its items, in
+//   checklist order) so a phase can be reviewed in one go (Ramon, 06/10)
 // - if more than 3 uploaded, shows "+N" chip that opens the viewer at 3
 //
 // Errors are surfaced inline (red ! chip with tooltip) so broken uploads
 // don't disappear silently.
-export default function PhasePhotos({ jobId, phaseId, itemId, user }) {
+// items = the phase's checklist [{ id, label }] — orders the sequence and
+// names each photo in the viewer.
+export default function PhasePhotos({ jobId, phaseId, itemId, items = [], user }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [viewer, setViewer] = useState(null);   // index or null
+  const [viewer, setViewer] = useState(null);   // { list, index } or null
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -80,6 +85,37 @@ export default function PhasePhotos({ jobId, phaseId, itemId, user }) {
     }
   }
 
+  // Load every photo of the phase and open the viewer on the one tapped.
+  // Falls back to this item's own photos if that query fails.
+  async function openAt(i) {
+    const clicked = photos[i];
+    if (!clicked) return;
+    let rows = photos.slice().reverse();
+    try {
+      const { data, error: e } = await supabase
+        .from('phase_photos')
+        .select('*')
+        .eq('job_id', jobId)
+        .eq('phase_id', phaseId)
+        .order('taken_at', { ascending: true });
+      if (e) throw e;
+      if (data?.length) rows = data;
+    } catch { /* keep this item's photos */ }
+    const order = new Map(items.map((it, k) => [it.id, k]));
+    const label = new Map(items.map((it) => [it.id, it.label]));
+    rows = rows.slice().sort((a, b) => (order.get(a.item_id) ?? 999) - (order.get(b.item_id) ?? 999));
+    const list = rows.map((p) => ({
+      id: p.id,
+      url: p.photo_url,
+      kind: 'image',
+      caption: label.get(p.item_id) || '',
+      sub: [p.taken_by, p.taken_at && new Date(p.taken_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })]
+        .filter(Boolean).join(' · '),
+    }));
+    const index = Math.max(0, list.findIndex((p) => p.id === clicked.id));
+    setViewer({ list, index });
+  }
+
   // Show up to 3 thumbnails; anything else collapses into "+N".
   const shownThumbs = photos.slice(0, 3);
   const extra = Math.max(0, photos.length - shownThumbs.length);
@@ -113,7 +149,7 @@ export default function PhasePhotos({ jobId, phaseId, itemId, user }) {
         {shownThumbs.map((p, i) => (
           <button
             key={p.id}
-            onClick={() => setViewer(i)}
+            onClick={() => openAt(i)}
             className="w-6 h-6 rounded-md overflow-hidden border border-gray-200 hover:border-omega-orange transition-colors"
             title="View photo"
           >
@@ -128,7 +164,7 @@ export default function PhasePhotos({ jobId, phaseId, itemId, user }) {
 
         {extra > 0 && (
           <button
-            onClick={() => setViewer(shownThumbs.length)}
+            onClick={() => openAt(shownThumbs.length)}
             className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-md bg-omega-pale text-omega-orange text-[10px] font-bold hover:bg-omega-orange hover:text-white transition-colors"
             title={`View ${extra} more`}
           >
@@ -146,49 +182,13 @@ export default function PhasePhotos({ jobId, phaseId, itemId, user }) {
         )}
       </div>
 
-      {/* Full-screen viewer */}
-      {viewer !== null && photos[viewer] && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setViewer(null)}
-        >
-          <button
-            className="absolute top-4 right-4 text-white/80 hover:text-white"
-            onClick={() => setViewer(null)}
-            aria-label="Close"
-          >
-            <X className="w-6 h-6" />
-          </button>
-
-          <img
-            src={photos[viewer].photo_url}
-            alt=""
-            className="max-h-[85vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-
-          {photos.length > 1 && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); setViewer((v) => (v - 1 + photos.length) % photos.length); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                aria-label="Previous"
-              >
-                <ChevronLeft className="w-6 h-6" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setViewer((v) => (v + 1) % photos.length); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                aria-label="Next"
-              >
-                <ChevronRight className="w-6 h-6" />
-              </button>
-              <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/80 text-xs font-semibold">
-                {viewer + 1} / {photos.length}
-              </span>
-            </>
-          )}
-        </div>
+      {viewer && viewer.list[viewer.index] && (
+        <ImageLightbox
+          images={viewer.list}
+          index={viewer.index}
+          onIndexChange={(index) => setViewer((v) => (v ? { ...v, index } : v))}
+          onClose={() => setViewer(null)}
+        />
       )}
     </>
   );

@@ -10,6 +10,7 @@ import { logAudit } from '../lib/audit';
 import VoiceNoteRecorder from './VoiceNoteRecorder';
 import BulkDocumentUpload from './BulkDocumentUpload';
 import ChangeOrdersFolder from './ChangeOrdersFolder';
+import ImageLightbox, { mediaKind } from './ui/ImageLightbox';
 
 // Roles allowed to use the bulk legacy importer at the bottom of the
 // page. Scoped tight on purpose — Brenda + Rafaela only, since this
@@ -216,6 +217,22 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
     ...f,
     items: docs.filter((d) => d.folder === f.id),
   }));
+
+  // Photos + videos of every folder, in folder order — one sequence for the
+  // full-screen viewer (Ramon, 06/10). PDFs keep opening in a new tab.
+  const docMedia = byFolder.flatMap((f) => f.items)
+    .filter((d) => d.photo_url && !d.photo_url.toLowerCase().includes('.pdf'))
+    .map((d) => ({
+      id: d.id,
+      url: d.photo_url,
+      kind: mediaKind(null, d.photo_url) || 'image',
+      caption: d.title || '',
+      sub: [d.uploaded_by, d.created_at && new Date(d.created_at).toLocaleDateString()].filter(Boolean).join(' · '),
+    }));
+  const openDoc = (d) => {
+    const i = docMedia.findIndex((m) => m.id === d.id);
+    if (i >= 0) setViewer(i);
+  };
 
   // Group estimates by group_id so alternatives stay together, with
   // groups ordered by most-recent activity (sent_at or created_at).
@@ -466,7 +483,7 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
                       </a>
                     ) : (
                     <button
-                      onClick={() => d.photo_url && setViewer(d)}
+                      onClick={() => d.photo_url && openDoc(d)}
                       disabled={!d.photo_url}
                       className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 disabled:cursor-default"
                       title={d.photo_url ? 'View' : 'No attachment'}
@@ -628,22 +645,14 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
         />
       )}
 
-      {/* Photo viewer */}
-      {viewer && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setViewer(null)}>
-          <button className="absolute top-4 right-4 text-white/80 hover:text-white" onClick={() => setViewer(null)}>
-            <X className="w-6 h-6" />
-          </button>
-          <img
-            src={viewer.photo_url}
-            alt=""
-            className="max-h-[90vh] max-w-[95vw] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <p className="absolute bottom-4 left-4 right-4 text-center text-white text-sm font-semibold truncate">
-            {viewer.title}
-          </p>
-        </div>
+      {/* Photo / video viewer — flips through every photo in the tab */}
+      {viewer !== null && docMedia[viewer] && (
+        <ImageLightbox
+          images={docMedia}
+          index={viewer}
+          onIndexChange={setViewer}
+          onClose={() => setViewer(null)}
+        />
       )}
     </div>
   );
