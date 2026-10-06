@@ -31,8 +31,11 @@ export default function PhaseView({ job: initialJob, user, onNavigate }) {
 
   if (!job) return null;
 
+  // flex-1 + overflow-y-auto: ManagerShell's <main> is overflow-hidden, so
+  // each screen owns its scrolling (same as FieldToday / QuickReceipts).
+  // With min-h-screen the phases below the fold were cut off on phones.
   return (
-    <div className="min-h-screen bg-omega-cloud pb-10">
+    <div className="flex-1 overflow-y-auto bg-omega-cloud pb-10">
       <PageHeader
         icon={HardHat}
         title={job.client_name || job.name || 'Untitled'}

@@ -424,6 +424,12 @@ Outra sessão **não deve refazer ou questionar** sem pedir antes:
    Resumo: Attila/Gabriel = tablet-first, Receptionist = iPad/PC,
    resto = desktop-first. Botões mínimo 40px no touch (tablet),
    inputs 16px de fonte em mobile/tablet (evita zoom do iOS).
+6. **Tela nova dentro do shell de um role precisa rolar sozinha.** Os
+   shells (Manager, Owner, Operations, Receptionist, Marketing, Admin) têm
+   `<main className="... overflow-hidden">`, então a raiz da tela deve ser
+   `flex-1 overflow-y-auto` (padrão do `FieldToday` / `QuickReceipts`).
+   Raiz `min-h-screen` corta tudo que passa da tela — foi o bug do Joel
+   (05/10) nas telas de fases, Alerts e Warehouse do Manager.
 
 ---
 

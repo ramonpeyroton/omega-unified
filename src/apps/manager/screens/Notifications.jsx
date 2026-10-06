@@ -40,8 +40,9 @@ export default function Notifications({ user, onNavigate, darkMode }) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  // Owns its scrolling — ManagerShell's <main> is overflow-hidden.
   return (
-    <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-omega-cloud'}`}>
+    <div className={`flex-1 overflow-y-auto ${darkMode ? 'dark bg-gray-900' : 'bg-omega-cloud'}`}>
       <PageHeader icon={Bell} title="Notifications" onBack={() => onNavigate('home')} />
 
       <div className="px-4 py-5">

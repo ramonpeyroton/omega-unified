@@ -688,8 +688,9 @@ export default function Warehouse({ user, onNavigate }) {
     return matchSearch && matchCat;
   });
 
+  // Owns its scrolling — ManagerShell's <main> is overflow-hidden.
   return (
-    <div className="min-h-screen bg-omega-cloud pb-32">
+    <div className="flex-1 overflow-y-auto bg-omega-cloud pb-32">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {showScan && <AIScanModal items={items} jobs={jobs} userName={user?.name || 'Manager'} onClose={() => setShowScan(false)} onAdd={handleScanAdd} />}
       {showNewItem && (
