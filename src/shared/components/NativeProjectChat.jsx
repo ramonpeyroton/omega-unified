@@ -37,10 +37,32 @@ import Avatar, { colorFromName } from './ui/Avatar';
 import ImageLightbox, { mediaKind, MediaThumb } from './ui/ImageLightbox';
 
 const MAX_FILE_BYTES  = 4 * 1024 * 1024;    // images (post-compression) / PDFs → Supabase
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // videos → Cloudflare R2 via presigned PUT
-                                            // (bypasses Vercel's 4.5 MB body cap). 200 MB
-                                            // is a safety net; iPhone clips compressed to
-                                            // 1080p CRF 24 usually land under 60 MB.
+const MAX_VIDEO_BYTES = 500 * 1024 * 1024;  // videos → Cloudflare R2 via presigned PUT
+                                            // (bypasses Vercel's 4.5 MB body cap). Phones
+                                            // upload the original (no compression), so a
+                                            // 2-3 min clip can pass 200 MB.
+
+// Phones/tablets skip in-browser compression: ffmpeg.wasm on an iPhone
+// takes many minutes, runs out of memory and iOS kills the tab, so the
+// video never got sent (Attila, Oct/26). iOS already hands us H.264
+// when a clip is picked from Photos, so the original plays everywhere.
+const SKIP_VIDEO_COMPRESSION = typeof navigator !== 'undefined'
+  && ((navigator.maxTouchPoints || 0) > 1 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''));
+
+// PUT to the presigned R2 URL with upload progress (fetch has none).
+function putWithProgress(url, file, contentType, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300
+      ? resolve()
+      : reject(new Error(`R2 upload failed (${xhr.status}): ${(xhr.responseText || '').slice(0, 200)}`)));
+    xhr.onerror = () => reject(new Error('Video upload failed — check the connection and try again.'));
+    xhr.send(file);
+  });
+}
 const COMPRESS_OPTS  = {
   maxSizeMB: 2,
   maxWidthOrHeight: 2400,
@@ -335,12 +357,12 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
         if (f.type.startsWith('image/')) {
           try { final = await imageCompression(f, COMPRESS_OPTS); }
           catch { final = f; }
-        } else if (isVideo) {
+        } else if (isVideo && !SKIP_VIDEO_COMPRESSION) {
           try {
-            setCompress({ name: f.name, pct: 0 });
+            setCompress({ name: f.name, pct: 0, label: 'Compressing video — keep this open…' });
             // compressVideo falls back to the original on any failure,
             // so `final` is always a usable file.
-            final = await compressVideo(f, (p) => setCompress({ name: f.name, pct: Math.round(p * 100) }));
+            final = await compressVideo(f, (p) => setCompress({ name: f.name, pct: Math.round(p * 100), label: 'Compressing video — keep this open…' }));
           } catch {
             final = f;
           } finally {
@@ -401,17 +423,15 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
         throw new Error(presignData?.error || `Failed to get R2 upload URL (${presignRes.status})`);
       }
 
-      const put = await fetch(presignData.uploadUrl, {
-        method:  'PUT',
-        // Must match the Content-Type the server signed, or R2 returns
-        // SignatureDoesNotMatch. The presign response echoes it back so
-        // we're never guessing.
-        headers: { 'Content-Type': presignData.contentType || file.type },
-        body:    file,
-      });
-      if (!put.ok) {
-        const detail = await put.text().catch(() => '');
-        throw new Error(`R2 upload failed (${put.status}): ${detail.slice(0, 200)}`);
+      // Content-Type must match the one the server signed, or R2 returns
+      // SignatureDoesNotMatch — the presign response echoes it back.
+      const label = 'Uploading video — keep this screen open…';
+      setCompress({ name: file.name, pct: 0, label });
+      try {
+        await putWithProgress(presignData.uploadUrl, file, presignData.contentType || file.type,
+          (p) => setCompress({ name: file.name, pct: Math.round(p * 100), label }));
+      } finally {
+        setCompress(null);
       }
       return presignData.publicUrl || null;
     }
@@ -725,7 +745,7 @@ export default function NativeProjectChat({ job, user, embedded = false }) {
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="inline-flex items-center gap-1.5 font-semibold">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-omega-orange" />
-              Compressing video — keep this open…
+              {compress.label}
             </span>
             <span className="tabular-nums text-omega-stone">{compress.pct}%</span>
           </div>
