@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
   AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
-  GripVertical, MoreVertical, Eye, Package, ChevronRight,
+  GripVertical, MoreVertical, Eye, Package, ChevronRight, ArrowLeft, Lock,
 } from 'lucide-react';
 import {
   DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors,
@@ -18,6 +18,7 @@ import { apiFetch } from '../lib/apiFetch.js';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
 import { sectionsTotal, itemsTotal } from '../lib/estimatePricing';
+import EstimateChooser, { isEstimateLocked } from './EstimateChooser';
 import { StepBadge } from './JobFullView';
 
 // Stable IDs make sections + items addressable by @dnd-kit. Older
@@ -154,7 +155,95 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // financing doesn't apply (commercial work, cash client, sub-only scope).
   const [showFinancing, setShowFinancing] = useState(true);
 
-  useEffect(() => { load(editEstimateId); /* eslint-disable-next-line */ }, [job?.id, editEstimateId]);
+  // The tab opens on a choice — "New Estimate" or one of the job's
+  // estimates — instead of dropping the seller into the latest one
+  // (EstimateChooser). 'choose' = that step, 'edit' = the builder.
+  const [view, setView] = useState('edit');
+  const [jobEstimates, setJobEstimates] = useState([]);
+
+  // Approved / signed: the client signed this version — shown read-only,
+  // never saved over (no Save/Send, no alternatives or bundling).
+  const locked = isEstimateLocked(estimate);
+
+  useEffect(() => { init(); /* eslint-disable-next-line */ }, [job?.id, editEstimateId]);
+
+  async function fetchJobEstimates() {
+    const { data } = await supabase
+      .from('estimates')
+      .select('id, estimate_number, status, display_mode, total_amount, bundle_id, bundle_label, group_id, option_label, option_order, header_description, sections, created_at, updated_at, sent_at, signed_at, signed_by, approved_at')
+      .eq('job_id', job.id)
+      .order('created_at', { ascending: false });
+    setJobEstimates(data || []);
+    return data || [];
+  }
+
+  async function init() {
+    setLoading(true);
+    let list = [];
+    try { list = await fetchJobEstimates(); } catch { /* list stays empty */ }
+    // "Edit" from the Documents tab already picked one — open it directly.
+    if (editEstimateId) { setView('edit'); await load(editEstimateId); return; }
+    resetToBlank();
+    // No estimates yet: the only option is a new one, so skip the choice.
+    setView(list.length ? 'choose' : 'edit');
+    setLoading(false);
+  }
+
+  function resetToBlank() {
+    setEstimate(null); setOptions([]); setActiveId(null);
+    setBundleMembers([]); setBundleLabel(''); setPendingDeleteId(null);
+    setHeaderDescription(''); setSections([emptySection()]);
+    setCustomerMessage(DEFAULT_PAYMENT); setPaymentPlan(DEFAULT_PLAN_ROWS.map((r) => ({ ...r }))); setOptionLabel('');
+    setDisclaimers(DEFAULT_ESTIMATE_DISCLAIMERS);
+    setDisplayMode(null); setShowFinancing(true);
+  }
+
+  function startNewEstimate() {
+    resetToBlank();
+    setToast(null);
+    setView('edit');
+  }
+
+  function openEstimate(id) {
+    setToast(null);
+    setView('edit');
+    load(id);
+  }
+
+  // A brand-new estimate that was never saved but already has typing in it.
+  function hasUnsavedNewWork() {
+    if (estimate?.id) return false;
+    return !!headerDescription.trim() ||
+      sections.length > 1 ||
+      (sections[0]?.title && sections[0].title !== 'Section 1') ||
+      sections.some((s) => Number(s.price) > 0 ||
+        (s.items || []).some((it) => it.description?.trim() || it.scope?.trim() || Number(it.price) > 0));
+  }
+
+  // What the form held when it was last loaded or saved — "All estimates"
+  // only saves when something actually changed.
+  const savedSnapshotRef = useRef(null);
+  function formSnapshot() {
+    return JSON.stringify([headerDescription, sections, customerMessage, paymentPlan, optionLabel, disclaimers, bundleLabel, displayMode, showFinancing]);
+  }
+  // loadIntoForm sets the estimate and every form field in one render.
+  useEffect(() => { savedSnapshotRef.current = formSnapshot(); /* eslint-disable-next-line */ }, [estimate?.id]);
+
+  async function backToAllEstimates() {
+    if (saving || sending) return;
+    if (hasUnsavedNewWork() && !confirm('This new estimate was never saved. Discard it and go back to all estimates?')) return;
+    setSaving(true);
+    // Same as switching options: keep the seller's edits.
+    try {
+      if (estimate?.id && !locked && formSnapshot() !== savedSnapshotRef.current) await persist();
+    } catch { /* ignore */ }
+    setSaving(false);
+    setToast(null);
+    resetToBlank();
+    let list = [];
+    try { list = await fetchJobEstimates(); } catch { /* ignore */ }
+    setView(list.length ? 'choose' : 'edit');
+  }
 
   async function load(preferredActiveId) {
     setLoading(true);
@@ -436,10 +525,12 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     if (!('status' in base)) base.status = estimate?.status || 'draft';
 
     if (estimate?.id) {
+      // No DB trigger keeps updated_at — stamp it so "Last saved" is true.
       const { data, error } = await supabase
-        .from('estimates').update(base).eq('id', estimate.id)
+        .from('estimates').update({ ...base, updated_at: new Date().toISOString() }).eq('id', estimate.id)
         .select().single();
       if (error) throw error;
+      savedSnapshotRef.current = formSnapshot();
       return data;
     } else {
       // First-save gets a human-readable estimate number from the sequence.
@@ -455,6 +546,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         .insert([{ ...base, estimate_number: number, status: 'draft', option_order: 0 }])
         .select().single();
       if (error) throw error;
+      savedSnapshotRef.current = formSnapshot();
       return data;
     }
   }
@@ -503,7 +595,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
 
   // ─── Multi-option helpers ──────────────────────────────────────────
   async function addAlternative() {
-    if (saving || sending) return;
+    if (saving || sending || locked) return;
     setSaving(true);
     setToast(null);
     try {
@@ -563,8 +655,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setPendingDeleteId(null);
     setSaving(true);
     try {
-      // Save current first so edits don't get lost.
-      if (activeId) { try { await persist(); } catch { /* ignore */ } }
+      // Save current first so edits don't get lost (never over a locked one).
+      if (activeId && !locked && formSnapshot() !== savedSnapshotRef.current) { try { await persist(); } catch { /* ignore */ } }
       const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
       if (data) loadIntoForm(data);
       // Refresh the switcher chips (totals / status may have changed).
@@ -581,8 +673,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     try {
       await supabase.from('estimates').delete().eq('id', id);
       logAudit({ user, action: 'estimate.remove_alternative', entityType: 'estimate', entityId: id });
-      // If we just deleted the active one, load() will pick whichever's left.
-      await load(id === activeId ? null : activeId);
+      // If we just deleted the active one, open one of the options left.
+      await load(id === activeId ? (options.find((o) => o.id !== id)?.id || null) : activeId);
       setToast({ type: 'success', message: 'Alternative removed.' });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to remove alternative' });
@@ -594,7 +686,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
 
   // ─── Bundle helpers ───────────────────────────────────────────────
   async function addServiceToBundle() {
-    if (saving || sending) return;
+    if (saving || sending || locked) return;
     setSaving(true);
     setToast(null);
     try {
@@ -645,7 +737,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     if (id === estimate?.id || saving || sending) return;
     setSaving(true);
     try {
-      if (estimate?.id) { try { await persist(); } catch { /* ignore */ } }
+      if (estimate?.id && !locked && formSnapshot() !== savedSnapshotRef.current) { try { await persist(); } catch { /* ignore */ } }
       const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
       if (data) {
         loadIntoForm(data);
@@ -673,7 +765,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       await supabase.from('estimates').update({ bundle_id: null, bundle_label: null }).eq('id', id);
       logAudit({ user, action: 'estimate.bundle_remove_service', entityType: 'estimate', entityId: id });
       if (id === estimate?.id) {
-        await load(null);
+        // Same estimate, now on its own — keep editing it.
+        await load(id);
       } else {
         await load(estimate?.id || null);
       }
@@ -690,12 +783,10 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     try {
       await supabase.from('estimates').delete().eq('id', estimate.id);
       logAudit({ user, action: 'estimate.delete', entityType: 'estimate', entityId: estimate.id, details: { estimate_number: estimate.estimate_number } });
-      // Reset form to blank state
-      setEstimate(null); setOptions([]); setActiveId(null);
-      setBundleMembers([]); setBundleLabel('');
-      setHeaderDescription(''); setSections([emptySection()]);
-      setCustomerMessage(DEFAULT_PAYMENT); setPaymentPlan(DEFAULT_PLAN_ROWS.map((r) => ({ ...r }))); setOptionLabel('');
-      setDisclaimers(DEFAULT_ESTIMATE_DISCLAIMERS);
+      // Back to the list of what's left (or a blank one if nothing is).
+      resetToBlank();
+      const list = await fetchJobEstimates();
+      setView(list.length ? 'choose' : 'edit');
       setToast({ type: 'success', message: `${label} deleted.` });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to delete estimate' });
@@ -703,6 +794,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   }
 
   async function handleSave() {
+    if (locked) return;
     setSaving(true);
     setToast(null);
     try {
@@ -724,6 +816,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   }
 
   async function handleSend() {
+    if (locked) return;
     if (!job.client_email) {
       setToast({ type: 'error', message: "Client has no email on file. Add it under Details first." });
       return;
@@ -773,6 +866,56 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   return (
     <div className="space-y-5">
 
+      {/* Step zero: New Estimate or pick one of the job's estimates. The
+          builder below stays dimmed and locked until a choice is made. */}
+      {view === 'choose' && (
+        <EstimateChooser estimates={jobEstimates} onNew={startNewEstimate} onOpen={openEstimate} />
+      )}
+
+      {view === 'edit' && (jobEstimates.length > 0 || estimate?.id) && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={backToAllEstimates}
+            disabled={saving || sending}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-bold text-omega-charcoal hover:border-omega-orange hover:text-omega-orange disabled:opacity-60"
+          >
+            <ArrowLeft className="w-4 h-4" /> All estimates
+          </button>
+          <span className="text-xs text-omega-stone">
+            {estimate?.estimate_number ? `Estimate #${estimate.estimate_number}` : 'New estimate — not saved yet'}
+          </span>
+        </div>
+      )}
+
+      {/* Approved / signed — read-only. */}
+      {view === 'edit' && locked && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3 flex-wrap sm:flex-nowrap">
+          <Lock className="w-5 h-5 text-green-700 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-green-900">
+              {estimate?.estimate_number ? `#${estimate.estimate_number} ` : 'This estimate '}
+              is {estimate?.status === 'superseded' ? 'superseded' : 'approved'} — view only
+            </p>
+            <p className="text-xs text-green-800 mt-0.5">
+              {estimate?.status === 'superseded'
+                ? 'It was replaced by a newer estimate, so it can no longer be changed.'
+                : 'The client signed this version, so it can\'t be changed. For extra work, go back to All estimates and start a New Estimate (or a Change Order if the contract is signed).'}
+            </p>
+          </div>
+          <a
+            href={`/estimate-view/${estimate.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-green-300 bg-white text-xs font-bold text-green-800 hover:border-green-500 flex-shrink-0"
+          >
+            <Eye className="w-3.5 h-3.5" /> View client version
+          </a>
+        </div>
+      )}
+
+      <div className={view === 'choose' ? 'opacity-40 pointer-events-none select-none space-y-5' : 'space-y-5'} aria-hidden={view === 'choose' || undefined}>
+
       {/* Bundle panel — shows when 2+ estimates are grouped together for
           different services that all need independent client approval. */}
       {isInBundle && (
@@ -782,13 +925,15 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
               <Package className="w-3.5 h-3.5" /> Multi-Service Bundle
               <span className="text-omega-stone font-semibold normal-case tracking-normal">— client approves each one independently</span>
             </div>
-            <button
-              onClick={addServiceToBundle}
-              disabled={saving || sending}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
-            >
-              <Plus className="w-3 h-3" /> Add Service
-            </button>
+            {!locked && (
+              <button
+                onClick={addServiceToBundle}
+                disabled={saving || sending}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
+              >
+                <Plus className="w-3 h-3" /> Add Service
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {bundleMembers.map((m, i) => {
@@ -878,13 +1023,15 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
               </div>
             );
           })}
-          <button
-            onClick={addAlternative}
-            disabled={saving || sending}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
-          >
-            <Copy className="w-3 h-3" /> Add Alternative
-          </button>
+          {!locked && (
+            <button
+              onClick={addAlternative}
+              disabled={saving || sending}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-omega-orange border border-dashed border-omega-orange/50 hover:bg-omega-pale disabled:opacity-60"
+            >
+              <Copy className="w-3 h-3" /> Add Alternative
+            </button>
+          )}
         </div>
       )}
 
@@ -906,7 +1053,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
               key={m.key}
               type="button"
               onClick={() => changeDisplayMode(m.key)}
-              className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+              disabled={locked}
+              className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all disabled:cursor-not-allowed ${
                 displayMode === m.key
                   ? 'border-omega-orange bg-omega-pale'
                   : 'border-gray-200 hover:border-omega-orange/50 bg-white'
@@ -924,8 +1072,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
           ))}
         </div>
 
-        {/* Other quick actions — shown once form is usable */}
-        {displayMode && (
+        {/* Other quick actions — shown once form is usable. Never on an
+            approved estimate: new work there gets its own New Estimate. */}
+        {displayMode && !locked && (
           <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
             {!isInBundle && (
               <button
@@ -953,8 +1102,20 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         )}
       </div>
 
-      {/* Lock overlay wrapper — dims everything below until format is chosen */}
-      <div className={displayMode ? '' : 'opacity-40 pointer-events-none select-none'}>
+      {/* Already sent, not approved yet: editing is fine, the client just
+          sees the new version on the same link once it's saved. */}
+      {estimate?.status === 'sent' && !locked && (
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            <strong>Already sent to the client.</strong> When you save, they see the updated version on the same link.
+          </span>
+        </div>
+      )}
+
+      {/* Lock overlay wrapper — dims everything below until format is
+          chosen; read-only (no clicks) on an approved estimate. */}
+      <div className={!displayMode ? 'opacity-40 pointer-events-none select-none' : locked ? 'opacity-75 pointer-events-none' : ''}>
       <div className="space-y-5">
 
       {/* Step (1): Estimate Details. Two-column layout — description
@@ -1014,7 +1175,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             )}
 
             {/* Start a bundle when not in one yet */}
-            {!isInBundle && !isMultiOption && (
+            {!isInBundle && !isMultiOption && !locked && (
               <div className="pt-1">
                 <button
                   type="button"
@@ -1333,7 +1494,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <SaveStatus saving={saving} estimate={estimate} />
-            {estimate?.id && ['owner', 'operations', 'admin'].includes(user?.role) && (
+            {estimate?.id && !locked && ['owner', 'operations', 'admin'].includes(user?.role) && (
               <button
                 onClick={handleDeleteEstimate}
                 disabled={saving || sending}
@@ -1359,6 +1520,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
                 <Eye className="w-4 h-4" /> Preview Estimate
               </a>
             )}
+            {!locked && (<>
             <button
               onClick={handleSave}
               disabled={saving || sending}
@@ -1386,9 +1548,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
                     : <><Mail className="w-4 h-4" /> Save & Send to Client</>
               }
             </button>
+            </>)}
           </div>
         </div>
       </div>
+      </div>{/* end chooser dim wrapper */}
     </div>
   );
 }

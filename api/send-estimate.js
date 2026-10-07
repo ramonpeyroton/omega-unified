@@ -509,29 +509,33 @@ export default async function handler(req, res) {
   // On success, stamp `status = 'sent' + sent_at + pdf_url` on every
   // row involved. Bundle stamps all bundle members; multi-option stamps
   // all siblings; single-option touches only its own row.
+  // Rows the client already signed (approved / signed / superseded) are
+  // never touched — re-sending a bundle used to flip an approved member
+  // back to "sent" (Anthony Wills, 07/10).
   const nowIso = new Date().toISOString();
+  const notLocked = (q) => q.is('signed_at', null).not('status', 'in', '(approved,signed,superseded)');
   try {
     if (isBundle) {
-      await supabase.from('estimates').update({
+      await notLocked(supabase.from('estimates').update({
         status: 'sent',
         sent_at: nowIso,
         sent_by: requester.name || null,
         pdf_url: clientLink,
-      }).eq('bundle_id', estimate.bundle_id);
+      }).eq('bundle_id', estimate.bundle_id));
     } else if (isMultiOption) {
-      await supabase.from('estimates').update({
+      await notLocked(supabase.from('estimates').update({
         status: 'sent',
         sent_at: nowIso,
         sent_by: requester.name || null,
         pdf_url: clientLink,
-      }).eq('group_id', group_id);
+      }).eq('group_id', group_id));
     } else {
-      await supabase.from('estimates').update({
+      await notLocked(supabase.from('estimates').update({
         status: 'sent',
         sent_at: nowIso,
         sent_by: requester.name || null,
         pdf_url: `${PUBLIC_APP_URL.replace(/\/$/, '')}/estimate-view/${estimateId}`,
-      }).eq('id', estimateId);
+      }).eq('id', estimateId));
     }
   } catch { /* ignore */ }
 

@@ -582,6 +582,27 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-07 (Aba Estimate abre numa escolha: New Estimate ou um existente)** — Ramon + Claude (Opus 5.5).
+
+- Caso Anthony Wills: sem botão de "novo estimate", o Attila usou "Bundle with
+  another service" pra criar o 2º estimate, que ficou preso num pacote com o
+  Bathroom já aprovado — e o envio mandaria os dois (e marcaria o aprovado de
+  volta como "sent").
+- `src/shared/components/EstimateChooser.jsx`: primeiro passo da aba —
+  **+ New Estimate** (estimate separado, número próprio) ou a lista dos
+  estimates da obra (alternativas e pacotes viram 1 linha). Aprovado/assinado
+  = só **View** (cadeado). Obra sem estimate pula direto pro estimate em branco;
+  "Edit" da aba Documents pula a escolha. "← All estimates" volta pra lista.
+- `isEstimateLocked()` (approved / signed / superseded / `signed_at`): o
+  construtor mostra **só leitura** — sem Save/Send/Delete, sem Alternative/
+  Bundle, e nunca salva por cima (nem ao trocar de opção/serviço).
+- Voltar pra lista ou trocar de opção só salva se algo mudou (snapshot do
+  form); `persist()` agora grava `updated_at` (não há trigger no banco).
+- `api/send-estimate.js`: ao enviar pacote/alternativas, linhas já
+  aprovadas/assinadas não têm o status alterado.
+
+---
+
 **2026-10-05 (Estimate: 3º formato de preço "Price by Section")** — Ramon + Claude (Opus 5.5).
 
 - "Configure Estimate" no `EstimateBuilder` tem 3 formatos: **Breakdown**
