@@ -55,7 +55,10 @@ function escape(s) {
 }
 function fmtDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // 'YYYY-MM-DD' is a calendar day — read it as such, never as UTC
+  // midnight (that shows the day before in New York).
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  const d = ymd ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])) : new Date(iso);
   if (isNaN(d)) return String(iso);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }

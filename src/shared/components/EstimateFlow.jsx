@@ -1488,6 +1488,7 @@ export default function EstimateFlow({ job, user, onBack }) {
             company={companySettings}
             milestone={pendingInvoiceMilestone}
             installmentNumber={(milestones.findIndex((m) => m.id === pendingInvoiceMilestone.id) + 1) || 1}
+            milestones={milestones}
             totalInstallments={milestones.length || 1}
           />
         )}

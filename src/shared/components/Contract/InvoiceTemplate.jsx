@@ -1,5 +1,6 @@
 import { forwardRef, useMemo } from 'react';
 import { sectionMode, sectionPrice } from '../../lib/estimatePricing';
+import { parseJobServices, SERVICE_LABEL } from '../../data/services';
 
 // Per-installment invoice. Cópia simplificada do estimate (sem
 // assinatura, sem checkboxes) que a Brenda envia pro cliente quando
@@ -16,9 +17,18 @@ function money(n) {
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
+  // A plain 'YYYY-MM-DD' (due_date) is a calendar day, not a moment:
+  // new Date('2026-10-15') is UTC midnight, which shows Oct 14 in New York.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  const d = ymd ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])) : new Date(iso);
   if (isNaN(d)) return String(iso);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// jobs.service ids → "Kitchen Renovation" / "Kitchen Renovation + Bathroom Renovation".
+function projectTitle(job) {
+  const names = parseJobServices(job?.service).map((id) => SERVICE_LABEL[id] || id);
+  return names.length ? names.join(' + ') : (job?.name || 'Project');
 }
 
 function todayLocal() {
@@ -27,7 +37,7 @@ function todayLocal() {
 }
 
 const InvoiceTemplate = forwardRef(function InvoiceTemplate(
-  { job, estimate, milestone, contract, company, installmentNumber, totalInstallments },
+  { job, estimate, milestone, contract, company, installmentNumber, totalInstallments, milestones = [] },
   ref
 ) {
   // Rows follow the estimate's price format (shared/lib/estimatePricing):
@@ -77,7 +87,13 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
   const showPriceColumn = lineItems.some((it) => it.showPrice);
 
   const contractTotal = Number(contract?.total_amount || estimate?.total_amount || 0);
-  const dueAmount     = Number(milestone?.due_amount || 0);
+  // What's still owed on THIS installment (all of it unless a partial
+  // payment already came in).
+  const dueAmount     = Math.max(0, Number(milestone?.due_amount || 0) - Number(milestone?.received_amount || 0));
+  // Payment summary: everything received so far on this contract, and
+  // what's left once this invoice is paid.
+  const paidToDate    = milestones.reduce((s, m) => s + (Number(m.received_amount) || 0), 0);
+  const balanceAfter  = Math.max(0, contractTotal - paidToDate - dueAmount);
   const dueDate       = milestone?.due_date || null;
   const installmentLabel = milestone?.label || `Installment ${installmentNumber}`;
   const invoiceNumber = `INV-${String(milestone?.id || '').slice(0, 8).toUpperCase()}`;
@@ -160,7 +176,7 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
         <div style={{ flex: 1, background: '#fafafa', border: '1px solid #eee', borderRadius: 6, padding: 14 }}>
           <div style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6b6b6b', fontWeight: 700 }}>Project</div>
           <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6 }}>
-            <div style={{ fontWeight: 700 }}>{job?.service || job?.name || 'Project'}</div>
+            <div style={{ fontWeight: 700 }}>{projectTitle(job)}</div>
             {job?.address && <div>{job.address}</div>}
             <div style={{ color: '#888', marginTop: 4 }}>
               Contract total: {money(contractTotal)}
@@ -215,6 +231,30 @@ const InvoiceTemplate = forwardRef(function InvoiceTemplate(
           </tbody>
         </table>
       </div>
+
+      {/* Payment summary — where the client stands on the whole contract. */}
+      {contractTotal > 0 && (
+        <table style={{ marginTop: 20, marginLeft: 'auto', borderCollapse: 'collapse', fontSize: 12, minWidth: 300 }}>
+          <tbody>
+            <tr>
+              <td style={{ padding: '4px 12px', color: '#555' }}>Contract total</td>
+              <td style={{ padding: '4px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(contractTotal)}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '4px 12px', color: '#555' }}>Paid to date</td>
+              <td style={{ padding: '4px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#15803d' }}>{paidToDate > 0 ? `− ${money(paidToDate)}` : money(0)}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '4px 12px', color: '#E8732A', fontWeight: 700 }}>This invoice</td>
+              <td style={{ padding: '4px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: '#E8732A' }}>{`− ${money(dueAmount)}`}</td>
+            </tr>
+            <tr style={{ borderTop: '2px solid #2C2C2A' }}>
+              <td style={{ padding: '8px 12px 4px', fontWeight: 800 }}>Remaining after this invoice</td>
+              <td style={{ padding: '8px 12px 4px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>{money(balanceAfter)}</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
 
       {/* Amount due now — destacado em laranja */}
       <div style={{ marginTop: 28, border: '2px solid #E8732A', borderRadius: 8, padding: 18, background: '#FFF7F1' }}>
