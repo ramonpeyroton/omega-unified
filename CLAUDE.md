@@ -303,9 +303,9 @@ pull  =  PUXAR     (GitHub         →  minha máquina)
 - **`JobDetailDrawer` legado** ainda no código mas não é o caminho
   primário. Path novo é `JobFullView`. Mudanças de UX precisam tocar
   os dois ou apagar o drawer.
-- **`ProjectAnalyzer.jsx` e `Warehouse.jsx` (owner) AINDA quebradas**
-  com `VITE_ANTHROPIC_KEY` direto no browser — vão dar 401 quando
-  Inácio usar. Migrar pro `/api/ai-proxy` igual aos outros 4 arquivos.
+- ~~`ProjectAnalyzer.jsx` e `Warehouse.jsx` (owner) quebradas com
+  `VITE_ANTHROPIC_KEY`~~ — resolvido: os dois já usam `/api/ai-proxy`
+  (conferido em 09/10/26).
 - **Admin app NÃO migrado** pra URL routing — ainda é state-based.
   Funciona, mas refresh em `/admin-x9k2` volta pra tela inicial do admin.
 - **Profile só edita pra users cadastrados na tabela `users`.** Logins
@@ -470,13 +470,21 @@ de Junho/26 sem ler a seção inteira de "Última atualização":
 - Proxy unificado: `api/ai-proxy.js`. Aceita `{provider: 'claude'|'groq'}`.
 - Pra Claude: aceita `prompt` (string) OU `messages` (array completo
   pra image/document blocks), `model` (override default haiku), `tools`,
-  `anthropicBeta` (header).
+  `anthropicBeta` (header), `effort` (→ `output_config.effort`). Pro
+  `claude-sonnet-5-5` o proxy põe sozinho `fallbacks: "default"` + beta
+  `server-side-fallback-2026-07-01`.
+- **Modelos em uso (09/10/26):** Haiku 4.5 (`claude-haiku-4-5-20251001`,
+  default do proxy) e **Sonnet 5.5** (`claude-sonnet-5-5`, effort `low`)
+  nos scans de material (manager/owner Warehouse), leitura de recibo
+  (admin) e relatório/preço do Owner. Sonnet 4 foi aposentado.
+  **Sonnet 5.5 pensa antes de responder:** ler a resposta pelos blocos
+  `type === 'text'` (nunca `content[0].text`) e deixar folga no
+  `maxTokens`. Não mandar `temperature`/prefill pra ele (400).
 - Shared libs: `src/shared/lib/anthropic.js`, `src/shared/lib/groq.js`.
 - Per-role libs: `src/apps/sales/lib/anthropic.js`,
   `src/apps/owner/lib/anthropic.js`, `src/apps/manager/lib/anthropic.js`,
-  `src/apps/sales/screens/PDFUpload.jsx` — todos migrados pro proxy.
-- **AINDA QUEBRADOS** (não migrados): `ProjectAnalyzer.jsx` e
-  `Warehouse.jsx` no owner. Migrar quando der.
+  `src/apps/sales/screens/PDFUpload.jsx`, `ProjectAnalyzer.jsx` e
+  `Warehouse.jsx` (owner) — todos pelo proxy.
 
 **Notifications:**
 - send-estimate.js handleEstimateOpened insere notificações pra
@@ -581,6 +589,19 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 ---
 
 ## Última atualização
+
+**2026-10-09 (Sonnet 4 aposentado → Sonnet 5.5)** — Ramon + Claude (Opus 5.5).
+
+- E-mail da Anthropic (04/10): chamadas ao `claude-sonnet-4-20250514`
+  falhando (modelo aposentado). Estava em 4 lugares: scan de material do
+  Warehouse (manager e owner), leitura de recibo (admin `receiptScan.js`) e
+  relatório/preço/fases do Owner (`owner/lib/anthropic.js`).
+- Trocado por `claude-sonnet-5-5` com effort `low`, `maxTokens` maiores
+  (o modelo pensa antes) e leitura da resposta por bloco de texto. Busca de
+  imóvel (web search) sem o beta header antigo. Proxy: ver "AI" no Mapa
+  rápido. Teste real só em produção (local não tem a chave).
+
+---
 
 **2026-10-09 (Invoice corrigida + recibo automático por e-mail)** — Ramon + Claude (Opus 5.5).
 

@@ -11,8 +11,11 @@ export async function scanMaterialsImage(base64Data, mimeType = 'image/jpeg', on
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: 'claude',
-          model: 'claude-sonnet-4-20250514',
-          maxTokens: 2000,
+          // Sonnet 4 was retired. Sonnet 5.5 thinks before answering, so
+          // low effort keeps it quick and max tokens leaves room for that.
+          model: 'claude-sonnet-5-5',
+          effort: 'low',
+          maxTokens: 8000,
           messages: [{
             role: 'user',
             content: [
@@ -57,7 +60,8 @@ Return ONLY a valid JSON array — no markdown, no explanation:
       throw new Error(err?.error?.message || err?.error || `API error ${response.status}`);
     }
     const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    // Read the answer by block type — the reply can start with a thinking block.
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) throw new Error('Could not parse materials from image. Try a clearer photo.');
     return JSON.parse(match[0]);

@@ -1,5 +1,5 @@
 // receiptScan — read the grand total off a single receipt image with
-// Claude (Sonnet). Returns the final amount charged plus a best-effort
+// Claude (Sonnet 5.5). Returns the final amount charged plus a best-effort
 // store name to prefill the description. The human reviewer always sees
 // and can edit the value before anything is saved, so this only needs
 // to be a good first guess — not perfect.
@@ -38,8 +38,11 @@ export async function extractReceiptTotal(base64Data, mimeType = 'image/jpeg', o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: 'claude',
-          model: 'claude-sonnet-4-20250514',
-          maxTokens: 300,
+          // Sonnet 4 was retired. Sonnet 5.5 thinks before answering, so
+          // low effort keeps it quick and max tokens leaves room for that.
+          model: 'claude-sonnet-5-5',
+          effort: 'low',
+          maxTokens: 2000,
           messages: [{
             role: 'user',
             content: [
@@ -68,7 +71,8 @@ export async function extractReceiptTotal(base64Data, mimeType = 'image/jpeg', o
     }
 
     const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    // Read the answer by block type — the reply can start with a thinking block.
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) { lastErr = new Error('Could not parse total'); continue; }
 

@@ -1,7 +1,16 @@
 import { supabase } from './supabase';
 import { apiFetch } from '../../../shared/lib/apiFetch.js';
 
-const MODEL = 'claude-sonnet-4-20250514';
+// Sonnet 4 was retired. Sonnet 5.5 thinks before answering (adaptive
+// thinking): low effort keeps reports quick, and every max_tokens below
+// leaves room for that thinking on top of the answer itself.
+const MODEL = 'claude-sonnet-5-5';
+const EFFORT = 'low';
+
+// The answer is the text blocks — a reply can start with a thinking block.
+function textOf(data) {
+  return (data?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
 
 // ── Throttle: enforce ≥2s between any consecutive Anthropic API calls ─────────
 let _lastCallAt = 0;
@@ -29,6 +38,7 @@ async function callAnthropic(prompt, maxTokens = 4000, timeoutMs = 90000, onRetr
         body: JSON.stringify({
           provider: 'claude',
           model: MODEL,
+          effort: EFFORT,
           maxTokens,
           messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
         }),
@@ -56,7 +66,7 @@ async function callAnthropic(prompt, maxTokens = 4000, timeoutMs = 90000, onRetr
     }
 
     const data = await response.json();
-    return data.content[0].text;
+    return textOf(data);
   }
 }
 
@@ -93,8 +103,9 @@ async function fetchPropertyData(address) {
       body: JSON.stringify({
         provider: 'claude',
         model: MODEL,
-        maxTokens: 512,
-        anthropicBeta: 'web-search-2025-03-05',
+        effort: EFFORT,
+        maxTokens: 2000,
+        // Web search needs no beta header anymore.
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',
@@ -105,9 +116,9 @@ async function fetchPropertyData(address) {
     });
     if (!response.ok) return null;
     const data = await response.json();
-    const textBlock = data.content?.find((c) => c.type === 'text');
-    if (!textBlock?.text) return null;
-    const match = textBlock.text.match(/\{[\s\S]*?\}/);
+    const text = textOf(data);
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*?\}/);
     if (!match) return null;
     return JSON.parse(match[0]);
   } catch {
@@ -201,7 +212,7 @@ export async function generateReport(job, answers, onRetry) {
   ]);
   const brainContext = buildBrainContext(brainEntries);
   const prompt = buildReportPrompt(job, answers, propertyData, brainContext);
-  return callAnthropic(prompt, 4000, 90000, onRetry);
+  return callAnthropic(prompt, 8000, 90000, onRetry);
 }
 
 export function parseReport(raw) {
@@ -300,7 +311,7 @@ Return ONLY valid JSON — no markdown, no code fences, no explanation:
 export async function generatePricingReference(job, onRetry) {
   const brainEntries = await fetchBrainEntries();
   const brainContext = buildBrainContext(brainEntries);
-  const raw = await callAnthropic(buildPricingPrompt(job, brainContext), 4500, 90000, onRetry);
+  const raw = await callAnthropic(buildPricingPrompt(job, brainContext), 8000, 90000, onRetry);
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Pricing AI returned invalid format — please try again');
   return JSON.parse(match[0]);
@@ -355,7 +366,7 @@ Return ONLY valid JSON:
 export async function generatePhases(job, answers, existingReport, onRetry) {
   const brainEntries = await fetchBrainEntries();
   const brainContext = buildBrainContext(brainEntries);
-  const raw = await callAnthropic(buildPhasesPrompt(job, answers, existingReport, brainContext), 3000, 90000, onRetry);
+  const raw = await callAnthropic(buildPhasesPrompt(job, answers, existingReport, brainContext), 6000, 90000, onRetry);
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Phases AI returned invalid format — please try again');
   return JSON.parse(match[0]);

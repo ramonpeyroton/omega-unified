@@ -5,7 +5,8 @@
 // the request to the right backend.
 //
 // POST JSON:
-//   { provider: 'claude', prompt, maxTokens?, prefill?, allowTruncation? }
+//   { provider: 'claude', prompt | messages, maxTokens?, prefill?, allowTruncation?,
+//     model?, tools?, anthropicBeta?, effort? }
 //   { provider: 'groq', model, messages, tools?, tool_choice?, temperature?, max_tokens? }
 //   { provider: 'higgsfield', action: 'generate', prompt, width?, height?, model? }
 //   { provider: 'higgsfield', action: 'status', id }
@@ -205,7 +206,7 @@ async function handleClaude(res, body) {
 
   const {
     prompt, maxTokens = 2500, prefill, allowTruncation,
-    messages: rawMessages, model, tools, anthropicBeta,
+    messages: rawMessages, model, tools, anthropicBeta, effort,
   } = body;
 
   // Callers send EITHER a simple text `prompt`, OR a full `messages`
@@ -227,14 +228,27 @@ async function handleClaude(res, body) {
     messages,
   };
   if (Array.isArray(tools) && tools.length) payload.tools = tools;
+  // Thinking depth (low | medium | high | xhigh | max). Only for models
+  // that support it — Sonnet 5.5 yes, Haiku 4.5 rejects it, so callers
+  // send it only with a Sonnet 5.5 model.
+  if (effort) payload.output_config = { effort };
+
+  const betas = anthropicBeta ? String(anthropicBeta).split(',').map((b) => b.trim()).filter(Boolean) : [];
+  // Sonnet 5.5's safety classifiers can decline a request by mistake;
+  // "default" fallbacks re-run it on Anthropic's recommended model inside
+  // the same call instead of returning the refusal.
+  if (String(payload.model).startsWith('claude-sonnet-5-5')) {
+    payload.fallbacks = 'default';
+    betas.push('server-side-fallback-2026-07-01');
+  }
 
   const headers = {
     'x-api-key':         key,
     'anthropic-version': '2023-06-01',
     'content-type':      'application/json',
   };
-  // Opt-in beta features (e.g. web search) passed straight through.
-  if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta;
+  // Opt-in beta features passed straight through (plus the fallback one).
+  if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), TIMEOUT_MS);
