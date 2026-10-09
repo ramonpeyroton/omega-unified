@@ -648,21 +648,58 @@ async function handleEstimateOpened(estimateId, res) {
 }
 
 // ─── Change Order: email a signable link ──────────────────────────────
+// Items + price format mirror src/shared/lib/changeOrders.js (coItems /
+// coPriceMode) — api code can't import from src. Rows from before
+// migration 085 have only description + amount: one line, one total.
+function changeOrderItemsForEmail(co) {
+  const hasItems = Array.isArray(co?.items) && co.items.length > 0;
+  const items = hasItems
+    ? co.items.filter((i) => i && (i.title || i.details))
+    : (co?.description ? [{ title: co.description, details: '', price: co.amount }] : []);
+  return { items, itemized: hasItems && co?.price_mode !== 'single' };
+}
+
 function renderChangeOrderHTML({ co, job, company, clientLink }) {
   const companyName = company?.company_name || 'Omega Development';
   const clientName = job?.client_name || 'there';
+  const logoUrl = company?.logo_url || `${PUBLIC_APP_URL.replace(/\/$/, '')}/logo.png`;
+  const brandHTML = company?.logo_url
+    ? `<img src="${escape(logoUrl)}" alt="${escape(companyName)}" height="56" style="display:block;border:0;outline:none;height:56px;width:auto;" />`
+    : `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>
+        <td style="vertical-align:middle;padding-right:10px;"><img src="${escape(logoUrl)}" alt="Omega" width="48" height="48" style="display:block;border:0;outline:none;width:48px;height:48px;" /></td>
+        <td style="vertical-align:middle;">
+          <div style="font-size:18px;font-weight:900;color:#2C2C2A;letter-spacing:-0.02em;line-height:1;">OMEGA<span style="color:#E8732A;">DEVELOPMENT</span></div>
+          <div style="font-size:9px;font-weight:600;color:#6b6b6b;letter-spacing:.18em;margin-top:5px;">RENOVATIONS &amp; CONSTRUCTION</div>
+        </td>
+      </tr></table>`;
+  const { items, itemized } = changeOrderItemsForEmail(co);
+  const rows = items.map((it, i) => `
+      <tr>
+        <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;color:#E8732A;font-weight:900;width:22px;">${i + 1}</td>
+        <td style="padding:10px 8px 10px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;">
+          <div style="font-weight:800;">${escape(it.title || '')}</div>
+          ${it.details ? `<div style="font-size:13px;color:#5a5a5a;margin-top:2px;line-height:1.5;">${escapeMultiline(it.details)}</div>` : ''}
+        </td>
+        ${itemized ? `<td style="padding:10px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;text-align:right;font-weight:700;white-space:nowrap;">${money(it.price)}</td>` : ''}
+      </tr>`).join('');
+  const footer = [companyName, company?.phone, company?.email].filter(Boolean).map(escape).join(' · ');
   return `<!doctype html>
-<html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
-  <div style="max-width:600px;margin:0 auto;background:white;padding:28px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
-    <h1 style="font-size:20px;margin:0 0 4px;font-weight:900;">Change Order${co.co_number ? ` #CO-${co.co_number}` : ''}</h1>
-    <p style="font-size:14px;color:#555;margin:0 0 20px;">Hi ${escape(clientName)}, please review and sign the change order below for your project${job?.address ? ` at ${escape(job.address)}` : ''}.</p>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
-      <tr><td style="padding:8px 0;color:#6b6b6b;width:30%;">Description</td><td style="padding:8px 0;">${escape(co.description || '—')}</td></tr>
-      ${co.reason ? `<tr><td style="padding:8px 0;color:#6b6b6b;">Reason</td><td style="padding:8px 0;">${escape(co.reason)}</td></tr>` : ''}
-      <tr><td style="padding:8px 0;color:#6b6b6b;">Additional amount</td><td style="padding:8px 0;font-weight:800;font-size:16px;">${money(co.amount)}</td></tr>
-    </table>
-    <a href="${clientLink}" style="display:inline-block;background:#E8590C;color:white;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;font-size:15px;">Review &amp; Sign Change Order &rarr;</a>
-    <p style="font-size:12px;color:#999;margin:24px 0 0;">${escape(companyName)}</p>
+<html><body style="margin:0;padding:24px;background:#f2f1ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
+  <div style="max-width:600px;margin:0 auto;background:white;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
+    <div style="height:5px;background:#E8732A;"></div>
+    <div style="padding:28px;">
+      ${brandHTML}
+      <h1 style="font-size:22px;margin:24px 0 4px;font-weight:900;">Change Order${co.co_number ? ` #CO-${co.co_number}` : ''}</h1>
+      <p style="font-size:14px;color:#555;margin:0 0 18px;line-height:1.55;">Hi ${escape(clientName)}, here is a change order for your project${job?.address ? ` at ${escape(job.address)}` : ''}. Please review it and sign online.</p>
+      ${co.title ? `<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;background:#2C2C2A;color:white;padding:9px 12px;">${escape(co.title)}</div>` : ''}
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">${rows}</table>
+      <table style="width:100%;border-collapse:collapse;background:#fdf4ee;margin-bottom:22px;"><tr>
+        <td style="padding:12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7a5a46;">${itemized ? 'Total for this change order' : 'Price for all work above'}</td>
+        <td style="padding:12px;text-align:right;font-size:18px;font-weight:900;white-space:nowrap;">${money(co.amount)}</td>
+      </tr></table>
+      <a href="${clientLink}" style="display:inline-block;background:#E8732A;color:white;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;font-size:15px;">Review &amp; Sign Change Order &rarr;</a>
+      <p style="font-size:12px;color:#999;margin:24px 0 0;line-height:1.6;">${footer}</p>
+    </div>
   </div>
 </body></html>`;
 }

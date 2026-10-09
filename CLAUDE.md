@@ -590,6 +590,32 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-09 (Change Order novo: itens + preço por item ou único, documento com a cara da Omega)** — Ramon + Claude (Opus 5.5).
+
+- Inácio aprovou por mockup. **Criar/editar** (`src/shared/components/ChangeOrderEditor.jsx`,
+  aberto pelo "+ Add" e pelo novo "Edit" do `ChangeOrdersFolder` na aba Documents): título,
+  itens (título + detalhes + preço, reordena ↑↓) e a escolha **Price per item** × **Single price**
+  (itens sem valor + um preço só). Save draft / Preview / Send to client. Assinado não edita.
+- **Página do cliente** (`/change-order-view/:id`, `ChangeOrderView.jsx`) reescrita: timbre da
+  Omega (logo, endereço, HIC/NHC), nº, data, data do contrato assinado, cliente/projeto, itens,
+  total, 5 termos próprios ("pagamento vence na assinatura", validade 15 dias), assinatura da
+  Omega automática (`/inacio-signature.png`, igual ao contrato) + assinatura do cliente.
+  **Não usa mais o `SignatureFlow`** (que falava de estimate e DocuSign). Print + Download PDF.
+- **Decisão do Inácio:** o cliente NÃO vê reason, prazo, forma de pagamento nem resumo do
+  contrato (contrato original/novo total) — só o valor do change order.
+- Regras em `src/shared/lib/changeOrders.js` (`coItems`, `coPriceMode`, `CO_TERMS`…); o e-mail
+  (`api/send-estimate.js` → `renderChangeOrderHTML`) espelha essas regras e ganhou logo + itens.
+- **Migration 085 PENDENTE RODAR** (`title`, `items` jsonb, `price_mode`). Sem ela, criar/editar
+  change order dá erro de coluna. `amount` continua sendo o valor (receita da obra) e
+  `description` guarda o título, então telas antigas seguem funcionando. Change orders antigos
+  (só descrição + valor) abrem como 1 linha com preço único.
+- Ainda no formato antigo: o modal "New Change Order" da tela Contracts do Operations
+  (`ContractManager.jsx`). Funciona, mas cria change order sem itens.
+- Prévia local sem login e sem banco (não commitada, em `.git/info/exclude`):
+  `co-preview.html?view=pasta` / `?view=cliente&co=co-3|co-2|co-1`.
+
+---
+
 **2026-10-09 (Sonnet 4 aposentado → Sonnet 5.5)** — Ramon + Claude (Opus 5.5).
 
 - E-mail da Anthropic (04/10): chamadas ao `claude-sonnet-4-20250514`
