@@ -3,17 +3,19 @@
 // its status + amount + a link to the signable public page. "+ Add" (and
 // "Edit" on any unsigned row) opens ChangeOrderEditor; on save the list
 // refreshes. Each unsigned row can be emailed to the client (or its link
-// copied). A signed change order's amount is added to the job's revenue by
-// the financials layer.
+// copied) or voided (PIN) so the client can no longer sign it. A signed
+// change order's amount is added to the job's revenue by the financials
+// layer.
 
 import { useEffect, useState } from 'react';
 import {
-  FileText, Plus, Send, Link as LinkIcon, ExternalLink, Loader2, Pencil,
+  FileText, Plus, Send, Link as LinkIcon, ExternalLink, Loader2, Pencil, Ban,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import { logAudit } from '../lib/audit';
-import { coItems, isLegacyCo } from '../lib/changeOrders';
+import { validateUserPinDetailed } from '../lib/userPin';
+import { coItems, isLegacyCo, isCoVoid } from '../lib/changeOrders';
 import ChangeOrderEditor from './ChangeOrderEditor';
 
 function money(n) {
@@ -27,6 +29,14 @@ const STATUS_META = {
   pending:  { label: 'PENDING',  cls: 'bg-amber-100 text-amber-800' },
   approved: { label: 'APPROVED', cls: 'bg-green-100 text-green-800' },
   rejected: { label: 'REJECTED', cls: 'bg-red-100 text-red-700' },
+  void:     { label: 'VOID',     cls: 'bg-gray-100 text-gray-500 line-through' },
+};
+
+const PIN_ERRORS = {
+  wrong_pin:     'Wrong PIN — try again.',
+  role_mismatch: 'PIN matches a different role.',
+  name_mismatch: 'PIN belongs to another user.',
+  query_failed:  'Network error — try again.',
 };
 
 export default function ChangeOrdersFolder({ job, user }) {
@@ -34,6 +44,7 @@ export default function ChangeOrdersFolder({ job, user }) {
   const [loading, setLoading] = useState(true);
   // null = closed · { co: null } = new · { co: row } = editing that row
   const [editor, setEditor] = useState(null);
+  const [voiding, setVoiding] = useState(null); // row waiting for the PIN
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
   const [copiedId, setCopiedId] = useState(null);
@@ -78,6 +89,17 @@ export default function ChangeOrdersFolder({ job, user }) {
     }
   }
 
+  // Called by the PIN modal once the PIN checks out.
+  async function voidCo(co) {
+    const { error: dbErr } = await supabase.from('change_orders')
+      .update({ status: 'void', updated_at: new Date().toISOString() })
+      .eq('id', co.id);
+    if (dbErr) throw new Error(dbErr.message || 'Failed to void the change order.');
+    logAudit({ user, action: 'change_order.void', entityType: 'change_order', entityId: co.id, details: { job_id: job.id, co_number: co.co_number, amount: co.amount, was: co.status } });
+    setVoiding(null);
+    await load();
+  }
+
   async function copyLink(co) {
     try {
       await navigator.clipboard.writeText(coLink(co.id));
@@ -109,10 +131,11 @@ export default function ChangeOrdersFolder({ job, user }) {
         cos.map((co) => {
           const meta = STATUS_META[co.status] || STATUS_META.draft;
           const isSigned = co.status === 'signed';
+          const isVoid = isCoVoid(co);
           const link = co.pdf_url || coLink(co.id);
           const itemCount = isLegacyCo(co) ? 0 : coItems(co).length;
           return (
-            <div key={co.id} className="px-4 py-3 border-t border-gray-100 flex items-start gap-3 hover:bg-white first:border-t-0">
+            <div key={co.id} className={`px-4 py-3 border-t border-gray-100 flex items-start gap-3 hover:bg-white first:border-t-0 ${isVoid ? 'opacity-60' : ''}`}>
               <div className="w-10 h-10 rounded-lg bg-omega-pale flex items-center justify-center flex-shrink-0">
                 <FileText className="w-4 h-4 text-omega-orange" />
               </div>
@@ -128,11 +151,13 @@ export default function ChangeOrdersFolder({ job, user }) {
                 <p className="text-[11px] text-omega-stone mt-0.5">
                   {isSigned
                     ? <>Signed by <strong>{co.signed_by || 'client'}</strong>{co.signed_at ? ` · ${new Date(co.signed_at).toLocaleDateString()}` : ''}</>
-                    : co.sent_at
-                      ? <>Sent {new Date(co.sent_at).toLocaleDateString()}{co.client_opened_at ? ' · opened' : ''}</>
-                      : <>Created {new Date(co.created_at).toLocaleDateString()}</>}
+                    : isVoid
+                      ? <>Voided{co.updated_at ? ` ${new Date(co.updated_at).toLocaleDateString()}` : ''} · the client can no longer sign it</>
+                      : co.sent_at
+                        ? <>Sent {new Date(co.sent_at).toLocaleDateString()}{co.client_opened_at ? ' · opened' : ''}</>
+                        : <>Created {new Date(co.created_at).toLocaleDateString()}</>}
                 </p>
-                {!isSigned && (
+                {!isSigned && !isVoid && (
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <button
                       onClick={() => send(co)}
@@ -154,11 +179,18 @@ export default function ChangeOrdersFolder({ job, user }) {
                     >
                       <LinkIcon className="w-3 h-3" /> {copiedId === co.id ? 'Copied!' : 'Link'}
                     </button>
+                    <button
+                      onClick={() => { setError(''); setVoiding(co); }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-200 hover:border-red-300 hover:text-red-600 text-[11px] font-semibold text-omega-stone"
+                      title="Cancel this change order so the client can no longer sign it"
+                    >
+                      <Ban className="w-3 h-3" /> Void
+                    </button>
                   </div>
                 )}
               </div>
               <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                <p className="text-sm font-black text-omega-charcoal tabular-nums">{money(co.amount)}</p>
+                <p className={`text-sm font-black tabular-nums ${isVoid ? 'text-omega-stone line-through' : 'text-omega-charcoal'}`}>{money(co.amount)}</p>
                 <a href={link} target="_blank" rel="noopener noreferrer" className="text-omega-stone hover:text-omega-orange" title="Open the change order the client sees">
                   <ExternalLink className="w-4 h-4" />
                 </a>
@@ -178,6 +210,78 @@ export default function ChangeOrdersFolder({ job, user }) {
           onSaved={() => load()}
         />
       )}
+
+      {voiding && (
+        <VoidPinModal
+          co={voiding}
+          user={user}
+          onClose={() => setVoiding(null)}
+          onConfirm={() => voidCo(voiding)}
+        />
+      )}
+    </div>
+  );
+}
+
+// PIN gate before voiding — same pattern as the other terminal actions
+// (validateUserPinDetailed against the logged-in user's own PIN).
+function VoidPinModal({ co, user, onClose, onConfirm }) {
+  const [pin, setPin] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  async function confirm() {
+    if (!pin.trim()) { setError('Enter your PIN'); return; }
+    setVerifying(true);
+    setError('');
+    try {
+      const result = await validateUserPinDetailed({ name: user?.name, role: user?.role }, pin);
+      if (!result.ok) { setError(PIN_ERRORS[result.reason] || 'Invalid PIN'); return; }
+      await onConfirm();
+    } catch (err) {
+      setError(err?.message || 'Verification failed — try again');
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4" onClick={() => !verifying && onClose()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+            <Ban className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-omega-charcoal">Void #CO-{co.co_number} · {money(co.amount)}</h3>
+            <p className="text-xs text-omega-stone mt-0.5">Enter your PIN to confirm.</p>
+          </div>
+        </div>
+        <p className="text-xs text-omega-stone mb-4 leading-relaxed">
+          The client will no longer be able to sign this change order — the link shows it as cancelled.
+          It never counts toward the job&rsquo;s revenue. This can&rsquo;t be undone.
+        </p>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          autoFocus
+          value={pin}
+          onChange={(e) => { setPin(e.target.value); setError(''); }}
+          onKeyDown={(e) => e.key === 'Enter' && confirm()}
+          placeholder="Your PIN"
+          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-base mb-2 focus:outline-none focus:border-omega-orange text-center tracking-widest"
+        />
+        {error && <p className="text-xs text-red-600 mb-2 text-center">{error}</p>}
+        <div className="flex gap-3 justify-end mt-2">
+          <button onClick={onClose} disabled={verifying} className="px-4 py-2.5 rounded-lg text-sm font-semibold text-omega-slate hover:bg-gray-100 disabled:opacity-50">
+            Cancel
+          </button>
+          <button onClick={confirm} disabled={verifying} className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
+            {verifying ? 'Verifying…' : 'Void change order'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

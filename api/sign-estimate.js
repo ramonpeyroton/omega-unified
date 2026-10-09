@@ -353,6 +353,10 @@ async function signChangeOrder(req, res, body) {
     .eq('id', change_order_id).maybeSingle();
   if (cErr || !co) return json(res, 404, { ok: false, error: 'Change order not found' });
   if (co.signed_at) return json(res, 409, { ok: false, error: 'This change order has already been signed.' });
+  // Voided by Omega (old version etc.) — the page hides the signature block,
+  // this blocks a stale tab or a direct POST.
+  if (co.status === 'void' || co.status === 'rejected')
+    return json(res, 409, { ok: false, error: 'This change order was cancelled and can no longer be signed.' });
 
   const signed_at = new Date().toISOString();
   const signed_ip = clientIp(req);

@@ -708,6 +708,8 @@ async function sendChangeOrder(req, res, body) {
   const coId = (body?.changeOrderId || '').toString();
   const { data: co } = await supabase.from('change_orders').select('*').eq('id', coId).maybeSingle();
   if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
+  if (co.status === 'void') return json(res, 400, { ok: false, error: 'This change order was voided — it can no longer be sent.' });
+  if (co.status === 'signed') return json(res, 400, { ok: false, error: 'This change order is already signed.' });
   const { data: job } = await supabase.from('jobs').select('*').eq('id', co.job_id).maybeSingle();
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
   if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });

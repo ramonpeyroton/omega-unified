@@ -19,6 +19,12 @@ export const CO_TERMS = [
 // Snapshot saved with the signature (change_orders.disclaimers).
 export const CO_TERMS_TEXT = CO_TERMS.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
+// 'void' = cancelled by Omega (e.g. an old version the client should no
+// longer sign). Can't be edited, sent or signed; never counts as revenue.
+export function isCoVoid(co) {
+  return co?.status === 'void';
+}
+
 export function isLegacyCo(co) {
   return !(Array.isArray(co?.items) && co.items.length);
 }

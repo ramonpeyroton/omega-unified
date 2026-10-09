@@ -609,6 +609,11 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
   change order dá erro de coluna. `amount` continua sendo o valor (receita da obra) e
   `description` guarda o título, então telas antigas seguem funcionando. Change orders antigos
   (só descrição + valor) abrem como 1 linha com preço único.
+- **Void** (mesmo dia): botão nos change orders não assinados (aba Documents), com PIN do
+  próprio user → `status = 'void'`. Página do cliente mostra "cancelled" e esconde a
+  assinatura; `api/sign-estimate.js` recusa assinar (void/rejected) e `api/send-estimate.js`
+  recusa enviar. Nunca soma na receita (só `signed` soma). Ramon: **não mexer nos change orders
+  já enviados** (ex.: Keisha CO-1/CO-2 antigos ficam como estão até ele decidir).
 - Ainda no formato antigo: o modal "New Change Order" da tela Contracts do Operations
   (`ContractManager.jsx`). Funciona, mas cria change order sem itens.
 - Prévia local sem login e sem banco (não commitada, em `.git/info/exclude`):

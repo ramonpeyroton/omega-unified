@@ -285,7 +285,7 @@ Please confirm your approval.
                 {changeOrders.map((co) => {
                   const j = jobs.find((x) => x.id === co.job_id);
                   return (
-                    <tr key={co.id} className="hover:bg-omega-cloud/40">
+                    <tr key={co.id} className={`hover:bg-omega-cloud/40 ${co.status === 'void' ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3">{j?.client_name || j?.name || '—'}</td>
                       <td className="px-4 py-3">{co.description || '—'}</td>
                       <td className="px-4 py-3">${Number(co.amount || 0).toLocaleString()}</td>
@@ -297,6 +297,7 @@ Please confirm your approval.
                             <input
                               type="checkbox"
                               checked={!!co.paid}
+                              disabled={co.status === 'void'}
                               onChange={() => togglePaid(co)}
                               className="w-4 h-4 rounded border-gray-300 text-omega-success focus:ring-omega-success"
                             />

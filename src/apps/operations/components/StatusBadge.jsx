@@ -8,6 +8,7 @@ const STATUS_STYLES = {
   rejected:  'bg-red-50 text-red-700 border-red-200',
   declined:  'bg-red-50 text-red-700 border-red-200',
   expired:   'bg-red-100 text-red-800 border-red-300',
+  void:      'bg-gray-100 text-gray-500 border-gray-200 line-through',
 };
 
 export default function StatusBadge({ status }) {

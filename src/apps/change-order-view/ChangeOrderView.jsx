@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import html2pdf from 'html2pdf.js';
 import { Printer, Download } from 'lucide-react';
 import { supabase } from '../../shared/lib/supabase';
-import { CO_TERMS, CO_TERMS_TEXT, coItems, coPriceMode, coNumberLabel } from '../../shared/lib/changeOrders';
+import { CO_TERMS, CO_TERMS_TEXT, coItems, coPriceMode, coNumberLabel, isCoVoid } from '../../shared/lib/changeOrders';
 import { SERVICE_LABEL, parseJobServices } from '../../shared/data/services';
 
 // Public, auth-less page that renders a single Change Order on Omega's
@@ -135,6 +135,12 @@ export default function ChangeOrderView() {
 
         <div ref={contentRef} style={{ background: 'white', borderRadius: 10, boxShadow: '0 2px 14px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
           <div style={{ height: 6, background: ORANGE }} />
+          {isCoVoid(co) && (
+            <div style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '12px 20px', fontSize: 13.5, lineHeight: 1.5, textAlign: 'center' }}>
+              <strong>This change order was cancelled</strong> by {companyName} and can no longer be signed.
+              {company?.phone ? ` Questions? Call ${company.phone}.` : ''}
+            </div>
+          )}
           <div style={{ padding: 'clamp(18px, 4.5vw, 36px)' }}>
 
             {/* Letterhead */}
@@ -238,13 +244,15 @@ export default function ChangeOrderView() {
               </ol>
             </div>
 
-            <Signatures
-              co={co}
-              number={number}
-              customerName={job?.client_name || ''}
-              omegaDate={prettyDate(issuedOn)}
-              onSigned={(signed) => setCo((prev) => ({ ...prev, status: 'signed', ...signed }))}
-            />
+            {!isCoVoid(co) && (
+              <Signatures
+                co={co}
+                number={number}
+                customerName={job?.client_name || ''}
+                omegaDate={prettyDate(issuedOn)}
+                onSigned={(signed) => setCo((prev) => ({ ...prev, status: 'signed', ...signed }))}
+              />
+            )}
           </div>
         </div>
       </div>
