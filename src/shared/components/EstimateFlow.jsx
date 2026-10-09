@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Check, Send, FileText, Lock, Info, MessageSquare, X, Clock, CheckCircle2, AlertTriangle, RotateCw, PartyPopper, Plus, Pencil } from 'lucide-react';
 import { validateUserPinDetailed } from '../lib/userPin';
 import { supabase } from '../lib/supabase';
 import { createEnvelope, getEnvelopeStatus, downloadSignedDocument, voidEnvelope } from '../lib/docusign';
@@ -286,6 +287,7 @@ function Stepper({ current }) {
 }
 
 export default function EstimateFlow({ job, user, onBack }) {
+  const navigate = useNavigate();
   const perms = permsFor(user?.role);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -707,21 +709,32 @@ export default function EstimateFlow({ job, user, onBack }) {
     } catch { /* non-fatal */ }
   }
 
+  // Same email the builder's "Save & Send" uses (api/send-estimate) —
+  // the client gets the link to the estimate again.
   async function sendEstimateToClient() {
     if (!perms.canEditEstimate) { setToast({ type: 'warning', message: 'Only Operations or Owner can send the estimate' }); return; }
     if (!estimate) { setToast({ type: 'error', message: 'No estimate to send' }); return; }
+    if (!job.client_email) { setToast({ type: 'error', message: 'Client has no email on file. Add it under Details first.' }); return; }
+    const again = estimate.status === 'sent' || !!estimate.sent_at;
+    if (!confirm(`${again ? 'Resend' : 'Send'} the estimate to ${job.client_email}?`)) return;
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from('estimates')
-        .update({ status: 'sent', sent_at: new Date().toISOString(), sent_by: user?.name || null })
-        .eq('id', estimate.id)
-        .select().single();
-      if (error) throw error;
-      setEstimate(data);
+      const res = await apiFetch('/api/send-estimate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-omega-role': user?.role || '',
+          'x-omega-user': user?.name || '',
+        },
+        body: JSON.stringify({ estimateId: estimate.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      const { data } = await supabase.from('estimates').select('*').eq('id', estimate.id).maybeSingle();
+      if (data) setEstimate(data);
       await setJobPipeline('estimate_sent');
-      notify({ recipientRole: 'sales', title: 'Estimate sent to client', message: `${job.client_name || 'Job'} — estimate has been sent.`, type: 'estimate', jobId: job.id });
-      setToast({ type: 'success', message: 'Estimate sent to client' });
+      logAudit({ user, action: again ? 'estimate.resend' : 'estimate.send', entityType: 'estimate', entityId: estimate.id, details: { to: job.client_email, from: 'estimate_flow' } });
+      setToast({ type: 'success', message: `Estimate ${again ? 're' : ''}sent to ${job.client_email}` });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to send estimate' });
     } finally {
@@ -732,6 +745,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   async function approveEstimate() {
     if (!perms.canEditEstimate) return;
     if (!estimate) { setToast({ type: 'error', message: 'No estimate to approve' }); return; }
+    if (!confirm('Mark this estimate as approved by the client? It becomes view-only.')) return;
     setSaving(true);
     const { data, error } = await supabase
       .from('estimates')
@@ -754,6 +768,7 @@ export default function EstimateFlow({ job, user, onBack }) {
   async function requestChanges() {
     if (!perms.canEditEstimate) return;
     if (!estimate) return;
+    if (!confirm('Mark this estimate as rejected by the client? The job moves to Estimate Rejected.')) return;
     setSaving(true);
     const { data, error } = await supabase.from('estimates').update({ status: 'rejected' }).eq('id', estimate.id).select().single();
     setSaving(false);
@@ -1210,17 +1225,19 @@ export default function EstimateFlow({ job, user, onBack }) {
                 ) : (
                   <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mt-6">
                     <button onClick={approveEstimate} disabled={saving || !perms.canEditEstimate} className="order-first sm:order-last px-4 py-3 sm:py-2.5 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-semibold disabled:opacity-60">
-                      {saving ? 'Saving…' : 'Approve Estimate'}
+                      {saving ? 'Saving…' : 'Mark as Approved'}
                     </button>
-                    {estimate.status !== 'sent' && (
-                      <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="px-4 py-3 sm:py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
-                        {saving ? 'Sending…' : 'Send to Client'}
-                      </button>
-                    )}
+                    <button onClick={sendEstimateToClient} disabled={saving || !perms.canEditEstimate} className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-semibold disabled:opacity-60">
+                      <Send className="w-4 h-4" /> {(estimate.status === 'sent' || estimate.sent_at) ? 'Resend to Client' : 'Send to Client'}
+                    </button>
+                    {/* Back to the builder on this estimate (job card -> Estimate tab). */}
+                    <button onClick={() => navigate(`/jobs/${job.id}?tab=estimate&edit=${estimate.id}`)} disabled={saving || !perms.canEditEstimate} className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal disabled:opacity-50">
+                      <Pencil className="w-4 h-4" /> Edit Estimate
+                    </button>
                     <button onClick={() => setShowChangeModal(true)} disabled={saving} className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-xl bg-omega-info hover:bg-blue-900 text-white text-sm font-semibold disabled:opacity-60">
                       <MessageSquare className="w-4 h-4" /> Request Changes
                     </button>
-                    <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-3 sm:py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Reject</button>
+                    <button onClick={requestChanges} disabled={saving || !perms.canEditEstimate} className="px-4 py-3 sm:py-2.5 rounded-xl border border-gray-200 hover:border-red-300 text-sm font-semibold text-omega-charcoal disabled:opacity-50">Mark as Rejected</button>
                   </div>
                 )}
               </>

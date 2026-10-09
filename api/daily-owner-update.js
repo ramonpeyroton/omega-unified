@@ -246,9 +246,10 @@ async function sendBillAlerts() {
 }
 
 // ═══ 5pm SMS summary (owner + Ramon) ═════════════════════════════════
-// Temporary, by Ramon's call: one SMS a day at 17:00 NY (weekends too)
-// from the Twilio toll-free number, until SMS_SUMMARY_LAST_DAY. The lead
-// alerts / WhatsApp track stays on standby.
+// By Ramon's call: one SMS a day at 17:00 NY (weekends too) from the
+// Twilio toll-free number. Stays on until WhatsApp is approved (09/10/26);
+// set SMS_SUMMARY_LAST_DAY to a 'YYYY-MM-DD' to stop it on a given day.
+// The lead alerts / WhatsApp track stays on standby.
 //
 // Runs from ?task=reminders (GitHub cron, every 15 min). Dedupe is per
 // recipient per day through audit_log rows (action 'sms_summary.sent'), so
@@ -260,7 +261,7 @@ async function sendBillAlerts() {
 
 const NY_TZ = 'America/New_York';
 const SMS_SUMMARY_HOUR = 17;
-const SMS_SUMMARY_LAST_DAY = '2026-10-04'; // inclusive — Ramon decides what's next
+const SMS_SUMMARY_LAST_DAY = null; // inclusive 'YYYY-MM-DD'; null = no end date
 const BULK_IMPORT_CREATORS = new Set(['import', 'legacy_import']);
 const PT_WEEKDAY = { Sun: 'dom', Mon: 'seg', Tue: 'ter', Wed: 'qua', Thu: 'qui', Fri: 'sex', Sat: 'sáb' };
 const KIND_PT = {
@@ -459,7 +460,7 @@ async function maybeSendSmsSummary(nowMs = Date.now()) {
 
   const p = nyParts(nowMs);
   const today = nyDay(p.y, p.m, p.d);
-  if (today.key > SMS_SUMMARY_LAST_DAY) return { status: 'ended' };
+  if (SMS_SUMMARY_LAST_DAY && today.key > SMS_SUMMARY_LAST_DAY) return { status: 'ended' };
   if (p.hh < SMS_SUMMARY_HOUR) return { status: 'not_yet' };
 
   const { data: sentRows, error: sentErr } = await supabase

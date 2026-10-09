@@ -33,13 +33,24 @@ function safeIsoOrNow(input) {
   return d.toISOString();
 }
 
+// A due date stored as 'YYYY-MM-DD' at local midnight. `new Date('2026-10-15')`
+// is UTC midnight = Oct 14, 8pm in NY, which made things go overdue a day
+// early. Returns null for empty / unparseable input.
+export function dueDay(value) {
+  if (!value) return null;
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 // ─── Effective status (UI-only projection) ───────────────────────
 export function effectiveStatus(m, today = new Date()) {
   if (!m) return 'pending';
   if (m.status === 'paid' || m.status === 'partial') return m.status;
-  if (!m.due_date) return 'pending';
-  const due = new Date(m.due_date);
-  due.setHours(0, 0, 0, 0);
+  const due = dueDay(m.due_date);
+  if (!due) return 'pending';
   const t = new Date(today);
   t.setHours(0, 0, 0, 0);
   const daysPast = Math.floor((t - due) / (1000 * 60 * 60 * 24));
@@ -354,17 +365,25 @@ export async function loadFinanceTotals() {
   const horizon30 = new Date(today);
   horizon30.setDate(horizon30.getDate() + 30);
 
-  const [{ data: milestones }, { data: subs }] = await Promise.all([
-    supabase.from('payment_milestones').select('due_amount, received_amount, due_date, status, received_at'),
-    supabase.from('sub_payments').select('due_amount, paid_amount, due_date, status, paid_at'),
+  const [{ data: allMilestones }, { data: allSubs }, { data: contracts }, { data: agreements }] = await Promise.all([
+    supabase.from('payment_milestones').select('contract_id, due_amount, received_amount, due_date, status, received_at'),
+    supabase.from('sub_payments').select('agreement_id, due_amount, paid_amount, due_date, status, paid_at'),
+    supabase.from('contracts').select('id'),
+    supabase.from('subcontractor_agreements').select('id'),
   ]);
+
+  // Rows whose contract / agreement was deleted don't count anymore.
+  const contractIds = new Set((contracts || []).map((c) => c.id));
+  const agreementIds = new Set((agreements || []).map((a) => a.id));
+  const milestones = (allMilestones || []).filter((m) => contractIds.has(m.contract_id));
+  const subs = (allSubs || []).filter((p) => agreementIds.has(p.agreement_id));
 
   const sumOpenIn30 = (rows, paidField) => (rows || []).reduce((s, r) => {
     if (r.status === 'paid') return s;
     const remaining = Number(r.due_amount || 0) - Number(r[paidField] || 0);
     if (remaining <= 0) return s;
-    if (!r.due_date) return s;
-    const d = new Date(r.due_date);
+    const d = dueDay(r.due_date);
+    if (!d) return s;
     return d <= horizon30 ? s + remaining : s;
   }, 0);
 
@@ -372,9 +391,8 @@ export async function loadFinanceTotals() {
     if (r.status === 'paid') return s;
     const remaining = Number(r.due_amount || 0) - Number(r[paidField] || 0);
     if (remaining <= 0) return s;
-    if (!r.due_date) return s;
-    const d = new Date(r.due_date);
-    d.setHours(0, 0, 0, 0);
+    const d = dueDay(r.due_date);
+    if (!d) return s;
     const days = Math.floor((today - d) / (1000 * 60 * 60 * 24));
     return days > OVERDUE_GRACE_DAYS ? s + remaining : s;
   }, 0);

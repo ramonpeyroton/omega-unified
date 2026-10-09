@@ -137,7 +137,11 @@ export default function JobFullView({
   // For receptionist (READ_ONLY_BASIC_ROLES), we land on Details directly
   // because that's the only tab they have. An explicit `initialTab` from
   // the caller wins over the role-based default.
-  const [editEstimateId, setEditEstimateId] = useState(null);
+  // ?edit=<estimateId> (Estimate Flow -> "Edit Estimate") opens the builder
+  // straight on that estimate, like "Edit" on the Documents tab.
+  const [editEstimateId, setEditEstimateId] = useState(
+    () => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('edit')) || null,
+  );
 
   // On phones the per-project chat lives in its own bottom-bar section
   // (/daily-logs), so the in-card Daily Logs tab is dropped and a job

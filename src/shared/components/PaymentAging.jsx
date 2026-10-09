@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { AlertTriangle, Check, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
+import { dueDay } from '../lib/finance';
 
 function money(n) {
   if (n == null) return '—';
@@ -9,8 +10,8 @@ function money(n) {
 }
 
 function daysBetween(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
+  const d = dueDay(dateStr);
+  if (!d) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return Math.floor((d - today) / (1000 * 60 * 60 * 24));
@@ -174,7 +175,7 @@ export default function PaymentAging({ user }) {
                   </div>
                   <div className="flex-shrink-0 text-right min-w-[100px]">
                     <p className="font-bold text-omega-charcoal">{money(r.amount)}</p>
-                    <p className="text-[11px] text-omega-stone">{r.due_date ? new Date(r.due_date).toLocaleDateString() : 'No date'}</p>
+                    <p className="text-[11px] text-omega-stone">{r.due_date ? dueDay(r.due_date).toLocaleDateString() : 'No date'}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${style.cls}`}>

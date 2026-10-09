@@ -20,7 +20,7 @@ import { supabase } from '../../lib/supabase';
 import {
   effectiveStatus, milestoneAmount, ensureMilestonesForContract,
   ensureSubPaymentsForAgreement, markMilestoneReceived, markSubPaymentPaid,
-  loadFinanceTotals, sendPaymentReceipt,
+  loadFinanceTotals, sendPaymentReceipt, dueDay,
 } from '../../lib/finance';
 import { logAudit } from '../../lib/audit';
 import { loadBillsTotals } from '../../lib/bills';
@@ -44,8 +44,9 @@ function money(n) {
 }
 
 function shortDate(s) {
-  if (!s) return '—';
-  return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const d = dueDay(s);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function todayISO() {
@@ -557,7 +558,7 @@ async function openPrintReport() {
   });
 
   const fmt = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const dt = (s) => dueDay(s) ? dueDay(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 
   let totalReceived = 0, totalOwed = 0, totalSubsPaid = 0, totalSubsOwed = 0, totalGhost = 0;
   (milestones || []).forEach((m) => {
@@ -854,7 +855,7 @@ function ClientsTab({ user, accounts }) {
         const remaining = (Number(m.due_amount) || 0) - (Number(m.received_amount) || 0);
         if (remaining > 0) {
           const daysPast = m.due_date
-            ? Math.floor((Date.now() - new Date(m.due_date).getTime()) / 86400000)
+            ? Math.floor((Date.now() - dueDay(m.due_date).getTime()) / 86400000)
             : 0;
           overdueItems.push({ milestone: m, contract, job, remaining, daysPast });
         }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, Save, Mail, Loader2,
   AlertCircle, CheckCircle2, Download, Copy, Layers, X, Shield, RotateCcw, Wand2,
-  GripVertical, MoreVertical, Eye, Package, ChevronRight, ArrowLeft, Lock,
+  GripVertical, MoreVertical, Eye, Package, ChevronRight, ArrowLeft, Lock, History,
 } from 'lucide-react';
 import {
   DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors,
@@ -110,6 +110,22 @@ const PRICE_MODE_CARDS = [
   { key: 'single',    icon: '💰', title: 'Single Price', hint: 'Client sees only the grand total — no item or section prices' },
 ];
 
+// The editable content of an estimate row, as kept in estimate_versions.
+function versionData(row) {
+  return {
+    header_description: row.header_description ?? '',
+    sections: row.sections ?? [],
+    customer_message: row.customer_message ?? null,
+    payment_plan: row.payment_plan ?? null,
+    total_amount: row.total_amount ?? 0,
+    option_label: row.option_label ?? null,
+    bundle_label: row.bundle_label ?? null,
+    display_mode: row.display_mode ?? 'breakdown',
+    disclaimers: row.disclaimers ?? null,
+    show_financing: row.show_financing !== false,
+  };
+}
+
 function emptyItem()    { return { id: newId(), description: '', scope: '', price: 0 }; }
 function emptySection() { return { id: newId(), title: 'Section 1', items: [emptyItem()] }; }
 
@@ -164,6 +180,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // Approved / signed: the client signed this version — shown read-only,
   // never saved over (no Save/Send, no alternatives or bundling).
   const locked = isEstimateLocked(estimate);
+
+  // Someone else saved this estimate after it was opened here — the save
+  // is held back and EstimateConflictModal asks what to do (caso #2104).
+  const [conflict, setConflict] = useState(null); // { row, by, versioned }
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => { init(); /* eslint-disable-next-line */ }, [job?.id, editEstimateId]);
 
@@ -236,7 +257,10 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     // Same as switching options: keep the seller's edits.
     try {
       if (estimate?.id && !locked && formSnapshot() !== savedSnapshotRef.current) await persist();
-    } catch { /* ignore */ }
+    } catch (err) {
+      // Stay here so the conflict modal decides what happens to the edits.
+      if (err?.code === 'ESTIMATE_CONFLICT') { setSaving(false); return; }
+    }
     setSaving(false);
     setToast(null);
     resetToBlank();
@@ -492,7 +516,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   }
 
   // ─── Persistence ──────────────────────────────────────────────────
-  async function persist(extra = {}) {
+  // force = save over a newer version someone else saved (conflict modal).
+  async function persist(extra = {}, { force = false } = {}) {
     const base = {
       job_id: job.id,
       header_description: headerDescription,
@@ -526,11 +551,23 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
 
     if (estimate?.id) {
       // No DB trigger keeps updated_at — stamp it so "Last saved" is true.
-      const { data, error } = await supabase
-        .from('estimates').update({ ...base, updated_at: new Date().toISOString() }).eq('id', estimate.id)
-        .select().single();
+      let query = supabase
+        .from('estimates').update({ ...base, updated_at: new Date().toISOString() }).eq('id', estimate.id);
+      // Only overwrite the version this form was loaded from. If someone
+      // saved in between, nothing matches and we ask instead.
+      if (!force && estimate.updated_at) query = query.eq('updated_at', estimate.updated_at);
+      const { data: rows, error } = await query.select();
       if (error) throw error;
+      if (!rows?.length) {
+        const theirs = await loadLatestSave(estimate.id);
+        setConflict(theirs);
+        const err = new Error(`${theirs.by || 'Someone else'} saved this estimate after you opened it — nothing was overwritten.`);
+        err.code = 'ESTIMATE_CONFLICT';
+        throw err;
+      }
+      const data = rows[0];
       savedSnapshotRef.current = formSnapshot();
+      recordVersion(data, estimate);
       return data;
     } else {
       // First-save gets a human-readable estimate number from the sequence.
@@ -547,8 +584,96 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         .select().single();
       if (error) throw error;
       savedSnapshotRef.current = formSnapshot();
+      recordVersion(data, null);
       return data;
     }
+  }
+
+  // ─── Version history (estimate_versions, migration 084) ───────────
+  // Every save keeps a copy so an overwritten estimate can be brought
+  // back. The first save after this feature also stores the version that
+  // was on screen before it. Best effort: never blocks or fails a save.
+  async function recordVersion(saved, previous) {
+    try {
+      if (previous?.id) {
+        const { data: any } = await supabase
+          .from('estimate_versions').select('id').eq('estimate_id', saved.id).limit(1);
+        if (any && any.length === 0) {
+          await supabase.from('estimate_versions').insert([{
+            estimate_id: saved.id, saved_by: null,
+            saved_at: previous.updated_at || previous.created_at || null,
+            data: versionData(previous),
+          }]);
+        }
+      }
+      await supabase.from('estimate_versions').insert([{
+        estimate_id: saved.id, saved_by: user?.name || null,
+        saved_at: saved.updated_at || new Date().toISOString(),
+        data: versionData(saved),
+      }]);
+    } catch { /* history is optional */ }
+  }
+
+  // Who saved the newer version, and the row itself (for the conflict modal).
+  async function loadLatestSave(id) {
+    const { data: row } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
+    let by = null;
+    let versioned = false;
+    try {
+      const { data: v } = await supabase
+        .from('estimate_versions').select('saved_by, saved_at')
+        .eq('estimate_id', id).order('saved_at', { ascending: false }).limit(1);
+      if (v?.[0]) { by = v[0].saved_by; versioned = v[0].saved_at === row?.updated_at; }
+    } catch { /* table may not exist yet */ }
+    if (!by) {
+      const { data: a } = await supabase
+        .from('audit_log').select('user_name')
+        .eq('entity_id', id).in('action', ['estimate.save', 'estimate.send'])
+        .order('timestamp', { ascending: false }).limit(1);
+      by = a?.[0]?.user_name || null;
+    }
+    return { row, by, versioned };
+  }
+
+  function loadTheirVersion() {
+    if (!conflict?.row) return;
+    loadIntoForm(conflict.row);
+    setConflict(null);
+    setToast({ type: 'success', message: `Loaded the version saved by ${conflict.by || 'the other user'}. Your unsaved changes were dropped.` });
+  }
+
+  async function saveMineAnyway() {
+    const theirs = conflict;
+    setConflict(null);
+    setSaving(true);
+    setToast(null);
+    try {
+      // Their version stays recoverable in History.
+      if (theirs?.row && !theirs.versioned) {
+        try {
+          await supabase.from('estimate_versions').insert([{
+            estimate_id: theirs.row.id, saved_by: theirs.by || null,
+            saved_at: theirs.row.updated_at || null, data: versionData(theirs.row),
+          }]);
+        } catch { /* history is optional */ }
+      }
+      const saved = await persist({}, { force: true });
+      setEstimate(saved);
+      logAudit({ user, action: 'estimate.save', entityType: 'estimate', entityId: saved.id, details: { total, overwrote: theirs?.by || null } });
+      setToast({ type: 'success', message: `Saved. The version by ${theirs?.by || 'the other user'} is kept in History.` });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to save' });
+    }
+    setSaving(false);
+  }
+
+  // Put an older version back in the editor. Nothing is saved until the
+  // seller hits Save Draft.
+  function restoreVersion(v) {
+    loadIntoForm({ ...estimate, ...v.data });
+    setHistoryOpen(false);
+    const when = new Date(v.saved_at).toLocaleString();
+    setToast({ type: 'success', message: `Version from ${when} loaded — click Save Draft to keep it.` });
   }
 
   // ─── Auto-fill from questionnaire ──────────────────────────────────
@@ -656,7 +781,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setSaving(true);
     try {
       // Save current first so edits don't get lost (never over a locked one).
-      if (activeId && !locked && formSnapshot() !== savedSnapshotRef.current) { try { await persist(); } catch { /* ignore */ } }
+      if (activeId && !locked && formSnapshot() !== savedSnapshotRef.current) {
+        try { await persist(); } catch (err) { if (err?.code === 'ESTIMATE_CONFLICT') return; }
+      }
       const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
       if (data) loadIntoForm(data);
       // Refresh the switcher chips (totals / status may have changed).
@@ -737,7 +864,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     if (id === estimate?.id || saving || sending) return;
     setSaving(true);
     try {
-      if (estimate?.id && !locked && formSnapshot() !== savedSnapshotRef.current) { try { await persist(); } catch { /* ignore */ } }
+      if (estimate?.id && !locked && formSnapshot() !== savedSnapshotRef.current) {
+        try { await persist(); } catch (err) { if (err?.code === 'ESTIMATE_CONFLICT') return; }
+      }
       const { data } = await supabase.from('estimates').select('*').eq('id', id).maybeSingle();
       if (data) {
         loadIntoForm(data);
@@ -1494,6 +1623,16 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <SaveStatus saving={saving} estimate={estimate} />
+            {estimate?.id && (
+              <button
+                onClick={() => setHistoryOpen(true)}
+                disabled={saving || sending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-omega-charcoal hover:border-omega-orange text-xs font-bold disabled:opacity-50"
+                title="Earlier saved versions of this estimate"
+              >
+                <History className="w-3.5 h-3.5" /> History
+              </button>
+            )}
             {estimate?.id && !locked && ['owner', 'operations', 'admin'].includes(user?.role) && (
               <button
                 onClick={handleDeleteEstimate}
@@ -1553,6 +1692,130 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         </div>
       </div>
       </div>{/* end chooser dim wrapper */}
+
+      {conflict && (
+        <EstimateConflictModal
+          conflict={conflict}
+          busy={saving || sending}
+          onUseTheirs={loadTheirVersion}
+          onSaveMine={saveMineAnyway}
+          onCancel={() => setConflict(null)}
+        />
+      )}
+      {historyOpen && estimate?.id && (
+        <EstimateHistoryModal
+          estimateId={estimate.id}
+          locked={locked}
+          onRestore={restoreVersion}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Shown when a save finds a newer version saved by someone else.
+function EstimateConflictModal({ conflict, busy, onUseTheirs, onSaveMine, onCancel }) {
+  const by = conflict.by || 'Someone else';
+  const at = conflict.row?.updated_at ? new Date(conflict.row.updated_at).toLocaleString() : null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true">
+      <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-6 h-6 text-omega-orange flex-shrink-0" />
+          <div>
+            <p className="text-base font-bold text-omega-charcoal">{by} also edited this estimate</p>
+            <p className="text-sm text-omega-stone mt-1">
+              {by} saved it{at ? ` at ${at}` : ''}, after you opened it. Your changes were not saved yet, and nothing was overwritten.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onUseTheirs} disabled={busy}
+            className="w-full px-4 py-3 rounded-xl border-2 border-omega-orange text-omega-orange hover:bg-omega-pale text-sm font-bold disabled:opacity-60"
+          >
+            Open {by === 'Someone else' ? 'their' : `${by}'s`} version (drop my changes)
+          </button>
+          <button
+            onClick={onSaveMine} disabled={busy}
+            className="w-full px-4 py-3 rounded-xl bg-omega-orange hover:bg-omega-dark text-white text-sm font-bold disabled:opacity-60"
+          >
+            Save mine over it (theirs stays in History)
+          </button>
+          <button onClick={onCancel} disabled={busy} className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-omega-stone hover:text-omega-charcoal">
+            Cancel — keep editing
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Every saved version of the estimate (estimate_versions, migration 084).
+function EstimateHistoryModal({ estimateId, locked, onRestore, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    supabase
+      .from('estimate_versions').select('id, saved_at, saved_by, data')
+      .eq('estimate_id', estimateId).order('saved_at', { ascending: false }).limit(100)
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) setFailed(true);
+        setRows(data || []);
+      });
+    return () => { alive = false; };
+  }, [estimateId]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <p className="text-base font-bold text-omega-charcoal inline-flex items-center gap-2">
+            <History className="w-4 h-4 text-omega-orange" /> Version history
+          </p>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-3 space-y-2">
+          {rows === null && <p className="text-sm text-omega-stone text-center py-6">Loading…</p>}
+          {rows !== null && failed && (
+            <p className="text-sm text-omega-stone text-center py-6">History isn't available yet (migration 084 pending).</p>
+          )}
+          {rows !== null && !failed && rows.length === 0 && (
+            <p className="text-sm text-omega-stone text-center py-6">No saved versions yet — they start with the next save.</p>
+          )}
+          {(rows || []).map((v, i) => (
+            <div key={v.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-100">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-omega-charcoal">
+                  {new Date(v.saved_at).toLocaleString()}
+                  {i === 0 && <span className="ml-2 text-[10px] font-bold uppercase text-emerald-700">Latest</span>}
+                </p>
+                <p className="text-xs text-omega-stone">
+                  {v.saved_by || 'Before history started'} · {money(v.data?.total_amount)}
+                </p>
+              </div>
+              {!locked && i > 0 && (
+                <button
+                  onClick={() => onRestore(v)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-charcoal"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Restore
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

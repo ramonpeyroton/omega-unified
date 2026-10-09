@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { logAudit } from '../lib/audit';
 import { sendMessage, normalizePhone } from '../lib/twilio';
 import { subInlineLabel, subDisplayNames } from '../lib/subcontractor';
+import { JobSubWork } from './SubWork';
 
 // Status chip palette covers both agreements (accepted/signed/completed)
 // and offers (sent/rejected) — they are merged into a single list in
@@ -87,7 +88,7 @@ export default function JobSubcontractorsSection({ job, user }) {
           .eq('job_id', job.id)
           .order('created_at', { ascending: false }),
         supabase.from('subcontractors')
-          .select('id, name, trade, phone, preferred_language')
+          .select('id, name, contact_name, trade, phone, preferred_language')
           .order('name'),
       ]);
       setAgreements(agr || []);
@@ -226,6 +227,7 @@ export default function JobSubcontractorsSection({ job, user }) {
 
   return (
     <div className="space-y-5">
+      <JobSubWork job={job} subs={subs} />
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-2">
           <div>

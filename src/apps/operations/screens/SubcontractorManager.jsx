@@ -11,6 +11,7 @@ import SubcontractorCardsView from '../components/SubcontractorCardsView';
 import { logAudit } from '../../../shared/lib/audit';
 import { subInlineLabel, subDisplayNames } from '../../../shared/lib/subcontractor';
 import { formatPhoneInput, toE164 } from '../../../shared/lib/phone';
+import { SubWorkHistory } from '../../../shared/components/SubWork';
 
 // Mirrors the same flag EstimateFlow uses. When the env var isn't '1',
 // DocuSign API endpoints aren't deployed (api/docusign/* don't exist
@@ -1046,6 +1047,11 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
               </ul>
             )}
           </div>
+        </div>
+
+        {/* Every job this sub is planned on (Phases tab), with dates. */}
+        <div className="px-5 pb-4">
+          <SubWorkHistory sub={sub} />
         </div>
 
         {/* Summary of agreements — keeps the profile useful without
