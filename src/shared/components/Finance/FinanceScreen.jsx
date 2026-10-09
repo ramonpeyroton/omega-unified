@@ -20,7 +20,7 @@ import { supabase } from '../../lib/supabase';
 import {
   effectiveStatus, milestoneAmount, ensureMilestonesForContract,
   ensureSubPaymentsForAgreement, markMilestoneReceived, markSubPaymentPaid,
-  loadFinanceTotals,
+  loadFinanceTotals, sendPaymentReceipt,
 } from '../../lib/finance';
 import { logAudit } from '../../lib/audit';
 import { loadBillsTotals } from '../../lib/bills';
@@ -790,7 +790,7 @@ function ClientsTab({ user, accounts }) {
           ? supabase.from('payment_milestones').select('*').in('contract_id', ids).order('order_idx')
           : Promise.resolve({ data: [] }),
         jobIds.length
-          ? supabase.from('jobs').select('id, client_name, address, city, service').in('id', jobIds)
+          ? supabase.from('jobs').select('id, client_name, client_email, address, city, service').in('id', jobIds)
           : Promise.resolve({ data: [] }),
       ]);
 
@@ -1188,6 +1188,7 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
           accounts={accounts}
           user={user}
           kind="contract"
+          clientEmail={job?.client_email || ''}
           onClose={() => setMarkFor(null)}
           onSaved={() => { setMarkFor(null); onChanged(); }}
         />
@@ -1692,13 +1693,17 @@ function FormField({ label, children }) {
 // MARK RECEIVED / PAID MODAL
 // ─────────────────────────────────────────────────────────────────────
 
-function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, onClose, onSaved }) {
+function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, clientEmail = '', onClose, onSaved }) {
   const [amount, setAmount]    = useState(String(Number(suggestedAmount || 0).toFixed(2)));
   const [date, setDate]        = useState(todayISO());
   const [accountId, setAccountId] = useState(milestone.received_to_account_id || milestone.paid_from_account_id || (accounts[0]?.id || ''));
   const [notes, setNotes]      = useState('');
   const [saving, setSaving]    = useState(false);
   const [error, setError]      = useState('');
+  // Client payments email a "Payment received" receipt by default; untick
+  // for a payment logged by mistake, an old payment being caught up, etc.
+  const canEmailReceipt = kind !== 'sub' && !!clientEmail;
+  const [emailReceipt, setEmailReceipt] = useState(canEmailReceipt);
 
   async function handleSave() {
     setError('');
@@ -1710,6 +1715,14 @@ function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, o
         await markSubPaymentPaid(milestone.id, { amount: amt, date, accountId, notes, user });
       } else {
         await markMilestoneReceived(milestone.id, { amount: amt, date, accountId, notes, user });
+        if (canEmailReceipt && emailReceipt) {
+          // The payment is already saved — a failed email must not undo it.
+          try {
+            await sendPaymentReceipt({ milestoneId: milestone.id, amount: amt, receivedOn: date, user });
+          } catch (mailErr) {
+            alert(`Payment saved, but the receipt email could not be sent: ${mailErr?.message || mailErr}`);
+          }
+        }
       }
       onSaved();
     } catch (err) {
@@ -1756,6 +1769,20 @@ function MarkReceivedModal({ milestone, suggestedAmount, accounts, user, kind, o
               placeholder="Check #, wire transfer, note…"
               className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none" />
           </FormField>
+          {kind !== 'sub' && (
+            canEmailReceipt ? (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" checked={emailReceipt} onChange={(e) => setEmailReceipt(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-omega-orange cursor-pointer flex-shrink-0" />
+                <span className="text-xs text-omega-charcoal">
+                  <span className="font-semibold">Email receipt to client</span>
+                  <span className="block text-[11px] text-omega-stone">{clientEmail} · office gets a copy</span>
+                </span>
+              </label>
+            ) : (
+              <p className="text-[11px] text-omega-stone">No client email on file — no receipt will be sent.</p>
+            )
+          )}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
         <div className="flex justify-end gap-2 p-4 border-t border-gray-100">

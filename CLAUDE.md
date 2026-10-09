@@ -582,6 +582,27 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-09 (Invoice corrigida + recibo automático por e-mail)** — Ramon + Claude (Opus 5.5).
+
+- **Invoice** (`InvoiceTemplate.jsx`, commit `a06349b`): due date `'YYYY-MM-DD'`
+  era lida como meia-noite UTC e saía 1 dia antes em NY (também no e-mail do
+  `api/send-invoice.js`); projeto mostra o nome do serviço (`SERVICE_LABEL`,
+  "Kitchen Renovation"); resumo novo Contract total · Paid to date · This
+  invoice · Remaining after this invoice (EstimateFlow passa `milestones`).
+- **Recibo "Payment received — thank you!"**: ao marcar uma parcela como
+  recebida (EstimateFlow passo 5 — agora pede confirmação — e Finance →
+  Clients), a caixinha **"Email receipt to client"** vem marcada e o cliente
+  recebe o recibo (valor, parcela "2 of 4", saldo do projeto com barra de %,
+  próxima parcela; parcial mostra quanto falta da parcela; última parcela =
+  "fully paid"). Cópia (bcc) pro e-mail da empresa. Desmarcar serve pra
+  pagamento lançado por engano, pagamento antigo sendo atualizado, teste.
+- Servidor: `api/send-invoice.js` `{ action: 'receipt' }` (sem função nova
+  — limite de 12). Client: `sendPaymentReceipt()` + `localDayISO()` em
+  `src/shared/lib/finance.js`. Falha no e-mail não desfaz o pagamento (só
+  avisa). Audit: `payment.receipt_sent`.
+
+---
+
 **2026-10-07 (Aba Estimate abre numa escolha: New Estimate ou um existente)** — Ramon + Claude (Opus 5.5).
 
 - Caso Anthony Wills: sem botão de "novo estimate", o Attila usou "Bundle with

@@ -8,7 +8,7 @@ import Toast from './Toast';
 import StatusBadge from './StatusBadge';
 import ContractTemplate, { buildContractDocFromDom } from './Contract/ContractTemplate';
 import InvoiceTemplate from './Contract/InvoiceTemplate';
-import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus } from '../lib/finance';
+import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus, sendPaymentReceipt, localDayISO } from '../lib/finance';
 import { priceMode, sectionMode, sectionPrice } from '../lib/estimatePricing';
 import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
@@ -315,6 +315,10 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [loadingMilestones, setLoadingMilestones] = useState(false);
   const [sendingMilestoneId, setSendingMilestoneId] = useState(null);
   const [confirmResendId, setConfirmResendId] = useState(null);
+  // "Mark received" confirmation: { milestone, amount } or null.
+  const [markReceivedFor, setMarkReceivedFor] = useState(null);
+  const [emailReceipt, setEmailReceipt] = useState(true);
+  const [markingReceived, setMarkingReceived] = useState(false);
   const [companySettings, setCompanySettings] = useState(null);
   // Off-screen InvoiceTemplate rendered into this ref while we run html2pdf.
   const invoiceRef = useRef(null);
@@ -649,23 +653,48 @@ export default function EstimateFlow({ job, user, onBack }) {
     }
   }
 
-  async function handleMarkMilestoneReceived(milestone) {
+  // "Mark received" asks first (it used to be a single click), with the
+  // "Email receipt to client" box ticked by default.
+  function handleMarkMilestoneReceived(milestone) {
     if (!perms.canSendInvoice) {
       setToast({ type: 'warning', message: 'Only Operations or Owner can mark received' });
       return;
     }
     const remaining = Number(milestone.due_amount || 0) - Number(milestone.received_amount || 0);
     if (remaining <= 0) return;
+    setEmailReceipt(!!job.client_email);
+    setMarkReceivedFor({ milestone, amount: remaining });
+  }
+
+  async function confirmMarkReceived() {
+    if (!markReceivedFor || markingReceived) return;
+    const { milestone, amount } = markReceivedFor;
+    setMarkingReceived(true);
     try {
       await markMilestoneReceived(milestone.id, {
-        amount: remaining,
+        amount,
         date: new Date().toISOString(),
         user,
       });
-      setToast({ type: 'success', message: 'Marked as received' });
+      let message = 'Marked as received';
+      let type = 'success';
+      if (emailReceipt && job.client_email) {
+        // The payment is saved either way — a failed email only warns.
+        try {
+          await sendPaymentReceipt({ milestoneId: milestone.id, amount, receivedOn: localDayISO(), user });
+          message = `Marked as received · receipt emailed to ${job.client_email}`;
+        } catch (mailErr) {
+          type = 'warning';
+          message = `Marked as received, but the receipt email failed: ${mailErr.message || mailErr}`;
+        }
+      }
+      setToast({ type, message });
+      setMarkReceivedFor(null);
       await refreshMilestones();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Could not mark as received' });
+    } finally {
+      setMarkingReceived(false);
     }
   }
 
@@ -1493,6 +1522,49 @@ export default function EstimateFlow({ job, user, onBack }) {
           />
         )}
       </div>
+
+      {markReceivedFor && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !markingReceived && setMarkReceivedFor(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <p className="font-bold text-omega-charcoal">Mark as received?</p>
+              <button onClick={() => setMarkReceivedFor(null)} disabled={markingReceived}><X className="w-5 h-5 text-omega-stone" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-omega-slate">
+                <span className="font-bold text-omega-charcoal">${Number(markReceivedFor.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                {' '}for <span className="font-semibold">{markReceivedFor.milestone.label || 'this installment'}</span>, received today.
+              </p>
+              {job.client_email ? (
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailReceipt}
+                    onChange={(e) => setEmailReceipt(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-omega-orange cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-xs text-omega-charcoal">
+                    <span className="font-semibold">Email receipt to client</span>
+                    <span className="block text-[11px] text-omega-stone">{job.client_email} · office gets a copy</span>
+                  </span>
+                </label>
+              ) : (
+                <p className="text-[11px] text-omega-stone">No client email on file — no receipt will be sent.</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-gray-100">
+              <button onClick={() => setMarkReceivedFor(null)} disabled={markingReceived} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold disabled:opacity-60">Cancel</button>
+              <button
+                onClick={confirmMarkReceived}
+                disabled={markingReceived}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-omega-success hover:bg-green-700 text-white text-sm font-semibold disabled:opacity-60"
+              >
+                {markingReceived ? <RotateCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Mark received
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPickerConfirm && (
         <PickerConfirmModal

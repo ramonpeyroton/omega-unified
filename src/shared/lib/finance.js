@@ -16,6 +16,7 @@
 
 import { supabase } from './supabase';
 import { logAudit } from './audit';
+import { apiFetch } from './apiFetch.js';
 
 const OVERDUE_GRACE_DAYS = 3;
 
@@ -170,6 +171,38 @@ export async function markMilestoneReceived(milestoneId, opts) {
   });
 
   return updated;
+}
+
+// Today's calendar day in the browser's time zone ('YYYY-MM-DD').
+export function localDayISO(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Email the client the "Payment received — thank you!" receipt for a
+// payment that was just marked received (amount = what came in now).
+// Server side: api/send-invoice.js { action: 'receipt' } — the office
+// mailbox gets a copy.
+export async function sendPaymentReceipt({ milestoneId, amount, receivedOn, user }) {
+  const r = await apiFetch('/api/send-invoice', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Omega-Role': user?.role || '',
+      'X-Omega-User': user?.name || '',
+    },
+    body: JSON.stringify({ action: 'receipt', milestoneId, amount: Number(amount), receivedOn }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data?.ok) throw new Error(data?.error || `Receipt email failed (HTTP ${r.status})`);
+  logAudit({
+    user,
+    action: 'payment.receipt_sent',
+    entityType: 'payment_milestone',
+    entityId: milestoneId,
+    details: { amount: Number(amount), receivedOn, receiptNo: data.receiptNo, to: data.to },
+  });
+  return data;
 }
 
 // ─── Mark a milestone's invoice as sent (Estimate Flow step 5) ────
