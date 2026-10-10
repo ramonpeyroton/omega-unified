@@ -440,6 +440,18 @@ async function handleVoidEnvelope(req, res) {
   }
 }
 
+// "Oct 9, 2026" — the NY calendar day of signed_at (falls back to today).
+// signed_at may come back without a zone (UTC), so pin it to UTC first.
+function signedDayLabel(signedAt) {
+  let d = new Date();
+  if (signedAt) {
+    const s = String(signedAt);
+    const parsed = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`);
+    if (!Number.isNaN(parsed.getTime())) d = parsed;
+  }
+  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 async function handleSaveSignedPdf(req, res) {
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
 
@@ -450,12 +462,14 @@ async function handleSaveSignedPdf(req, res) {
   if (!contractId || !envelopeId || !jobId) return json(res, 400, { error: 'Missing contractId, envelopeId, or jobId' });
 
   try {
-    // Check if already saved (idempotent)
+    // Check if this contract's PDF is already saved (idempotent). Per
+    // contract, not per job — a job can have a second contract.
     const { data: existing } = await supabase
       .from('job_documents')
       .select('id')
       .eq('job_id', jobId)
-      .ilike('title', 'Signed Contract%')
+      .eq('folder', 'contracts')
+      .like('photo_url', `%/signed-contract-${contractId}-%`)
       .limit(1);
     if (existing && existing.length > 0) return json(res, 200, { ok: true, skipped: true });
 
@@ -481,7 +495,9 @@ async function handleSaveSignedPdf(req, res) {
     const { data: pub } = supabase.storage.from('job-documents').getPublicUrl(path);
     const publicUrl = pub?.publicUrl || null;
 
-    const signedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Title carries the day the client signed (NY), not the day we saved it.
+    const { data: signedRow } = await supabase.from('contracts').select('signed_at').eq('id', contractId).maybeSingle();
+    const signedDate = signedDayLabel(signedRow?.signed_at);
     const { error: insErr } = await supabase.from('job_documents').insert([{
       job_id:      jobId,
       folder:      'contracts',
@@ -490,9 +506,9 @@ async function handleSaveSignedPdf(req, res) {
       uploaded_by: 'DocuSign',
     }]);
     // The SELECT above is a fast path, but it's not atomic — concurrent
-    // saves can both pass it. Migration 073 adds a partial unique index
-    // (one DocuSign 'Signed Contract' per job), so a racing insert fails
-    // with 23505. That's the idempotent outcome we want, not an error.
+    // saves can both pass it. Migration 086 adds a partial unique index
+    // (one DocuSign 'Signed Contract' per file = per contract), so a racing
+    // insert fails with 23505. That's the idempotent outcome we want.
     if (insErr && insErr.code !== '23505') {
       return json(res, 500, { error: `Document insert failed: ${insErr.message}` });
     }

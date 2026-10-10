@@ -139,6 +139,17 @@ async function notifyOmegaOfContractOpened({ clientName }) {
 async function downloadAndSaveSignedContract(contract) {
   if (!contract?.docusign_envelope_id || !contract?.job_id) return;
   try {
+    // Already saved for this contract (app "Check Signature Status" or an
+    // earlier webhook event)? Then there's nothing to do.
+    const { data: existing } = await supabase
+      .from('job_documents')
+      .select('id')
+      .eq('job_id', contract.job_id)
+      .eq('folder', 'contracts')
+      .like('photo_url', `%/signed-contract-${contract.id}-%`)
+      .limit(1);
+    if (existing && existing.length > 0) return;
+
     const token  = await getAccessToken();
     const pdfRes = await fetch(
       `${DS_BASE_URL}/v2.1/accounts/${DS_ACCOUNT_ID}/envelopes/${contract.docusign_envelope_id}/documents/combined`,
@@ -165,7 +176,12 @@ async function downloadAndSaveSignedContract(contract) {
     const { data: pub } = supabase.storage.from('job-documents').getPublicUrl(path);
     const publicUrl = pub?.publicUrl || null;
 
-    const signedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // NY calendar day of the signature (Vercel runs in UTC — an evening
+    // signature would otherwise get tomorrow's date).
+    const signedRaw = contract.signed_at ? String(contract.signed_at) : '';
+    const signedParsed = signedRaw ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(signedRaw) ? signedRaw : `${signedRaw}Z`) : new Date();
+    const signedDate = (Number.isNaN(signedParsed.getTime()) ? new Date() : signedParsed)
+      .toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
     await supabase.from('job_documents').insert([{
       job_id:      contract.job_id,
       folder:      'contracts',
@@ -262,17 +278,12 @@ export default async function handler(req, res) {
       // the contract analog of the estimate "opened" beacon.
       const isOpenedEvent =
         event === 'recipient-delivered' || event === 'recipient-viewed';
+      const alreadySigned = contract.status === 'signed';
       if (becomingSigned) {
         patch.status = 'signed';
         patch.signed_at = completedAt || new Date().toISOString();
-        // ALSO advance the pipeline so the kanban card moves to
-        // 'Contract Signed' automatically — without this the card
-        // stays stuck at 'Awaiting Signature' until someone opens
-        // EstimateFlow and triggers the front-end refresh. Audit #2.
-        await supabase
-          .from('jobs')
-          .update({ status: 'contracted', pipeline_status: 'contract_signed' })
-          .eq('id', contract.job_id);
+      } else if (alreadySigned) {
+        // A late/out-of-order event never takes a signed contract back.
       } else if (event === 'envelope-declined' || status === 'declined') {
         patch.status = 'declined';
       } else if (event === 'envelope-sent' || status === 'sent') {
@@ -282,7 +293,33 @@ export default async function handler(req, res) {
       const notifyOpen = isOpenedEvent && shouldNotifyOpen(contract.last_open_notified_at, 30);
       if (notifyOpen) patch.last_open_notified_at = new Date().toISOString();
 
-      await supabase.from('contracts').update(patch).eq('id', contract.id);
+      // Signing: flip to signed only if nobody did it yet (an earlier
+      // DocuSign event, or the app's "Check Signature Status"). Only the
+      // call that flips it runs the follow-ups below — once, never 4x.
+      let justSigned = false;
+      if (becomingSigned) {
+        const { data: flipped } = await supabase
+          .from('contracts')
+          .update(patch)
+          .eq('id', contract.id)
+          .or('status.is.null,status.neq.signed')
+          .select('id');
+        justSigned = !!flipped?.length;
+        if (justSigned) {
+          // ALSO advance the pipeline so the kanban card moves to
+          // 'Contract Signed' automatically — without this the card
+          // stays stuck at 'Awaiting Signature' until someone opens
+          // EstimateFlow and triggers the front-end refresh. Audit #2.
+          await supabase
+            .from('jobs')
+            .update({ status: 'contracted', pipeline_status: 'contract_signed' })
+            .eq('id', contract.job_id);
+        } else {
+          await supabase.from('contracts').update({ docusign_status: status }).eq('id', contract.id);
+        }
+      } else {
+        await supabase.from('contracts').update(patch).eq('id', contract.id);
+      }
 
       // Client name for the messages/emails below.
       let clientName = 'Your client';
@@ -294,7 +331,7 @@ export default async function handler(req, res) {
       // When the customer signs, materialize payment_milestones from the
       // payment_plan JSONB so the Finance area has rows to track. Idempotent
       // (we'd skip if rows already exist, but that's unlikely on first sign).
-      if (becomingSigned) {
+      if (justSigned) {
         try {
           await materializePaymentMilestones(contract);
         } catch (err) {

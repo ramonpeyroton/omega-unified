@@ -293,6 +293,10 @@ export default function EstimateFlow({ job, user, onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  // "Check Signature Status" travado enquanto consulta o DocuSign. O ref
+  // segura cliques no mesmo instante, antes de a tela re-renderizar.
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const checkingStatusRef = useRef(false);
   const [toast, setToast] = useState(null);
 
   const [estimate, setEstimate] = useState(null);
@@ -1025,15 +1029,44 @@ export default function EstimateFlow({ job, user, onBack }) {
 
   async function refreshContractStatus() {
     if (!contract?.docusign_envelope_id) return;
+    // Uma consulta por vez. Cliques repetidos enquanto o DocuSign respondia
+    // rodavam o "acabou de assinar" várias vezes — Eric Goodman (10/10)
+    // ganhou 4 PDFs assinados e 12 notificações.
+    if (checkingStatusRef.current) return;
+    checkingStatusRef.current = true;
+    setCheckingStatus(true);
     try {
       const { status, completedAt } = await getEnvelopeStatus(contract.docusign_envelope_id);
-      const patch = { docusign_status: status };
       const wasSigned = contract.status === 'signed';
-      if (status === 'completed' && completedAt) { patch.signed_at = completedAt; patch.status = 'signed'; }
-      const { data } = await supabase.from('contracts').update(patch).eq('id', contract.id).select().single();
+      let data = null;
+      let justSigned = false;
+      if (status === 'completed' && completedAt) {
+        // Só marca como assinado se ninguém marcou ainda (outra aba, outra
+        // pessoa, o webhook do DocuSign). Só quem virou o status faz o resto
+        // (PDF, notificações, histórico) — assim acontece uma vez só.
+        const { data: flipped } = await supabase
+          .from('contracts')
+          .update({ docusign_status: status, signed_at: completedAt, status: 'signed' })
+          .eq('id', contract.id)
+          .or('status.is.null,status.neq.signed')
+          .select();
+        if (flipped?.length) {
+          data = flipped[0];
+          justSigned = true;
+        } else {
+          ({ data } = await supabase.from('contracts').select('*').eq('id', contract.id).single());
+        }
+      } else {
+        ({ data } = await supabase.from('contracts').update({ docusign_status: status }).eq('id', contract.id).select().single());
+      }
       if (data) {
         setContract(data);
-        if (!wasSigned && data.status === 'signed') {
+        if (!justSigned && !wasSigned && data.status === 'signed') {
+          // Alguém já tinha marcado — só leva a tela pro passo da invoice.
+          setStep(5);
+          await loadMilestonesAndCompany(data);
+        }
+        if (justSigned) {
           setStep(5);
           // Advance the pipeline card to "Contract Signed" column
           await supabase.from('jobs').update({ pipeline_status: 'contract_signed' }).eq('id', job.id);
@@ -1054,6 +1087,9 @@ export default function EstimateFlow({ job, user, onBack }) {
       }
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Could not refresh status' });
+    } finally {
+      checkingStatusRef.current = false;
+      setCheckingStatus(false);
     }
   }
 
@@ -1348,7 +1384,9 @@ export default function EstimateFlow({ job, user, onBack }) {
             {contract?.docusign_envelope_id && (
               <div className="mt-4 text-sm text-omega-stone">
                 Envelope ID: <span className="font-mono text-xs">{contract.docusign_envelope_id}</span>
-                <button onClick={refreshContractStatus} className="ml-3 text-omega-info font-semibold text-xs">Refresh status</button>
+                <button onClick={refreshContractStatus} disabled={checkingStatus} className="ml-3 text-omega-info font-semibold text-xs disabled:opacity-50 disabled:cursor-wait">
+                  {checkingStatus ? 'Checking…' : 'Refresh status'}
+                </button>
               </div>
             )}
 
@@ -1397,9 +1435,12 @@ export default function EstimateFlow({ job, user, onBack }) {
               <div className="flex items-center gap-3 mt-2 flex-wrap justify-center">
                 <button
                   onClick={refreshContractStatus}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal transition-colors"
+                  disabled={checkingStatus}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal transition-colors disabled:opacity-60 disabled:cursor-wait disabled:hover:border-gray-200"
                 >
-                  <Clock className="w-4 h-4" /> Check Signature Status
+                  {checkingStatus
+                    ? <><LoadingSpinner size={16} /> Checking…</>
+                    : <><Clock className="w-4 h-4" /> Check Signature Status</>}
                 </button>
 
                 {(user?.role === 'owner' || user?.role === 'operations' || user?.role === 'sales' || user?.role === 'salesperson') && (

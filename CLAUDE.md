@@ -590,6 +590,32 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-10 (Contrato assinado salvo 4x — botão travado + "assinou" roda uma vez só)** — Ramon + Claude (Opus 5.5).
+
+- Caso Eric Goodman: o webhook não marcou a assinatura (09/10); no dia seguinte o
+  Attila clicou 4x em **"Check Signature Status"** (sem loading) → 4 PDFs em
+  Documents → Contracts, 12 notificações "Contract signed", 4 `contract.sign`.
+- `EstimateFlow.jsx` → `refreshContractStatus`: botão trava ("Checking…") com
+  state + ref; marca `signed` com update condicional (`status != 'signed'`) e
+  **só quem virou o status** faz PDF / notificações / audit / pipeline. Se outro
+  já marcou, só avança a tela pro passo 5.
+- `api/docusign-webhook.js`: mesma regra (flip condicional → follow-ups só uma
+  vez); evento atrasado não volta contrato assinado pra `sent`; checa se o PDF
+  do contrato já existe antes de salvar.
+- PDF assinado agora é **1 por contrato** (antes 1 por obra — bloquearia o 2º
+  contrato da mesma obra): checagem por `photo_url` com o id do contrato, em
+  `api/docusign/[action].js` e no webhook. Título usa o **dia da assinatura em
+  NY** ("Signed Contract — Oct 9, 2026"), não o dia em que salvou.
+- **Migration 086 (rodada em 10/10)**: apagou as linhas repetidas (Eric 3,
+  Nicolas Brissat 1, Moon 1 — mesmo arquivo, PDF intacto) e criou índice único
+  por arquivo. **A 073 nunca rodou e não deve rodar** (substituída pela 086).
+- Em aberto: por que o webhook do DocuSign não marcou a assinatura em 09/10
+  (suspeita: `DOCUSIGN_HMAC_SECRET`). O ContractManager (Operations) ainda marca
+  `signed` em silêncio ao abrir o detalhe — se ele chegar primeiro, PDF e
+  notificações não saem.
+
+---
+
 **2026-10-09 (Change Order novo: itens + preço por item ou único, documento com a cara da Omega)** — Ramon + Claude (Opus 5.5).
 
 - Inácio aprovou por mockup. **Criar/editar** (`src/shared/components/ChangeOrderEditor.jsx`,

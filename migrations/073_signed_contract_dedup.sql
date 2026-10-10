@@ -1,5 +1,9 @@
 -- Migration 073: stop duplicate "Signed Contract" docs.
 --
+-- ⚠️ SUPERSEDED by 086 — do NOT run this one. It allows a single signed
+-- contract per job (blocks a job's second contract) and fails while the
+-- duplicate rows still exist. 086 cleans them and keys on the file.
+--
 -- handleSaveSignedPdf (api/docusign/[action].js) used a check-then-insert
 -- (SELECT "does a Signed Contract exist?" → INSERT) that is NOT atomic:
 -- when the save fired several times at once (status refresh / multiple
