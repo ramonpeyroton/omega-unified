@@ -29,6 +29,7 @@ import JobFullView from '../../shared/components/JobFullView';
 import MobileDailyLogs from '../../shared/components/MobileDailyLogs';
 import Questionnaire from '../sales/screens/Questionnaire';
 import NewJob from '../sales/screens/NewJob';
+import NewClient from './screens/NewClient';
 import PageHeader from '../../shared/components/ui/PageHeader';
 import MobileMoreSheet from './components/MobileMoreSheet';
 import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle, MoreHorizontal } from 'lucide-react';
@@ -52,7 +53,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/warehouse')) return 'warehouse';
   if (pathname.startsWith('/omega-brain')) return 'omega-brain';
   if (pathname.startsWith('/leads')) return 'leads';
-  if (pathname.startsWith('/new-lead')) return 'new-lead';
+  if (pathname.startsWith('/new-client')) return 'new-client';
   if (pathname.startsWith('/commissions')) return 'commissions';
   if (pathname.startsWith('/daily-logs')) return 'daily-logs';
   return null; // job pages, etc — no sidebar highlight
@@ -213,6 +214,20 @@ function NewJobRoute({ user }) {
   );
 }
 
+// Menu "New Client" — Inácio's short form (name, address, phone, email,
+// lead source). The full NewJob above stays on /new-lead for the
+// "new job for this client" prefill flow from the pipeline.
+function NewClientRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <NewClient
+      user={user}
+      onBack={() => navigate('/')}
+      onOpenClient={(job) => navigate(`/jobs/${job.id}?tab=details`, { state: { from: '/new-client' } })}
+    />
+  );
+}
+
 function JobFullViewRoute({ user }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -327,6 +342,7 @@ function OwnerRoutes({ user, onLogout, notifCount }) {
         <Route path="/warehouse"       element={<WarehouseRoute />} />
         <Route path="/omega-brain"     element={<OmegaBrainRoute />} />
         <Route path="/leads"           element={<LeadsRoute user={user} />} />
+        <Route path="/new-client"      element={<NewClientRoute user={user} />} />
         <Route path="/new-lead"        element={<NewJobRoute user={user} />} />
         <Route path="/commissions"     element={<CommissionsRoute user={user} />} />
         <Route path="/daily-logs"      element={<MobileDailyLogs user={user} />} />

@@ -21,7 +21,7 @@ const ITEMS = [
   { id: 'project-analyzer',label: 'Project Analyzer', icon: FileText },
   { id: 'omega-brain',     label: 'Omega Brain',     icon: Brain },
   { id: 'leads',           label: 'My Leads',        icon: ClipboardList },
-  { id: 'new-lead',        label: 'New Lead',        icon: PlusCircle },
+  { id: 'new-client',      label: 'New Client',      icon: PlusCircle },
   { id: 'commissions',     label: 'Commissions',     icon: DollarSign },
 ];
 

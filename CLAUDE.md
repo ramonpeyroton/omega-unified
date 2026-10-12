@@ -590,6 +590,22 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-12 (Inácio: "New Client" com formulário curto)** — Ramon + Claude (Opus 5.5).
+
+- Menu do Owner (Sidebar + "More" no celular): "New Lead" virou **"New Client"** → rota
+  `/new-client` → `src/apps/owner/screens/NewClient.jsx`. Só **nome, endereço, telefone,
+  e-mail (opcional) e lead source** — o resto (serviço, visita…) a equipe completa depois
+  no card.
+- Salva em `jobs` como lead da recepção: `pipeline_status/status = 'new_lead'` (entra no
+  Pipeline), `lead_date` = hoje em NY, `lead_owner` = Inácio, `created_by = 'owner'`, cidade
+  do autocomplete (ou tirada do texto). Notifica `sales` + `operations`; audit `lead.create`.
+- Telefone repetido bloqueia (checa ao sair do campo E ao salvar) e oferece abrir o cliente.
+- `/new-lead` (NewJob completo do Attila) continua existindo pro fluxo "novo job pra este
+  cliente" do Pipeline (prefill).
+- Prévia local sem login e sem banco (não commitada): `client-preview.html`.
+
+---
+
 **2026-10-10 (Contrato assinado salvo 4x — botão travado + "assinou" roda uma vez só)** — Ramon + Claude (Opus 5.5).
 
 - Caso Eric Goodman: o webhook não marcou a assinatura (09/10); no dia seguinte o

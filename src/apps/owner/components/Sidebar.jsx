@@ -11,7 +11,7 @@ const NAV = [
   { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
   { id: 'pipeline',         label: 'Pipeline',          icon: GitBranch },
   { id: 'leads',            label: 'My Leads',          icon: ClipboardList },
-  { id: 'new-lead',         label: 'New Lead',          icon: PlusCircle },
+  { id: 'new-client',       label: 'New Client',        icon: PlusCircle },
   { id: 'calendar',         label: 'Calendar',          icon: Calendar },
   { id: 'finance',          label: 'Finance',           icon: DollarSign },
   { id: 'commissions',      label: 'Commissions',       icon: DollarSign },
