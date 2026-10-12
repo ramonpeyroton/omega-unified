@@ -25,6 +25,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
+import { handleInbound } from './_lib/ownerBot.js';
 
 const SID   = process.env.TWILIO_ACCOUNT_SID   || '';
 const TOKEN = process.env.TWILIO_AUTH_TOKEN    || '';
@@ -90,6 +91,11 @@ async function logSend({ ok, sid, error, to, channel, body, meta, requester }) {
 }
 
 export default async function handler(req, res) {
+  // Inbound WhatsApp (Twilio webhook) → owner assistant. Authenticated by
+  // Twilio's request signature inside handleInbound, not by the app secret.
+  if (req.method === 'POST' && /[?&]task=inbound(&|$)/.test(req.url || '')) {
+    return handleInbound(req, res);
+  }
   if (req.method !== 'POST') {
     return json(res, 405, { ok: false, error: 'Method not allowed' });
   }
