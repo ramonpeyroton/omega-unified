@@ -82,7 +82,7 @@ async function processMessage(p) {
   const history = await recentHistory(number);
   const result = await runAgent(text, history);
 
-  let out = result.text || "Sorry, I couldn't produce an answer.";
+  let out = toWhatsApp(result.text || "Sorry, I couldn't produce an answer.");
   if (out.length > 1500) out = out.slice(0, 1490) + '…';
   await reply(to, from, out);
   for (const doc of result.attachments.slice(0, 5)) {
@@ -103,11 +103,37 @@ async function processMessage(p) {
   }]);
 }
 
+// WhatsApp renders *bold* and _italic_ but shows markdown headings, **bold**,
+// tables and [text](url) links as raw symbols — convert any that slip through.
+function toWhatsApp(s) {
+  return String(s)
+    .split('\n')
+    .filter((l) => !/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l)) // table separator rows
+    .map((l) => {
+      const h = l.match(/^\s*#{1,6}\s+(.*)$/);
+      if (h) return `*${h[1].replace(/\*/g, '')}*`;
+      if (/^\s*\|.*\|\s*$/.test(l)) return '• ' + l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' — ');
+      return l.replace(/^(\s*)[-*]\s+/, '$1• ');
+    })
+    .join('\n')
+    .replace(/\*\*(.+?)\*\*/g, '*$1*')
+    .replace(/__(.+?)__/g, '_$1_')
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1: $2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ─── Claude agent loop ───────────────────────────────────────────
 const SYSTEM = `You are the private assistant of Inácio DeOliveira, owner of Omega Development LLC (home construction & remodeling, Westport CT). He asks from WhatsApp, usually from a job site.
 
 Rules:
-- Answer in English, short and scannable (WhatsApp; no markdown tables, no headings). Use plain lines and bullets "•".
+- Answer in English, short and scannable. He reads on a phone in WhatsApp, so use WhatsApp formatting only:
+  • *single asterisks* for bold (never **double**), _underscores_ for italic. No # headings, no tables, no links in [text](url) form.
+  • Start with one bold title line naming the client/topic (e.g. "*Smith — 12 Oak St, Westport*"), then a blank line.
+  • Group facts in short sections: a bold label on its own line, then "• " bullets, one fact per line, label first ("• Paid: $40,000"). Blank line between sections.
+  • Money as $12,500 (no cents unless they matter). Dates as "Mon Oct 13" (add the year only if it isn't this year).
+  • Lists of several items (schedule, late jobs): one line each, "• Tue Oct 14 · 9am · Smith — tile delivery". Most important/earliest first; if more than 8, show 8 and say how many more.
+  • End with at most one short line of follow-up (e.g. "Want the contract PDF?"). No greetings or sign-offs.
 - Use ONLY facts returned by the tools. Never invent names, amounts, dates or phone numbers. If a tool returns nothing, say clearly what you looked for and that you couldn't find it, and offer the closest alternative you did find.
 - If a name matches more than one client/job, list them briefly and ask which one — do not guess.
 - Money: always say whether it's paid, remaining or overdue, with the source (e.g. "per payment schedule").
