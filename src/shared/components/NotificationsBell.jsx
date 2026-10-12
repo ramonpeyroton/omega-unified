@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Bell, X, Check, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { recipientRolesFor, renderNotificationText, dedupeNotifications } from '../lib/notifications';
+import { recipientRolesFor, renderNotificationText, notificationsForViewer } from '../lib/notifications';
 
 // Maps notification.type to the JobFullView tab to land on when the
 // user taps the notification. Centralised so the popover and the
@@ -53,8 +53,8 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
       if (roles) query = query.in('recipient_role', roles);
       const { data } = await query;
       // Collapse the per-role fan-out so the owner (who sees every role's
-      // row) sees each event once.
-      setItems(dedupeNotifications(data || []));
+      // row) sees each event once — and only owns the 'owner' rows.
+      setItems(notificationsForViewer(data || [], user?.role));
     } catch {
       setItems([]);
     }
@@ -64,7 +64,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
 
   // Scope a query to ALL per-role sibling rows of one event (same
   // type + job_id + created_at). The owner sees a single deduped item,
-  // but the DB has 3 rows — marking/deleting must hit all of them or the
+  // but the DB has 3 rows — deleting must hit all of them or the
   // item reappears on the next load. Falls back to id when incomplete.
   function scopeToEvent(q, row) {
     if (row?.type && row?.job_id && row?.created_at) {
@@ -73,9 +73,14 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
     return q.eq('id', row?.id);
   }
 
+  // Read state is per row, and each viewer only marks their own row — never
+  // the sibling rows other roles get for the same event. (The owner's view
+  // already shows other roles' rows as read; see notificationsForViewer.)
   async function markRead(row) {
     try {
-      await scopeToEvent(supabase.from('notifications').update({ read: true, seen: true }), row);
+      if (row?.id && !row.read && !row.seen) {
+        await supabase.from('notifications').update({ read: true, seen: true }).eq('id', row.id);
+      }
       setItems((prev) => prev.map((n) => (n.id === row?.id ? { ...n, read: true, seen: true } : n)));
     } catch { /* ignore */ }
   }
@@ -84,8 +89,7 @@ export default function NotificationsBell({ user, dark = false, onOpenJob }) {
     const unread = items.filter((n) => !n.read && !n.seen);
     if (unread.length === 0) return;
     try {
-      await Promise.all(unread.map((n) =>
-        scopeToEvent(supabase.from('notifications').update({ read: true, seen: true }), n)));
+      await supabase.from('notifications').update({ read: true, seen: true }).in('id', unread.map((n) => n.id));
       setItems((prev) => prev.map((n) => (!n.read && !n.seen ? { ...n, read: true, seen: true } : n)));
     } catch { /* ignore */ }
   }

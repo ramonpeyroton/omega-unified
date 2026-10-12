@@ -18,6 +18,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
 import { supabase } from './supabase.js';
+import { teamDetailsReply } from './teamAlerts.js';
 
 const NY_TZ = 'America/New_York';
 const SID = () => process.env.TWILIO_ACCOUNT_SID || '';
@@ -65,6 +66,18 @@ async function processMessage(p) {
   const to = String(p.To || '');
   const text = String(p.Body || '').trim();
   const number = from.replace(/^whatsapp:/, '');
+
+  // "See details" button on a team-alert template (teamAlerts.js): reply
+  // with the full list. Handled before the owner allowlist because every
+  // teammate can tap it; teamDetailsReply checks the number owns the button.
+  const button = String(p.ButtonPayload || '');
+  if (button.startsWith('omega_details_')) {
+    const details = await teamDetailsReply(number, button).catch((e) => {
+      console.error('[owner-bot] details failed', e?.message || e);
+      return null;
+    });
+    if (details) return reply(to, from, details);
+  }
 
   if (!ALLOWED().includes(number)) {
     await forwardToTeam(number, text, p);

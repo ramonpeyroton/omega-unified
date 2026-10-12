@@ -117,18 +117,32 @@ export function renderNotificationText(row) {
  * from one insert share type + job_id + exact created_at, so that's the
  * dedupe key. Rows missing any of those key on their id → never merged.
  */
-export function dedupeNotifications(rows = []) {
-  const seen = new Set();
-  const out = [];
+export function dedupeNotifications(rows = [], preferRole = null) {
+  const byKey = new Map();
   for (const r of (rows || [])) {
     const key = (r.type && r.job_id && r.created_at)
       ? `${r.type}|${r.job_id}|${r.created_at}`
       : `id:${r.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(r);
+    const kept = byKey.get(key);
+    // Keep the first row, unless a later sibling belongs to preferRole.
+    if (!kept || (preferRole && r.recipient_role === preferRole && kept.recipient_role !== preferRole)) {
+      byKey.set(key, r);
+    }
   }
-  return out;
+  return [...byKey.values()];
+}
+
+/**
+ * The owner (and admin) see every role's notifications, but read/seen is a
+ * single flag per row — so they only own the 'owner' rows. Show each event
+ * once (preferring the owner's row) and treat other roles' rows as already
+ * read, so opening or clearing the owner's bell never marks a teammate's
+ * notifications as read. Other roles' queries are already role-filtered.
+ */
+export function notificationsForViewer(rows = [], viewerRole) {
+  if (viewerRole !== 'owner' && viewerRole !== 'admin') return dedupeNotifications(rows);
+  return dedupeNotifications(rows, 'owner').map((n) =>
+    n.recipient_role === 'owner' ? n : { ...n, read: true, seen: true });
 }
 
 export function recipientRolesFor(role) {

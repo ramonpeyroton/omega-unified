@@ -3,7 +3,7 @@ import { Bell, CheckCheck } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { dedupeNotifications } from '../../../shared/lib/notifications';
+import { notificationsForViewer } from '../../../shared/lib/notifications';
 
 export default function Notifications({ onBack }) {
   const [notifications, setNotifications] = useState([]);
@@ -19,13 +19,14 @@ export default function Notifications({ onBack }) {
       .limit(100);
     // Collapse the per-role fan-out (sales/operations/owner rows of one
     // event) so the owner sees each event once, not three times.
-    setNotifications(dedupeNotifications(data || []));
+    setNotifications(notificationsForViewer(data || [], 'owner'));
     setLoading(false);
-    await supabase.from('notifications').update({ seen: true }).eq('seen', false);
+    // Only the owner's own rows — other roles keep their unread state.
+    await supabase.from('notifications').update({ seen: true }).eq('recipient_role', 'owner').eq('seen', false);
   }
 
   async function markAllRead() {
-    await supabase.from('notifications').update({ seen: true }).eq('seen', false);
+    await supabase.from('notifications').update({ seen: true }).eq('recipient_role', 'owner').eq('seen', false);
     setNotifications((p) => p.map((n) => ({ ...n, seen: true })));
   }
 
