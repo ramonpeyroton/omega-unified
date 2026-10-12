@@ -1024,11 +1024,14 @@ export async function groupWatchDirectory() {
     seen.add(digits);
     clients.push({ digits, name: j.client_name || 'Client', place: (j.address || j.city || '').split(',')[0] });
   }
-  return {
-    me: 'inacio',
-    team: Object.values(people).map((x) => ({ key: x.key, first: x.first, digits: last10(x.phone) })),
-    clients,
-  };
+  // Subcontractors are in many project groups; their messages neither need
+  // an answer nor count as one.
+  const team = Object.values(people).map((x) => ({ key: x.key, first: x.first, digits: last10(x.phone) }));
+  const teamDigits = new Set(team.map((t) => t.digits));
+  const subs = soft(await supabase.from('subcontractors').select('phone'), 'subcontractors');
+  const ignore = [...new Set(subs.map((s) => last10(s.phone)))]
+    .filter((d) => d.length === 10 && !seen.has(d) && !teamDigits.has(d));
+  return { me: 'inacio', team, clients, ignore };
 }
 
 function waitingText(sinceMs, nowMs, lang) {

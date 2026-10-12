@@ -135,9 +135,19 @@ def open_db_copy():
 def build_identity(directory, cfg):
     team_by_digits = {t["digits"]: t["key"] for t in directory.get("team", []) if t.get("digits")}
     team_first = {t["key"]: fold(t.get("first", "")) for t in directory.get("team", [])}
-    extra = {k.lower(): v for k, v in (cfg.get("team_handles") or {}).items()}
+    # config.json "team_handles": extra numbers/emails the team uses in the
+    # groups, e.g. {"+12035551234": "attila", "office@icloud.com": "team"}.
+    extra = {}
+    for k, v in (cfg.get("team_handles") or {}).items():
+        if last10(k):
+            team_by_digits[last10(k)] = v
+        else:
+            extra[k.lower()] = v
     clients = {c["digits"]: c for c in directory.get("clients", [])}
-    return team_by_digits, team_first, extra, clients
+    # Subcontractors (from the app) + config "ignore_handles": skipped entirely.
+    ignore = set(directory.get("ignore", []))
+    ignore.update(last10(h) or h.lower() for h in (cfg.get("ignore_handles") or []))
+    return team_by_digits, team_first, extra, clients, ignore
 
 
 def who_is(handle, team_by_digits, extra):
@@ -148,8 +158,12 @@ def who_is(handle, team_by_digits, extra):
     return team_by_digits.get(last10(handle))
 
 
+def ignored(handle, ignore):
+    return bool(handle) and (last10(handle) in ignore or handle.lower() in ignore)
+
+
 def scan(con, directory, cfg):
-    team_by_digits, team_first, extra, clients = build_identity(directory, cfg)
+    team_by_digits, team_first, extra, clients, ignore = build_identity(directory, cfg)
     me = directory.get("me", "inacio")
     since_apple = (datetime.now(timezone.utc).timestamp() - LOOKBACK_DAYS * 86400 - APPLE_EPOCH) * 1e9
 
@@ -175,7 +189,9 @@ def scan(con, directory, cfg):
 
         last_team = None  # (index, key)
         msgs = []
-        for i, m in enumerate(rows):
+        for m in rows:
+            if not m["is_from_me"] and ignored(m["handle"], ignore):
+                continue  # a subcontractor: neither a question nor an answer
             text = m["text"] or decode_attributed_body(m["attributedBody"]) or ""
             text = text.replace("￼", "").strip()
             if not text and m["cache_has_attachments"]:
@@ -183,7 +199,7 @@ def scan(con, directory, cfg):
             sender = me if m["is_from_me"] else who_is(m["handle"], team_by_digits, extra)
             msgs.append({"guid": m["guid"], "text": text, "at": apple_time(m["date"]), "team": sender, "handle": m["handle"]})
             if sender:
-                last_team = (i, sender)
+                last_team = (len(msgs) - 1, sender)
 
         start = last_team[0] + 1 if last_team else 0
         waiting = [x for x in msgs[start:] if not x["team"] and x["text"] and not is_ack(x["text"])]
@@ -222,12 +238,13 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
 
     if "--list" in args:
-        team_by_digits, _, extra, _ = build_identity(directory, cfg)
+        team_by_digits, _, extra, _, ignore = build_identity(directory, cfg)
         for g in groups:
             print(f"\n== {g['name']}  (clients: {', '.join(c['name'] for c in g['clients'])})")
             for h in g["handles"]:
                 k = who_is(h, team_by_digits, extra)
-                tag = f"TEAM {k}" if k else ("CLIENT" if last10(h) in {c['digits'] for c in g['clients']} else "other (treated as client)")
+                tag = (f"TEAM {k}" if k else "SUB (ignored)" if ignored(h, ignore)
+                       else "CLIENT" if last10(h) in {c['digits'] for c in g['clients']} else "other (treated as client)")
                 print(f"   {h:<32} {tag}")
             if g["waiting"]:
                 w = g["waiting"][0]
