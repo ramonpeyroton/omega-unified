@@ -20,6 +20,7 @@ import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofi
 import { sectionsTotal, itemsTotal } from '../lib/estimatePricing';
 import EstimateChooser, { isEstimateLocked } from './EstimateChooser';
 import { StepBadge } from './JobFullView';
+import { clientEmailsText } from '../lib/clientEmails';
 
 // Stable IDs make sections + items addressable by @dnd-kit. Older
 // estimate rows in the DB lack them — `ensureIds` lazily backfills
@@ -980,8 +981,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         .from('estimates').select('*').eq('id', saved.id).maybeSingle();
       if (updated) setEstimate(updated);
 
-      logAudit({ user, action: 'estimate.send', entityType: 'estimate', entityId: saved.id, details: { to: job.client_email, total } });
-      setToast({ type: 'success', message: `Sent to ${job.client_email}` });
+      logAudit({ user, action: 'estimate.send', entityType: 'estimate', entityId: saved.id, details: { to: clientEmailsText(job), total } });
+      setToast({ type: 'success', message: `Sent to ${clientEmailsText(job)}` });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to send' });
     }

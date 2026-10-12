@@ -32,6 +32,7 @@ const DEFAULT_FORM = {
   last_name: '',
   phone: '',
   email: '',
+  email_2: '',
   address: '',
   unit_number: '',
   // CT default — most of Omega's leads still come from there. Switching
@@ -251,6 +252,8 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
         client_name:          clientName,
         client_phone:         e164,
         client_email:         form.email.trim() || null,
+        // 2nd email only when filled, so saving works before migration 087.
+        ...(form.email_2.trim() ? { client_email_2: form.email_2.trim() } : {}),
         address:              fullAddress,
         unit_number:          form.unit_number.trim() || null,
         city:                 form.city,
@@ -326,6 +329,7 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
             <Row label="Client"   value={clientName} />
             <Row label="Phone"    value={created.client_phone} />
             {created.client_email && <Row label="Email" value={created.client_email} />}
+            {created.client_email_2 && <Row label="Second email" value={created.client_email_2} />}
             <Row label="Service"  value={allServices} />
             <Row label="Location" value={created.address} />
             {created.lead_source && <Row label="Source" value={created.lead_source} />}
@@ -482,6 +486,12 @@ export default function NewLead({ user, onLogout, onViewLeads, onScheduleVisit }
                 <div className="relative">
                   <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-omega-stone" />
                   <input type="email" inputMode="email" className={`${inputCls} pl-10`} value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="client@email.com" />
+                </div>
+              </Field>
+              <Field label="Second email (optional)">
+                <div className="relative">
+                  <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-omega-stone" />
+                  <input type="email" inputMode="email" className={`${inputCls} pl-10`} value={form.email_2} onChange={(e) => set('email_2', e.target.value)} placeholder="spouse@email.com" />
                 </div>
               </Field>
             </div>

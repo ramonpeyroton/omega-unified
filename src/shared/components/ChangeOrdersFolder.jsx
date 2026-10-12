@@ -17,6 +17,7 @@ import { logAudit } from '../lib/audit';
 import { validateUserPinDetailed } from '../lib/userPin';
 import { coItems, isLegacyCo, isCoVoid } from '../lib/changeOrders';
 import ChangeOrderEditor from './ChangeOrderEditor';
+import { clientEmailsText } from '../lib/clientEmails';
 
 function money(n) {
   return `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -80,7 +81,7 @@ export default function ChangeOrdersFolder({ job, user }) {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data?.ok) throw new Error(data?.error || `Send failed (HTTP ${r.status})`);
-      logAudit({ user, action: 'change_order.send', entityType: 'change_order', entityId: co.id, details: { job_id: job.id, to: job.client_email } });
+      logAudit({ user, action: 'change_order.send', entityType: 'change_order', entityId: co.id, details: { job_id: job.id, to: clientEmailsText(job) } });
       await load();
     } catch (err) {
       setError(err.message || 'Failed to send.');

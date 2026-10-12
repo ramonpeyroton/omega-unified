@@ -89,6 +89,9 @@ const EDITABLE_FIELDS = [
   { key: 'client_name',  label: 'Client Name' },
   { key: 'client_phone', label: 'Phone', type: 'phone' },
   { key: 'client_email', label: 'Email', type: 'email' },
+  // Optional 2nd address — gets every email the app sends this client
+  // (migration 087). The main email stays the DocuSign signer.
+  { key: 'client_email_2', label: 'Second email (optional)', type: 'email' },
   { key: 'address',      label: 'Address', type: 'textarea' },
   // `service` renders as multi-select chips so the seller can change
   // "deck" to "flooring" (or pick more than one) after the lead was
@@ -133,6 +136,9 @@ export default function JobFullView({
   initialTab,
 }) {
   const [job, setJob] = useState(initialJob);
+  // Main + optional 2nd email (migration 087); one mailto opens both.
+  const clientEmailList = [job?.client_email, job?.client_email_2].map((e) => (e || '').trim()).filter(Boolean);
+  const mailtoHref = clientEmailList.length ? `mailto:${clientEmailList.join(',')}` : null;
   // Report is the primary landing tab — it's why most people open the job.
   // For receptionist (READ_ONLY_BASIC_ROLES), we land on Details directly
   // because that's the only tab they have. An explicit `initialTab` from
@@ -224,7 +230,11 @@ export default function JobFullView({
     setSaving(true);
     try {
       const patch = Object.fromEntries(
-        Object.entries(form).map(([k, v]) => {
+        Object.entries(form)
+          // Until migration 087 runs the column doesn't exist — leave the
+          // empty 2nd email out so the rest of the edit still saves.
+          .filter(([k, v]) => !(k === 'client_email_2' && v === '' && !(k in job)))
+          .map(([k, v]) => {
           // The Services chip editor stores an array in form state; we
           // collapse it back to the comma-separated string the rest of
           // the app expects. An empty selection becomes null.
@@ -454,8 +464,8 @@ export default function JobFullView({
                   <Phone className="w-4 h-4" />
                 </a>
               )}
-              {job.client_email && (
-                <a href={`mailto:${job.client_email}`} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Email">
+              {mailtoHref && (
+                <a href={mailtoHref} className="p-2 rounded-xl bg-omega-pale text-omega-orange hover:bg-omega-orange/10" title="Email">
                   <Mail className="w-4 h-4" />
                 </a>
               )}
@@ -539,11 +549,11 @@ export default function JobFullView({
                 <Phone className="w-3.5 h-3.5" /> Call
               </a>
             )}
-            {job.client_email && (
+            {mailtoHref && (
               <a
-                href={`mailto:${job.client_email}`}
+                href={mailtoHref}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold"
-                title={`Email ${job.client_email}`}
+                title={`Email ${clientEmailList.join(', ')}`}
               >
                 <Mail className="w-3.5 h-3.5" /> Email
               </a>
@@ -935,6 +945,7 @@ export default function JobFullView({
                   client_name: job.client_name || '',
                   client_phone: job.client_phone || '',
                   client_email: job.client_email || '',
+                  client_email_2: job.client_email_2 || '',
                   address: job.address || '',
                 });
                 onClose?.();
@@ -1127,6 +1138,7 @@ function DetailsTab({
             <Field icon={UserIcon}  label="Client"          value={job.client_name} />
             <Field icon={Phone}     label="Phone"           value={job.client_phone} />
             <Field icon={Mail}      label="Email"           value={job.client_email} />
+            {job.client_email_2 && <Field icon={Mail} label="Second email" value={job.client_email_2} />}
             <Field icon={MapPin}    label="Address"         value={job.address} />
             <Field icon={Briefcase} label="Salesperson"     value={job.salesperson_name} />
             <Field icon={HardHat}   label="Project Manager" value={job.pm_name} />

@@ -14,6 +14,7 @@ import { priceMode, sectionMode, sectionPrice } from '../lib/estimatePricing';
 import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
 import { notify } from '../lib/notifications';
+import { clientEmailsText } from '../lib/clientEmails';
 
 // Build-time flag toggling the DocuSign send button. We deliberately
 // use VITE_DOCUSIGN_ENABLED (string '1') so Ramon can flip it on a
@@ -688,7 +689,7 @@ export default function EstimateFlow({ job, user, onBack }) {
         // The payment is saved either way — a failed email only warns.
         try {
           await sendPaymentReceipt({ milestoneId: milestone.id, amount, receivedOn: localDayISO(), user });
-          message = `Marked as received · receipt emailed to ${job.client_email}`;
+          message = `Marked as received · receipt emailed to ${clientEmailsText(job)}`;
         } catch (mailErr) {
           type = 'warning';
           message = `Marked as received, but the receipt email failed: ${mailErr.message || mailErr}`;
@@ -720,7 +721,7 @@ export default function EstimateFlow({ job, user, onBack }) {
     if (!estimate) { setToast({ type: 'error', message: 'No estimate to send' }); return; }
     if (!job.client_email) { setToast({ type: 'error', message: 'Client has no email on file. Add it under Details first.' }); return; }
     const again = estimate.status === 'sent' || !!estimate.sent_at;
-    if (!confirm(`${again ? 'Resend' : 'Send'} the estimate to ${job.client_email}?`)) return;
+    if (!confirm(`${again ? 'Resend' : 'Send'} the estimate to ${clientEmailsText(job)}?`)) return;
     setSaving(true);
     try {
       const res = await apiFetch('/api/send-estimate', {
@@ -737,8 +738,8 @@ export default function EstimateFlow({ job, user, onBack }) {
       const { data } = await supabase.from('estimates').select('*').eq('id', estimate.id).maybeSingle();
       if (data) setEstimate(data);
       await setJobPipeline('estimate_sent');
-      logAudit({ user, action: again ? 'estimate.resend' : 'estimate.send', entityType: 'estimate', entityId: estimate.id, details: { to: job.client_email, from: 'estimate_flow' } });
-      setToast({ type: 'success', message: `Estimate ${again ? 're' : ''}sent to ${job.client_email}` });
+      logAudit({ user, action: again ? 'estimate.resend' : 'estimate.send', entityType: 'estimate', entityId: estimate.id, details: { to: clientEmailsText(job), from: 'estimate_flow' } });
+      setToast({ type: 'success', message: `Estimate ${again ? 're' : ''}sent to ${clientEmailsText(job)}` });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to send estimate' });
     } finally {
@@ -1603,7 +1604,7 @@ export default function EstimateFlow({ job, user, onBack }) {
                   />
                   <span className="text-xs text-omega-charcoal">
                     <span className="font-semibold">Email receipt to client</span>
-                    <span className="block text-[11px] text-omega-stone">{job.client_email} · office gets a copy</span>
+                    <span className="block text-[11px] text-omega-stone">{clientEmailsText(job)} · office gets a copy</span>
                   </span>
                 </label>
               ) : (

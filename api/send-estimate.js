@@ -16,6 +16,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
 import { notifyOfficeRoles, shouldNotifyOpen } from './_lib/notify.js';
+import { clientEmails } from './_lib/clientEmails.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -409,7 +410,7 @@ export default async function handler(req, res) {
     .from('jobs').select('*').eq('id', estimate.job_id).maybeSingle();
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
 
-  if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });
+  if (!clientEmails(job).length) return json(res, 400, { ok: false, error: 'Client has no email on file' });
 
   const { data: company } = await supabase
     .from('company_settings').select('*')
@@ -475,7 +476,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         from:     RESEND_FROM,
-        to:       [job.client_email],
+        to:       clientEmails(job), // main + optional 2nd email (migration 087)
         reply_to: company?.email || undefined,
         subject,
         html,
@@ -493,7 +494,7 @@ export default async function handler(req, res) {
     await supabase.from('estimate_emails').insert({
       estimate_id: estimateId,
       job_id: estimate.job_id,
-      to_email: job.client_email,
+      to_email: clientEmails(job).join(', '),
       subject,
       status: providerId ? 'sent' : 'failed',
       provider: 'resend',
@@ -712,7 +713,7 @@ async function sendChangeOrder(req, res, body) {
   if (co.status === 'signed') return json(res, 400, { ok: false, error: 'This change order is already signed.' });
   const { data: job } = await supabase.from('jobs').select('*').eq('id', co.job_id).maybeSingle();
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
-  if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });
+  if (!clientEmails(job).length) return json(res, 400, { ok: false, error: 'Client has no email on file' });
   const { data: company } = await supabase
     .from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle();
 
@@ -729,7 +730,7 @@ async function sendChangeOrder(req, res, body) {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: RESEND_FROM, to: [job.client_email], reply_to: company?.email || undefined, subject, html }),
+      body: JSON.stringify({ from: RESEND_FROM, to: clientEmails(job), reply_to: company?.email || undefined, subject, html }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) errorMsg = data?.message || `Resend HTTP ${r.status}`;

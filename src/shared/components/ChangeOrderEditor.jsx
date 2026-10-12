@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import { logAudit } from '../lib/audit';
 import { coItems, coPriceMode, itemsTotal, summarizeCo } from '../lib/changeOrders';
+import { clientEmailsText } from '../lib/clientEmails';
 
 const blankItem = () => ({ title: '', details: '', price: '' });
 
@@ -144,7 +145,7 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data?.ok) throw new Error(data?.error || `Send failed (HTTP ${r.status})`);
-      logAudit({ user, action: 'change_order.send', entityType: 'change_order', entityId: row.id, details: { job_id: job.id, to: job.client_email } });
+      logAudit({ user, action: 'change_order.send', entityType: 'change_order', entityId: row.id, details: { job_id: job.id, to: clientEmailsText(job) } });
       onSaved?.(row);
       onClose?.();
     } catch (err) {

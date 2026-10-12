@@ -9,6 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
+import { clientEmails } from './_lib/clientEmails.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -79,7 +80,7 @@ async function sendResendEmail({ to, subject, html, replyTo }) {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: RESEND_FROM, to: [to], reply_to: replyTo || undefined, subject, html }),
+      body: JSON.stringify({ from: RESEND_FROM, to: Array.isArray(to) ? to : [to], reply_to: replyTo || undefined, subject, html }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: data?.message || `HTTP ${r.status}` };
@@ -146,13 +147,14 @@ export default async function handler(req, res) {
     (r.ok ? results.emailed : results.failed).push({ to: assigneeEmail, ...r });
   }
 
-  // Client email, if we have one
-  if (job?.client_email) {
+  // Client email(s), if we have any — main + optional 2nd (migration 087)
+  const clientTo = clientEmails(job);
+  if (clientTo.length) {
     const first = (job.client_name || '').split(' ')[0] || 'there';
     const subject = `Your Omega visit is confirmed — ${formatDateCT(starts)}`;
     const greeting = `Hi ${first}, thanks for reaching out. Your Omega visit is confirmed:`;
     const r = await sendResendEmail({
-      to: job.client_email, subject, replyTo: company?.email,
+      to: clientTo, subject, replyTo: company?.email,
       html: htmlVisitCard({
         title: event.title,
         starts, ends,
@@ -161,7 +163,7 @@ export default async function handler(req, res) {
         recipientGreeting: greeting,
       }),
     });
-    (r.ok ? results.emailed : results.failed).push({ to: job.client_email, ...r });
+    (r.ok ? results.emailed : results.failed).push({ to: clientTo.join(', '), ...r });
   }
 
   return json(res, 200, { ok: true, ...results });

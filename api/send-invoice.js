@@ -22,6 +22,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
+import { clientEmails } from './_lib/clientEmails.js';
 
 const SUPABASE_URL   = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -248,7 +249,7 @@ async function handleReceipt(res, body) {
     supabase.from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
-  if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });
+  if (!clientEmails(job).length) return json(res, 400, { ok: false, error: 'Client has no email on file' });
 
   const list = siblings || [milestone];
   const totalInstallments = list.length || 1;
@@ -284,8 +285,8 @@ async function handleReceipt(res, body) {
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: RESEND_FROM,
-        to: [job.client_email],
-        bcc: officeCopy && officeCopy.toLowerCase() !== String(job.client_email).toLowerCase() ? [officeCopy] : undefined,
+        to: clientEmails(job), // main + optional 2nd email (migration 087)
+        bcc: officeCopy && !clientEmails(job).some((e) => e.toLowerCase() === officeCopy.toLowerCase()) ? [officeCopy] : undefined,
         reply_to: company?.email || undefined,
         subject,
         html,
@@ -299,7 +300,7 @@ async function handleReceipt(res, body) {
   }
   if (!providerId) return json(res, 500, { ok: false, error: errorMsg || 'Receipt email failed' });
 
-  return json(res, 200, { ok: true, providerId, receiptNo, fullyPaid, to: job.client_email });
+  return json(res, 200, { ok: true, providerId, receiptNo, fullyPaid, to: clientEmails(job).join(', ') });
 }
 
 export default async function handler(req, res) {
@@ -337,7 +338,7 @@ export default async function handler(req, res) {
   const { data: job } = await supabase
     .from('jobs').select('*').eq('id', milestone.job_id).maybeSingle();
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
-  if (!job.client_email) return json(res, 400, { ok: false, error: 'Client has no email on file' });
+  if (!clientEmails(job).length) return json(res, 400, { ok: false, error: 'Client has no email on file' });
 
   const { data: company } = await supabase
     .from('company_settings').select('*')
@@ -371,7 +372,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         from: RESEND_FROM,
-        to: [job.client_email],
+        to: clientEmails(job),
         reply_to: company?.email || undefined,
         subject,
         html,

@@ -57,7 +57,8 @@ export default function ContactSection({ job, user }) {
 
   const clientName  = job?.client_name;
   const clientPhone = normalizePhone(job?.client_phone);
-  const clientEmail = job?.client_email;
+  // Main + optional 2nd email (migration 087) — one mailto opens both.
+  const clientEmail = [job?.client_email, job?.client_email_2].map((e) => (e || '').trim()).filter(Boolean).join(', ');
 
   const operationsFirst = user?.role === 'operations';
 
@@ -140,7 +141,7 @@ export default function ContactSection({ job, user }) {
               </a>
             )}
             {clientEmail && (
-              <a href={`mailto:${clientEmail}`} className="inline-flex items-center gap-1 hover:text-omega-orange">
+              <a href={`mailto:${clientEmail.replace(/, /g, ',')}`} className="inline-flex items-center gap-1 hover:text-omega-orange">
                 <Mail className="w-3 h-3" /> {clientEmail}
               </a>
             )}

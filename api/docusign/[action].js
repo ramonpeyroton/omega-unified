@@ -263,6 +263,19 @@ async function handleCreateEnvelope(req, res) {
       },
     };
 
+    // Client contract: the optional 2nd client email (migration 087) gets a
+    // copy too — only the main email signs (Ramon, 12/10/26).
+    const secondEmail = String(job?.client_email_2 || '').trim();
+    if (kind !== 'subcontractor_agreement' && secondEmail
+        && ![signerEmail, 'office@omeganyct.com'].some((e) => String(e).toLowerCase() === secondEmail.toLowerCase())) {
+      envelope.recipients.carbonCopies.push({
+        email:        secondEmail,
+        name:         signerName,
+        recipientId:  '3',
+        routingOrder: '2',
+      });
+    }
+
     const dsRes = await fetch(`${BASE_URL}/v2.1/accounts/${ACCOUNT_ID}/envelopes`, {
       method:  'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

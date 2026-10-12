@@ -15,7 +15,7 @@ import { notify } from '../../../shared/lib/notifications';
 import { logAudit } from '../../../shared/lib/audit';
 import { LEAD_SOURCES } from '../../receptionist/lib/leadCatalog';
 
-const EMPTY = { client_name: '', address: '', city: '', client_phone: '', client_email: '', lead_source: '' };
+const EMPTY = { client_name: '', address: '', city: '', client_phone: '', client_email: '', client_email_2: '', lead_source: '' };
 
 const labelCls = 'block text-xs font-semibold text-omega-slate uppercase tracking-wider mb-2';
 const fieldCls = (err) =>
@@ -66,6 +66,7 @@ export default function NewClient({ user, onBack, onOpenClient }) {
     if (form.client_phone.replace(/\D/g, '').length < 10) e.client_phone = 'Enter a 10-digit phone number';
     if (!form.address.trim()) e.address = 'Address is required';
     if (form.client_email.trim() && !/^\S+@\S+\.\S+$/.test(form.client_email.trim())) e.client_email = 'Check the email';
+    if (form.client_email_2.trim() && !/^\S+@\S+\.\S+$/.test(form.client_email_2.trim())) e.client_email_2 = 'Check the email';
     if (!form.lead_source) e.lead_source = 'Select how the client found us';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -88,6 +89,8 @@ export default function NewClient({ user, onBack, onOpenClient }) {
         client_name:     name,
         client_phone:    toE164(form.client_phone) || form.client_phone.trim(),
         client_email:    form.client_email.trim() || null,
+        // 2nd email only when filled, so saving works before migration 087.
+        ...(form.client_email_2.trim() ? { client_email_2: form.client_email_2.trim() } : {}),
         address:         form.address.trim(),
         city:            form.city || cityFromAddress(form.address),
         lead_source:     form.lead_source,
@@ -208,6 +211,22 @@ export default function NewClient({ user, onBack, onOpenClient }) {
                 />
               </div>
               {errors.client_email && <p className="text-xs text-omega-danger mt-1">{errors.client_email}</p>}
+            </div>
+
+            <div>
+              <label className={labelCls}>Second email <span className="text-omega-fog font-normal normal-case">(optional — gets everything we send too)</span></label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-omega-fog pointer-events-none" />
+                <input
+                  type="email"
+                  inputMode="email"
+                  value={form.client_email_2}
+                  onChange={(e) => set('client_email_2', e.target.value)}
+                  placeholder="spouse@email.com"
+                  className={fieldCls(errors.client_email_2)}
+                />
+              </div>
+              {errors.client_email_2 && <p className="text-xs text-omega-danger mt-1">{errors.client_email_2}</p>}
             </div>
 
             <div>

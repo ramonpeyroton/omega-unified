@@ -29,6 +29,7 @@ export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient
     client_name:  prefilledClient?.client_name  || '',
     client_phone: prefilledClient?.client_phone || '',
     client_email: prefilledClient?.client_email || '',
+    client_email_2: prefilledClient?.client_email_2 || '',
     address:      prefilledClient?.address      || '',
     lead_source:  '',
     visit_date:   '',
@@ -65,6 +66,8 @@ export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient
         client_name:      form.client_name.trim(),
         client_phone:     toE164(form.client_phone) || form.client_phone,
         client_email:     form.client_email.trim() || null,
+        // 2nd email only when filled, so saving works before migration 087.
+        ...(form.client_email_2.trim() ? { client_email_2: form.client_email_2.trim() } : {}),
         address:          form.address.trim(),
         salesperson_name: user.name,
         service:          services.join(', '),
@@ -181,6 +184,21 @@ export default function NewJob({ user, onNavigate, onJobCreated, prefilledClient
               value={form.client_email}
               onChange={(e) => set('client_email', e.target.value)}
               placeholder="client@email.com"
+              className={inputWithIconCls(false)}
+            />
+          </div>
+        </div>
+
+        {/* ── Second email (optional — gets everything we send too) ── */}
+        <div>
+          <label className={labelCls}>Second email <span className="text-omega-fog font-normal normal-case">(optional — gets everything we send too)</span></label>
+          <div className="relative">
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-omega-fog pointer-events-none" />
+            <input
+              type="email"
+              value={form.client_email_2}
+              onChange={(e) => set('client_email_2', e.target.value)}
+              placeholder="spouse@email.com"
               className={inputWithIconCls(false)}
             />
           </div>
