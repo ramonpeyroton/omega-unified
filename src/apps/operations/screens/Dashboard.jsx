@@ -4,11 +4,21 @@ import { supabase } from '../lib/supabase';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
-import COIBadge, { getCoiState } from '../components/COIBadge';
+import COIBadge, { getSubCoiState, hasCoiFile } from '../components/COIBadge';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 import NotificationsBell from '../../../shared/components/NotificationsBell';
+
+// "WC 3/30/2027 · GL 5/1/2027" — the dates on the COI on file.
+function coiDates(s) {
+  const fmt = (v) => {
+    const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : null;
+  };
+  return [s.workers_comp_expiry && `WC ${fmt(s.workers_comp_expiry)}`, s.general_liability_expiry && `GL ${fmt(s.general_liability_expiry)}`]
+    .filter(Boolean).join(' · ');
+}
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -120,14 +130,8 @@ export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user 
     });
     const ctrAwaiting = awaitingJobs.size;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const thirty = new Date(today); thirty.setDate(thirty.getDate() + 30);
-    const coiExpiring = subs.filter((s) => {
-      if (!s.coi_expiry_date) return false;
-      const d = new Date(s.coi_expiry_date);
-      return d >= today && d <= thirty;
-    }).length;
+    // WC or GL expiring within 30 days (only subs with the COI file on record).
+    const coiExpiring = subs.filter((s) => getSubCoiState(s) === 'expiring').length;
 
     return { activeJobs, estPending, ctrAwaiting, coiExpiring };
   }, [jobs, estimates, contracts, subs]);
@@ -403,7 +407,7 @@ export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user 
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[15px] font-bold text-omega-charcoal truncate">{s.contact_name || s.name}</p>
-                    <COIBadge expiryDate={s.coi_expiry_date} />
+                    <COIBadge sub={s} />
                   </div>
                   {s.contact_name && s.name !== s.contact_name && (
                     <p className="text-[12px] text-omega-stone truncate">{s.name}</p>
@@ -414,10 +418,8 @@ export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user 
                         {s.trade}
                       </span>
                     )}
-                    {s.coi_expiry_date && (
-                      <span className="text-[10px] text-omega-stone">
-                        COI: {new Date(s.coi_expiry_date).toLocaleDateString()}
-                      </span>
+                    {hasCoiFile(s) && coiDates(s) && (
+                      <span className="text-[10px] text-omega-stone">{coiDates(s)}</span>
                     )}
                   </div>
                 </button>
@@ -447,8 +449,8 @@ export default function Dashboard({ onOpenEstimate, onNavigate, onOpenJob, user 
                       <td className="px-4 py-3 font-medium text-omega-charcoal">{s.name}</td>
                       <td className="px-4 py-3">{s.trade || '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs">{maskTaxId(s.tax_id)}</td>
-                      <td className="px-4 py-3"><COIBadge expiryDate={s.coi_expiry_date} /></td>
-                      <td className="px-4 py-3">{s.coi_expiry_date ? new Date(s.coi_expiry_date).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-3"><COIBadge sub={s} /></td>
+                      <td className="px-4 py-3 text-xs">{(hasCoiFile(s) && coiDates(s)) || '—'}</td>
                       <td className="px-4 py-3">{s.active_jobs_count ?? '—'}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex gap-2">

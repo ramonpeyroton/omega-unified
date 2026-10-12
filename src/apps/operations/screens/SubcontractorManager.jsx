@@ -6,7 +6,7 @@ import { downloadSubAgreementPdf } from '../../../shared/lib/subAgreementPdf';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Toast from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
-import COIBadge, { getCoiState } from '../components/COIBadge';
+import COIBadge, { getSubCoiState } from '../components/COIBadge';
 import SubcontractorCardsView from '../components/SubcontractorCardsView';
 import { logAudit } from '../../../shared/lib/audit';
 import { subInlineLabel, subDisplayNames } from '../../../shared/lib/subcontractor';
@@ -122,7 +122,7 @@ export default function SubcontractorManager({ user }) {
 
   const expiringCount = useMemo(
     () => subs.filter((s) => {
-      const { state } = getCoiState(s.coi_expiry_date);
+      const state = getSubCoiState(s);
       return state === 'expiring' || state === 'expired';
     }).length,
     [subs]
@@ -135,6 +135,15 @@ export default function SubcontractorManager({ user }) {
     if (error) throw error;
     const { data } = supabase.storage.from('subcontractor-docs').getPublicUrl(path);
     return data?.publicUrl || null;
+  }
+
+  // Every COI file also goes into the sub's COI history (profile modal).
+  async function recordCoiDoc(subId, url, fileName) {
+    if (!url) return;
+    try {
+      await supabase.from('subcontractor_coi_documents')
+        .insert([{ subcontractor_id: subId, file_url: url, file_name: fileName || null }]);
+    } catch { /* history is best effort */ }
   }
 
   function openEditSub(sub) {
@@ -157,6 +166,10 @@ export default function SubcontractorManager({ user }) {
 
   async function saveEditSub(e) {
     e.preventDefault();
+    if (editCoiFile && !editForm.workers_comp_expiry && !editForm.general_liability_expiry) {
+      setToast({ type: 'warning', message: 'Enter the Workers Comp and/or General Liability expiry dates from the COI.' });
+      return;
+    }
     setSavingEdit(true);
     try {
       // Convert empty strings to null so Postgres accepts typed columns
@@ -171,7 +184,7 @@ export default function SubcontractorManager({ user }) {
       if (editCoiFile) {
         try {
           const url = await uploadCoi(editSub.id, editCoiFile);
-          if (url) patch.coi_url = url;
+          if (url) { patch.coi_url = url; await recordCoiDoc(editSub.id, url, editCoiFile.name); }
         } catch { /* ignore upload error */ }
       }
       const { data, error } = await supabase.from('subcontractors').update(patch).eq('id', editSub.id).select().single();
@@ -249,6 +262,10 @@ export default function SubcontractorManager({ user }) {
 
   async function submitAddSub(e) {
     e.preventDefault();
+    if (coiFile && !subForm.workers_comp_expiry && !subForm.general_liability_expiry) {
+      setToast({ type: 'warning', message: 'Enter the Workers Comp and/or General Liability expiry dates from the COI.' });
+      return;
+    }
     try {
       // Convert empty strings to null (Postgres rejects '' for date/numeric)
       // and normalize phone to E.164 so Twilio works everywhere.
@@ -265,6 +282,7 @@ export default function SubcontractorManager({ user }) {
         try {
           const url = await uploadCoi(data.id, coiFile);
           if (url) {
+            await recordCoiDoc(data.id, url, coiFile.name);
             const { data: updated } = await supabase.from('subcontractors').update({ coi_url: url }).eq('id', data.id).select().single();
             if (updated) {
               setSubs((prev) => [updated, ...prev]);
@@ -288,20 +306,6 @@ export default function SubcontractorManager({ user }) {
       setToast({ type: 'success', message: 'Subcontractor added' });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to add subcontractor' });
-    }
-  }
-
-  async function uploadCoiFor(sub, file) {
-    if (!file) return;
-    try {
-      const url = await uploadCoi(sub.id, file);
-      const { data } = await supabase.from('subcontractors').update({ coi_url: url }).eq('id', sub.id).select().single();
-      if (data) {
-        setSubs((prev) => prev.map((s) => s.id === data.id ? data : s));
-        setToast({ type: 'success', message: 'COI uploaded' });
-      }
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Upload failed' });
     }
   }
 
@@ -734,7 +738,10 @@ export default function SubcontractorManager({ user }) {
           agreements={agreements.filter((a) => a.subcontractor_id === profileSub.id)}
           jobs={jobs}
           onClose={() => setProfileSub(null)}
-          onUploadCoi={(file) => uploadCoiFor(profileSub, file)}
+          onSubUpdated={(updated) => {
+            setSubs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+            setProfileSub(updated);
+          }}
           onEditProfile={() => {
             const sub = profileSub;
             setProfileSub(null);
@@ -884,7 +891,7 @@ function AgreementsList({ agreements, subs, jobs, search, onSearchChange, onAdd,
 // Mirrors every field from the Add/Edit Sub forms, plus a quick
 // summary of jobs and a CTA to edit. The Edit profile button hands
 // off to the existing Edit Sub modal handled by the parent component.
-function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUploadCoi }) {
+function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onSubUpdated }) {
   const { primary, secondary } = subDisplayNames(sub);
   const totalValue = (agreements || []).reduce((acc, a) => acc + (Number(a.their_estimate) || 0), 0);
   const completedCount = (agreements || []).filter((a) => a.status === 'completed' || a.status === 'signed').length;
@@ -897,6 +904,8 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
   const [coiDocs, setCoiDocs] = useState([]);
   const [uploadingCoi, setUploadingCoi] = useState(false);
   const [coiError, setCoiError] = useState(null);
+  // A picked COI file waits here until its policy dates are filled in.
+  const [pendingCoi, setPendingCoi] = useState(null); // { file, wc, gl }
 
   useEffect(() => {
     supabase
@@ -910,8 +919,11 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
       });
   }, [sub.id]);
 
-  async function handleCoiUpload(file) {
+  async function handleCoiUpload() {
+    const { file, wc, gl } = pendingCoi || {};
     if (!file) return;
+    if (!wc && !gl) { setCoiError('Enter the Workers Comp and/or General Liability expiry dates from the COI.'); return; }
+    setCoiError(null);
     setUploadingCoi(true);
     try {
       const path = `coi/${sub.id}/${Date.now()}-${file.name}`;
@@ -927,8 +939,12 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
         .select().single();
       if (insErr) throw insErr;
       setCoiDocs((prev) => [row, ...prev]);
-      // Also keep legacy coi_url in sync for COIBadge
-      await supabase.from('subcontractors').update({ coi_url: fileUrl }).eq('id', sub.id);
+      // The badge reads coi_url + the two policy dates on the sub.
+      const { data: updated } = await supabase.from('subcontractors')
+        .update({ coi_url: fileUrl, workers_comp_expiry: wc || null, general_liability_expiry: gl || null })
+        .eq('id', sub.id).select().single();
+      if (updated) onSubUpdated?.(updated);
+      setPendingCoi(null);
     } catch (err) {
       setCoiError('Upload failed: ' + (err.message || 'Unknown error'));
     } finally {
@@ -945,7 +961,7 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
             <h2 className="text-xl font-bold text-omega-charcoal mt-0.5">{primary}</h2>
             {secondary && <p className="text-sm text-omega-stone mt-0.5">{secondary}</p>}
             <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <COIBadge expiryDate={sub.coi_expiry_date} />
+              <COIBadge sub={sub} />
               {sub.trade && (
                 <span className="text-[10px] font-bold uppercase tracking-wider text-omega-stone bg-omega-cloud border border-gray-200 px-1.5 py-0.5 rounded">
                   {sub.trade}
@@ -970,11 +986,11 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
           <Field label="Policy number" value={sub.insurance_policy_number} mono />
           <Field
             label="Workers Comp"
-            value={sub.workers_comp_expiry ? new Date(sub.workers_comp_expiry).toLocaleDateString() : null}
+            value={sub.workers_comp_expiry ? localDate(sub.workers_comp_expiry) : null}
           />
           <Field
             label="General Liability"
-            value={sub.general_liability_expiry ? new Date(sub.general_liability_expiry).toLocaleDateString() : null}
+            value={sub.general_liability_expiry ? localDate(sub.general_liability_expiry) : null}
           />
           <Field
             label="Primary language"
@@ -1004,12 +1020,37 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
                   disabled={uploadingCoi}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) handleCoiUpload(file);
+                    if (file) setPendingCoi({ file, wc: sub.workers_comp_expiry || '', gl: sub.general_liability_expiry || '' });
                     e.target.value = '';
                   }}
                 />
               </label>
             </div>
+
+            {pendingCoi && (
+              <div className="mb-3 p-3 rounded-lg border border-omega-orange/40 bg-omega-pale/40 space-y-2">
+                <p className="text-xs font-semibold text-omega-charcoal truncate">New COI: {pendingCoi.file.name}</p>
+                <p className="text-[11px] text-omega-stone">Type the expiry dates printed on the certificate.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="text-[11px] font-semibold text-omega-stone uppercase">Workers Comp
+                    <input type="date" value={pendingCoi.wc} onChange={(e) => setPendingCoi({ ...pendingCoi, wc: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white" />
+                  </label>
+                  <label className="text-[11px] font-semibold text-omega-stone uppercase">General Liability
+                    <input type="date" value={pendingCoi.gl} onChange={(e) => setPendingCoi({ ...pendingCoi, gl: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white" />
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => { setPendingCoi(null); setCoiError(null); }} disabled={uploadingCoi}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold">Cancel</button>
+                  <button type="button" onClick={handleCoiUpload} disabled={uploadingCoi}
+                    className="px-3 py-1.5 rounded-lg bg-omega-orange hover:bg-omega-dark text-white text-xs font-bold disabled:opacity-60">
+                    {uploadingCoi ? 'Saving…' : 'Save COI'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {coiError && (
               <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-2">{coiError}</p>
@@ -1103,6 +1144,12 @@ function SubProfileModal({ sub, agreements, jobs, onClose, onEditProfile, onUplo
       </div>
     </div>
   );
+}
+
+// 'YYYY-MM-DD' as a local calendar day (UTC midnight showed the day before).
+function localDate(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString() : v;
 }
 
 function Field({ label, value, mono = false, colSpan = 1 }) {

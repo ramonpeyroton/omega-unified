@@ -156,7 +156,7 @@ export default function SubcontractorCardsView({ subs, agreements, jobs, onAddSu
               {secondary && (
                 <span className="text-sm text-omega-stone truncate">{secondary}</span>
               )}
-              <COIBadge expiryDate={sub.coi_expiry_date} />
+              <COIBadge sub={sub} />
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
               {sub.trade && (
