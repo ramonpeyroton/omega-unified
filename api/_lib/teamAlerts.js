@@ -128,6 +128,21 @@ const T = {
     body: '📝 Obras sem atualização hoje: {{1}}\n👉 {{2}}\n\nPoste a atualização do dia no app antes de sair.',
     samples: ['2', 'Smith (Westport) · Lee (Darien)'],
   },
+  groupWaiting: {
+    name: 'omega_group_waiting', lang: 'en',
+    body: '💬 Client waiting for your answer\n\nGroup: {{1}}\nClient: {{2}}\nMessage: {{3}}\nWaiting: {{4}}\n\nPlease reply in the group.',
+    samples: ['Smith - Oak St bathroom', 'Renee Smith', '"Hi Attila, can we move the tile delivery to Friday?"', '2 hours (since 10:15 AM)'],
+  },
+  groupWaitingPt: {
+    name: 'omega_grupo_esperando', lang: 'pt_BR',
+    body: '💬 Cliente esperando sua resposta\n\nGrupo: {{1}}\nCliente: {{2}}\nMensagem: {{3}}\nEsperando: {{4}}\n\nResponda no grupo, por favor.',
+    samples: ['Smith - Oak St bathroom', 'Renee Smith', '"Joel, o pintor vem amanhã?"', '2 horas (desde 10h15)'],
+  },
+  groupOwner: {
+    name: 'omega_group_unanswered_owner', lang: 'en',
+    body: '🔺 Client without an answer today\n\nGroup: {{1}}\nClient: {{2}}\nAsked: {{3}}\nMessage: {{4}}\nWaiting since: {{5}}\n\nPlease reply in the group.',
+    samples: ['Smith - Oak St bathroom', 'Renee Smith', 'Attila', '"Hi Attila, can we move the tile delivery to Friday?"', '10:15 AM (6 hours)'],
+  },
   weeklyLeads: {
     name: 'omega_weekly_leads', lang: 'en',
     body: '📊 Leads last week — {{1}}\n\nTotal: {{2}}\nBy source: {{3}}\n\nVisits scheduled: {{4}}\nEstimates sent: {{5}}\nContracts signed: {{6}}\n\nSent every Monday by the Omega app.',
@@ -827,6 +842,7 @@ export async function runTeamAlerts(nowMs = Date.now()) {
   let sentToday = sentRows.filter((r) => Date.parse(r.timestamp) >= d.today.startMs).length;
 
   const queue = buildQueue(d, people);
+  queue.push(...await watcherDownAlert(d));
   const result = { status: 'ok', created, sent: [], held: 0, waiting_approval: [], skipped: [] };
   const pendingApproval = new Set();
 
@@ -980,4 +996,131 @@ function pmDetails(d) {
       : '*Obras com algo previsto hoje*\nNada',
     section(`📝 Sem atualização hoje (${stale.length})`, stale.slice(0, 10).map((j) => `• ${clientShort(j)}`), 0, 'pt'),
   ].join('\n\n');
+}
+
+// ─── iMessage group watcher (Inácio's MacBook) ───────────────────────
+// tools/imessage-watch runs hourly on the office Mac (signed in to Inácio's
+// iCloud, so it sees every client group chat). It asks for the directory
+// below, works out which client groups have a client message the team hasn't
+// answered, and reports them here. This side decides who gets told and
+// when: the person asked, every hour inside their working hours; and at 5pm
+// whatever is still unanswered goes to Inácio. daily-owner-update routes
+// ?task=imessage here after checking the shared secret.
+
+const last10 = (raw) => String(raw || '').replace(/\D/g, '').slice(-10);
+
+export async function groupWatchDirectory() {
+  const people = await loadPeople();
+  const jobs = must(await supabase.from('jobs')
+    .select('client_name, client_phone, address, city, pipeline_status')
+    .not('client_phone', 'is', null)
+    .neq('pipeline_status', 'disqualified')
+    .limit(5000), 'jobs');
+  const clients = [];
+  const seen = new Set();
+  for (const j of jobs) {
+    const digits = last10(j.client_phone);
+    if (digits.length !== 10 || seen.has(digits)) continue;
+    seen.add(digits);
+    clients.push({ digits, name: j.client_name || 'Client', place: (j.address || j.city || '').split(',')[0] });
+  }
+  return {
+    me: 'inacio',
+    team: Object.values(people).map((x) => ({ key: x.key, first: x.first, digits: last10(x.phone) })),
+    clients,
+  };
+}
+
+function waitingText(sinceMs, nowMs, lang) {
+  const mins = Math.max(0, Math.round((nowMs - sinceMs) / 60_000));
+  const pt = lang === 'pt';
+  const dur = mins < 60 ? `${mins} min`
+    : mins < 48 * 60 ? plural(Math.floor(mins / 60), pt ? 'hora' : 'hour', pt ? 'horas' : 'hours')
+    : plural(Math.floor(mins / 1440), pt ? 'dia' : 'day', pt ? 'dias' : 'days');
+  const sp = nyParts(sinceMs);
+  const tp = nyParts(nowMs);
+  const sameDay = sp.y === tp.y && sp.m === tp.m && sp.d === tp.d;
+  const iso = new Date(sinceMs).toISOString();
+  const at = `${sameDay ? '' : `${fmtDate(iso, lang)} `}${fmtTime(iso, lang)}`;
+  return { dur, at };
+}
+
+const MIN_WAIT_MS = 60 * 60_000;
+
+// payload: { pending: [{ chat, msg, group, client, text, since, asked, count }], dry_run }
+export async function groupWatchReport(payload, nowMs = Date.now()) {
+  const auth = twilioAuth();
+  if (!auth) return { status: 'no_twilio' };
+  const pending = Array.isArray(payload?.pending) ? payload.pending.slice(0, 100) : [];
+  const dryRun = payload?.dry_run === true;
+  const { templates } = await ensureTemplates(auth);
+  const people = await loadPeople();
+  const p = nyParts(nowMs);
+  const today = nyDay(p.y, p.m, p.d);
+  const workday = isWorkday(today.wd);
+
+  const sentRows = must(await supabase.from('audit_log').select('details')
+    .eq('action', 'team_alert.sent').gte('timestamp', new Date(nowMs - 3 * 86_400_000).toISOString()), 'audit_log');
+  const sent = new Set(sentRows.map((r) => r.details?.key).filter(Boolean));
+
+  const plan = [];
+  for (const it of pending) {
+    const sinceMs = Date.parse(it.since || '');
+    if (!it.chat || !it.msg || !Number.isFinite(sinceMs) || nowMs - sinceMs < MIN_WAIT_MS) continue;
+    const count = Number(it.count) || 1;
+    const quote = `"${String(it.text || '[attachment]').replace(/\s+/g, ' ').slice(0, 200)}"${count > 1 ? ` (+${count - 1} more)` : ''}`;
+    const group = String(it.group || 'Client group').slice(0, 80);
+    const client = String(it.client || 'Client').slice(0, 80);
+    const asked = people[it.asked] || people.inacio;
+    // The person asked: every hour inside their working hours.
+    if (asked?.phone && workday && p.hh >= asked.start && p.hh < END_HOUR) {
+      const w = waitingText(sinceMs, nowMs, asked.lang);
+      plan.push({ person: asked, t: asked.lang === 'pt' ? T.groupWaitingPt : T.groupWaiting,
+        key: `grp:${it.chat}:${it.msg}:${today.key}T${p.hh}`,
+        values: [group, client, quote, `${w.dur} (${asked.lang === 'pt' ? 'desde' : 'since'} ${w.at})`] });
+    }
+    // End of day: whatever is still unanswered goes to Inácio, once a day.
+    if (people.inacio?.phone && workday && p.hh >= END_HOUR && p.hh < 21) {
+      const w = waitingText(sinceMs, nowMs, 'en');
+      plan.push({ person: people.inacio, t: T.groupOwner, key: `grpesc:${it.chat}:${it.msg}:${today.key}`,
+        values: [group, client, asked?.first || 'Inácio', quote, `${w.at} (${w.dur})`] });
+    }
+  }
+
+  const result = { status: 'ok', groups_pending: pending.length, sent: [], planned: [], waiting_approval: [] };
+  for (const item of plan) {
+    if (sent.has(item.key)) continue;
+    if (dryRun) { result.planned.push({ to: item.person.key, template: item.t.name, values: item.values }); continue; }
+    const tpl = templates.get(item.t.name);
+    if (!tpl || tpl.status !== 'approved') { result.waiting_approval.push(item.t.name); continue; }
+    const r = await sendTemplate(auth, item.person.phone, tpl.sid, item.values, item.t.lang);
+    if (!r.ok) { console.error('[group-watch] send failed', item.t.name, r.error); continue; }
+    sent.add(item.key);
+    result.sent.push(`${item.t.name} → ${item.person.key}`);
+    await supabase.from('audit_log').insert([{
+      user_name: 'team-alerts', user_role: 'system', action: 'team_alert.sent', entity_type: 'whatsapp', entity_id: null,
+      details: { key: item.key, person: item.person.key, template: item.t.name, twilio_sid: r.sid },
+    }]);
+  }
+  // Heartbeat (counts only) so a stopped Mac gets noticed.
+  if (!dryRun) {
+    await supabase.from('audit_log').insert([{
+      user_name: 'imessage-watch', user_role: 'system', action: 'imessage_watch.report', entity_type: 'imessage', entity_id: null,
+      details: { pending: pending.length, sent: result.sent.length },
+    }]);
+  }
+  result.waiting_approval = [...new Set(result.waiting_approval)];
+  return result;
+}
+
+// If the Mac has reported before but not in the last 3 hours of a workday,
+// tell Ramon once that day (usually it's asleep, logged out or offline).
+async function watcherDownAlert(d) {
+  if (!isWorkday(d.today.wd) || d.p.hh < 10 || d.p.hh >= END_HOUR) return [];
+  const { data } = await supabase.from('audit_log').select('timestamp')
+    .eq('action', 'imessage_watch.report').order('timestamp', { ascending: false }).limit(1);
+  const last = Date.parse(data?.[0]?.timestamp || '');
+  if (!Number.isFinite(last) || d.nowMs - last < 3 * 3_600_000) return [];
+  return [{ person: 'ramon', t: T.escalation, key: `watchdown:${d.today.key}`, kind: 'routine',
+    values: ['Office Mac stopped checking the client group chats', "Inácio's MacBook (group-chat watcher)", 'Ramon', fmtDate(new Date(last).toISOString())] }];
 }

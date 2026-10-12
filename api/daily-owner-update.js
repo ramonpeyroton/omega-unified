@@ -15,7 +15,8 @@ import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { pollGmailInvoices } from './_lib/gmailPoller.js';
 import { requireSecret } from './_lib/requireSecret.js';
-import { runTeamAlerts } from './_lib/teamAlerts.js';
+import { timingSafeEqual } from 'node:crypto';
+import { runTeamAlerts, groupWatchDirectory, groupWatchReport } from './_lib/teamAlerts.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -188,6 +189,29 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error('[team-alerts] failed', err?.message || err);
       return json(res, 200, { ok: false, error: err?.message || 'team alerts failed' });
+    }
+  }
+
+  // ── task=imessage: the group-chat watcher on Inácio's MacBook
+  // (tools/imessage-watch). GET = directory (team + client phones), POST =
+  // hourly report of unanswered client groups. Guarded by its own secret
+  // (env IMESSAGE_WATCH_SECRET, same value in the Mac's config.json).
+  if (task === 'imessage') {
+    const secret = (process.env.IMESSAGE_WATCH_SECRET || '').trim();
+    if (!secret) return json(res, 503, { ok: false, error: 'IMESSAGE_WATCH_SECRET not set' });
+    const given = Buffer.from((req.headers['x-watch-secret'] || '').toString());
+    const want = Buffer.from(secret);
+    if (given.length !== want.length || !timingSafeEqual(given, want)) {
+      return json(res, 401, { ok: false, error: 'Unauthorized' });
+    }
+    try {
+      if (req.method === 'GET') return json(res, 200, { ok: true, ...(await groupWatchDirectory()) });
+      let p = req.body;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
+      return json(res, 200, { ok: true, ...(await groupWatchReport(p || {})) });
+    } catch (err) {
+      console.error('[group-watch] failed', err?.message || err);
+      return json(res, 500, { ok: false, error: err?.message || 'group watch failed' });
     }
   }
 
