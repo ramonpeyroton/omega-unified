@@ -14,6 +14,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { notifyOfficeRoles, shouldNotifyOpen } from './_lib/notify.js';
+import { createDraftForJob } from './_lib/purchaseLists.js';
 import crypto from 'node:crypto';
 import { getAccessToken } from './_lib/docusignAuth.js';
 
@@ -342,6 +343,13 @@ export default async function handler(req, res) {
         await downloadAndSaveSignedContract({ ...contract, ...patch });
         // Email Omega's main inbox with a simple confirmation.
         await notifyOmegaOfSigning({ kind: 'contract', row: { ...contract, ...patch }, signedAt: patch.signed_at });
+        // Bathroom / kitchen / reno → draft the client's purchase list for
+        // Attila to review and send (migration 088). Never blocks signing.
+        try {
+          await createDraftForJob(contract.job_id);
+        } catch (err) {
+          console.warn('[docusign-webhook] purchase list draft failed:', err?.message);
+        }
         // In-app bell — Sales + Operations + Owner (one each, deduped).
         await notifyOfficeRoles(supabase, {
           jobId: contract.job_id,

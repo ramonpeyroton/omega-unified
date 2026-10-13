@@ -9,6 +9,7 @@ import {
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 import PhaseBreakdown from './PhaseBreakdown';
+import PurchaseListPanel from './PurchaseList/PurchaseListPanel';
 import JobCostingSection from './JobCostingSection';
 import JobExpensesSection from './JobExpensesSection';
 import DailyLogsSection from './DailyLogsSection';
@@ -797,6 +798,8 @@ export default function JobFullView({
 
           {tab === 'phases' && (
             <div className="space-y-5">
+              {/* Client purchase list — heads-up only, never blocks work. */}
+              <PurchaseListPanel job={job} user={user} />
               <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6">
                 {/* PhaseBreakdown draws its own title + overall progress. */}
                 <PhaseBreakdown

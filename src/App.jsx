@@ -14,6 +14,7 @@ import EstimateOptionsView from './apps/estimate-view/EstimateOptionsView';
 import EstimateBundleView from './apps/estimate-view/EstimateBundleView';
 import ChangeOrderView from './apps/change-order-view/ChangeOrderView';
 import SubOfferView from './apps/sub-offer/SubOfferView';
+import PurchaseListView from './apps/purchase-list/PurchaseListView';
 import PrivacyPolicy from './public/PrivacyPolicy';
 import Terms from './public/Terms';
 import { useBackButtonGuard } from './shared/lib/backButtonGuard';
@@ -51,6 +52,8 @@ export default function App() {
   const isChangeOrderView = pathname.startsWith('/change-order-view/');
   // Public, auth-less page for subcontractors to Accept / Reject a job offer.
   const isSubOffer        = pathname.startsWith('/sub-offer/');
+  // Public, auth-less page: the client's purchase list (migration 088).
+  const isPurchaseList    = pathname.startsWith('/purchase-list/');
   // Public legal pages — linked from the Twilio A2P 10DLC campaign and
   // from customer-facing emails/SMS. No login required.
   const isPrivacyPage   = pathname === '/privacy' || pathname === '/privacy-policy';
@@ -111,6 +114,10 @@ export default function App() {
 
   if (isSubOffer) {
     return <SubOfferView />;
+  }
+
+  if (isPurchaseList) {
+    return <PurchaseListView />;
   }
 
   if (isAdminRoute) {

@@ -23,6 +23,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireSecret } from './_lib/requireSecret.js';
 import { clientEmails } from './_lib/clientEmails.js';
+import { sendPurchaseList } from './_lib/purchaseLists.js';
 
 const SUPABASE_URL   = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -314,6 +315,14 @@ export default async function handler(req, res) {
   catch { return json(res, 400, { ok: false, error: 'Invalid JSON' }); }
 
   if (body?.action === 'receipt') return handleReceipt(res, body);
+  // Client purchase list (migration 088): SMS + email with the list link.
+  // Folded in here to stay under Vercel's 12-function limit.
+  if (body?.action === 'purchase-list') {
+    if (!body.listId) return json(res, 400, { ok: false, error: 'Missing listId' });
+    const by = (req.headers['x-omega-user'] || '').toString() || null;
+    const r = await sendPurchaseList(body.listId, { kind: 'initial', by });
+    return json(res, r.ok ? 200 : 400, r);
+  }
 
   const { milestoneId, pdfUrl, docId, isResend } = body || {};
   if (!milestoneId) return json(res, 400, { ok: false, error: 'Missing milestoneId' });

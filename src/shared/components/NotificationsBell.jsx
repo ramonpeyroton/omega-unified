@@ -14,6 +14,7 @@ export function tabForNotification(type) {
     case 'finance':
     case 'payment':      return 'financials';
     case 'pipeline':     return 'daily';
+    case 'purchase_list': return 'phases'; // client purchase list (migration 088)
     default:             return 'daily';
   }
 }

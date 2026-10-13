@@ -17,6 +17,7 @@ import { pollGmailInvoices } from './_lib/gmailPoller.js';
 import { requireSecret } from './_lib/requireSecret.js';
 import { timingSafeEqual } from 'node:crypto';
 import { runTeamAlerts, groupWatchDirectory, groupWatchReport } from './_lib/teamAlerts.js';
+import { runPurchaseReminders } from './_lib/purchaseLists.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -183,9 +184,14 @@ export default async function handler(req, res) {
   // data, and the repo is PUBLIC. Errors return 200 with the detail in the
   // body so a transient hiccup never spams failure emails.
   if (task === 'reminders') {
+    // Client purchase lists: Friday 9am weekly reminder (SMS + email). Runs
+    // on its own so a team-alert failure never skips it (and vice versa).
+    let purchase = null;
+    try { purchase = await runPurchaseReminders(); }
+    catch (e) { purchase = { status: 'error', error: e?.message }; }
     try {
       const team = await runTeamAlerts();
-      return json(res, 200, { ok: true, team });
+      return json(res, 200, { ok: true, team, purchase });
     } catch (err) {
       console.error('[team-alerts] failed', err?.message || err);
       return json(res, 200, { ok: false, error: err?.message || 'team alerts failed' });

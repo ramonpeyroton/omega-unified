@@ -3,6 +3,7 @@ import { ArrowLeft, MapPin, MessageSquare, HardHat } from 'lucide-react';
 import PageHeader from '../../../shared/components/ui/PageHeader';
 import { supabase } from '../lib/supabase';
 import PhaseBreakdown from '../../../shared/components/PhaseBreakdown';
+import PurchaseListPanel from '../../../shared/components/PurchaseList/PurchaseListPanel';
 import ContactSection from '../../../shared/components/ContactSection';
 import MaterialsSection from '../../../shared/components/MaterialsSection';
 import { PIPELINE_STEP_LABEL } from '../../../shared/config/phaseBreakdown';
@@ -73,6 +74,8 @@ export default function PhaseView({ job: initialJob, user, onNavigate }) {
           <ContactSection job={job} user={user} />
         ) : (
           <>
+            {/* Client purchase list (read-only for the field). */}
+            <div className="mb-4"><PurchaseListPanel job={job} user={user} /></div>
             <PhaseBreakdown
               job={job}
               user={user}

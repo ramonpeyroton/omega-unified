@@ -7,6 +7,7 @@
     { "source": "/estimate-bundle/:path*",   "destination": "/" },
     { "source": "/change-order-view/:path*", "destination": "/" },
     { "source": "/sub-offer/:path*",         "destination": "/" },
+    { "source": "/purchase-list/:path*",     "destination": "/" },
     { "source": "/privacy",                  "destination": "/" },
     { "source": "/privacy-policy",           "destination": "/" },
     { "source": "/terms",                    "destination": "/" },
