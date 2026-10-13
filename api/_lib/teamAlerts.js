@@ -143,6 +143,11 @@ const T = {
     body: '🔺 Client without an answer today\n\nGroup: {{1}}\nClient: {{2}}\nAsked: {{3}}\nMessage: {{4}}\nWaiting since: {{5}}\n\nPlease reply in the group.',
     samples: ['Smith - Oak St bathroom', 'Renee Smith', 'Attila', '"Hi Attila, can we move the tile delivery to Friday?"', '10:15 AM (6 hours)'],
   },
+  purchaseDigest: {
+    name: 'omega_purchase_list_update', lang: 'en',
+    body: '🛒 Client purchase lists — {{1}}\n\nUpdated: {{2}}\n👉 {{3}}\n\nStill not at the house: {{4}}\n\nDetails are on the Phases tab in the Omega app.',
+    samples: ['Tue, Oct 13', '2 clients', 'Smith: tile at the house, vanity ordered (arrives Oct 20) · Lee: list complete ✅', 'Smith 4 of 17 · Costa 9 of 22'],
+  },
   weeklyLeads: {
     name: 'omega_weekly_leads', lang: 'en',
     body: '📊 Leads last week — {{1}}\n\nTotal: {{2}}\nBy source: {{3}}\n\nVisits scheduled: {{4}}\nEstimates sent: {{5}}\nContracts signed: {{6}}\n\nSent every Monday by the Omega app.',
@@ -373,7 +378,7 @@ function evTitle(ev, j) {
 }
 
 // ─── Data for one tick ───────────────────────────────────────────────
-const JOB_COLS = 'id, client_name, address, city, service, client_phone, lead_source, created_by, created_at, pipeline_status, in_pipeline, stage_entered_at, assigned_to, salesperson_name, last_chat_message_at, last_touch_at, phase_data';
+const JOB_COLS = 'id, client_name, address, city, service, client_phone, lead_source, created_by, created_at, pipeline_status, in_pipeline, stage_entered_at, assigned_to, salesperson_name, last_chat_message_at, last_touch_at, phase_data, external_lead_id';
 const ACTIVE_STAGES = ['new_lead', 'contacted', 'visit_scheduled', 'visited', 'estimate_draft', 'contract_signed', 'in_progress'];
 
 function must(res, label) {
@@ -407,7 +412,7 @@ async function loadData(nowMs) {
   const in30 = nyDay(today.y, today.m, today.d + 30).key;
 
   const [jobs, visitedEvents, events, bills, billsPaidToday, subs, offers, contracts, payments,
-    estimatesToday, photos, logs, confirms] = await Promise.all([
+    estimatesToday, photos, logs, confirms, purchaseEvents, purchaseLists] = await Promise.all([
     supabase.from('jobs').select(JOB_COLS).in('pipeline_status', ACTIVE_STAGES),
     supabase.from('job_stage_events').select('job_id, changed_at').eq('to_status', 'visited')
       .gte('changed_at', new Date(nowMs - 90 * 86_400_000).toISOString()),
@@ -429,6 +434,10 @@ async function loadData(nowMs) {
     supabase.from('phase_photos').select('job_id, taken_at').gte('taken_at', weekAgoIso),
     supabase.from('job_documents').select('job_id, created_at').eq('folder', 'daily_logs').gte('created_at', weekAgoIso),
     supabase.from('message_log').select('phase_id, job_id').eq('kind', 'sub.confirm'),
+    // Client purchase lists (migration 088) — 3pm digest.
+    supabase.from('purchase_list_events').select('list_id, job_id, item_id, item_label, to_status, arrives_on, created_at')
+      .gte('created_at', new Date(nowMs - LOOKBACK_MS).toISOString()).order('created_at', { ascending: true }),
+    supabase.from('purchase_lists').select('id, job_id, status, purchase_list_items(status)').neq('status', 'draft'),
   ]);
 
   const d = {
@@ -446,6 +455,8 @@ async function loadData(nowMs) {
     photos: soft(photos, 'phase_photos'),
     logs: soft(logs, 'job_documents'),
     confirmedPhases: new Set(soft(confirms, 'message_log').map((r) => r.phase_id).filter(Boolean)),
+    purchaseEvents: soft(purchaseEvents, 'purchase_list_events'),
+    purchaseLists: soft(purchaseLists, 'purchase_lists'),
   };
   for (const e of soft(visitedEvents, 'job_stage_events')) {
     const prev = d.visitedAt.get(e.job_id);
@@ -457,6 +468,7 @@ async function loadData(nowMs) {
   const missing = [...new Set([
     ...d.events.map((e) => e.job_id), ...d.offers.map((o) => o.job_id),
     ...d.contracts.map((c) => c.job_id), ...d.payments.map((x) => x.job_id),
+    ...d.purchaseEvents.map((e) => e.job_id), ...d.purchaseLists.map((l) => l.job_id),
   ].filter((id) => id && !d.jobsById.has(id)))];
   if (missing.length) {
     for (const j of must(await supabase.from('jobs').select(JOB_COLS).in('id', missing), 'jobs extra')) d.jobsById.set(j.id, j);
@@ -609,6 +621,43 @@ function attention(d) {
 
 // ─── Messages to send this tick ──────────────────────────────────────
 // Each: { person, t (template def), values, key, kind: 'instant'|'routine' }
+// 3pm digest values, or null when no client/team touched a purchase list
+// since the previous business day at 3pm (weekend changes roll into Monday).
+const PURCHASE_TXT = { not_purchased: 'not purchased', ordered: 'ordered', at_house: 'at the house' };
+function purchaseDigest(d) {
+  const { today } = d;
+  const end = today.startMs + 15 * 3_600_000;
+  let prev = nyDay(today.y, today.m, today.d - 1);
+  for (let i = 0; i < 7 && !isWorkday(prev.wd); i++) prev = nyDay(prev.y, prev.m, prev.d - 1);
+  const start = prev.startMs + 15 * 3_600_000;
+  const evs = d.purchaseEvents.filter((e) => { const t = Date.parse(e.created_at); return t >= start && t < end; });
+  if (!evs.length) return null;
+
+  const byJob = new Map();
+  for (const e of evs) {
+    if (!byJob.has(e.job_id)) byJob.set(e.job_id, new Map());
+    byJob.get(e.job_id).set(e.item_id || e.item_label, e); // latest change per item wins
+  }
+  const listByJob = new Map(d.purchaseLists.map((l) => [l.job_id, l]));
+  const parts = [...byJob.entries()].map(([jobId, items]) => {
+    const name = d.jobsById.get(jobId)?.client_name || 'Client';
+    if (listByJob.get(jobId)?.status === 'complete') return `${name}: list complete ✅`;
+    const changes = [...items.values()].map((e) => {
+      const arrive = e.to_status === 'ordered' && e.arrives_on ? ` (arrives ${fmtDate(e.arrives_on).split(', ')[1]})` : '';
+      return `${(e.item_label || 'item').toLowerCase()} ${PURCHASE_TXT[e.to_status] || e.to_status}${arrive}`;
+    });
+    return `${name}: ${changes.slice(0, 4).join(', ')}${changes.length > 4 ? ` +${changes.length - 4} more` : ''}`;
+  });
+  const missing = d.purchaseLists
+    .filter((l) => l.status === 'sent')
+    .map((l) => {
+      const items = l.purchase_list_items || [];
+      const left = items.filter((i) => i.status !== 'at_house').length;
+      return `${d.jobsById.get(l.job_id)?.client_name || 'Client'} ${left} of ${items.length}`;
+    });
+  return [fmtDate(today.key), plural(byJob.size, 'client', 'clients'), joinList(parts, 4), joinList(missing, 6) || 'None — every list is complete'];
+}
+
 function buildQueue(d, people) {
   const q = [];
   const { p, today, nowMs } = d;
@@ -619,7 +668,13 @@ function buildQueue(d, people) {
   // New lead → Inácio, Attila, Ramon.
   for (const j of realLeads(d)) {
     if (j.pipeline_status !== 'new_lead' || (Date.parse(j.created_at) || 0) < sinceMs) continue;
-    const values = [j.client_name, j.service, j.city, prettyPhone(j.client_phone), j.lead_source || 'Not set', salesOwner(j) || 'Not assigned'];
+    // Website booking step 1 saved the contact info but no visit time yet
+    // (external_lead_id "web:<id>:start", cleared when they finish). Give them
+    // 20 minutes to finish before telling the team to call.
+    const unfinished = String(j.external_lead_id || '').endsWith(':start');
+    if (unfinished && nowMs - Date.parse(j.created_at) < 20 * 60_000) continue;
+    const service = unfinished ? `${j.service || 'Bathroom'} (did not finish booking - call)` : j.service;
+    const values = [j.client_name, service, j.city, prettyPhone(j.client_phone), j.lead_source || 'Not set', salesOwner(j) || 'Not assigned'];
     for (const who of ['inacio', 'attila', 'ramon']) q.push({ person: who, t: T.newLead, values, key: `lead:${j.id}:${who}`, kind: 'instant' });
   }
   // Contract signed → Inácio.
@@ -736,6 +791,16 @@ function buildQueue(d, people) {
     if (stale.length) {
       q.push({ person: 'joel', t: T.pmNoUpdate, key: `pm:joel:${day}`, kind: 'routine',
         values: [String(stale.length), joinList(stale.map(clientShort), 6, 'pt')] });
+    }
+  }
+  // Client purchase lists → Inácio, Attila, Rafaela at 3pm, only when
+  // something changed since the previous business day's 3pm.
+  if (routineWindow(15, END_HOUR)) {
+    const pd = purchaseDigest(d);
+    if (pd) {
+      for (const who of ['inacio', 'attila', 'rafaela']) {
+        q.push({ person: who, t: T.purchaseDigest, key: `purchase:${who}:${day}`, kind: 'routine', values: pd });
+      }
     }
   }
   if (today.wd === 'Mon' && routineWindow(people.ramon?.start ?? 8, 12)) {
