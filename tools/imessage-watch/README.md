@@ -42,6 +42,7 @@ que está sem resposta (texto, horário, nome do grupo).
 cd ~/omega-imessage-watch
 python3 omega_imessage_watch.py --list      # grupos de clientes e quem é quem
 python3 omega_imessage_watch.py --dry-run   # o que SERIA enviado, sem enviar
+python3 omega_imessage_watch.py --unmatched # grupos ativos que NÃO têm cliente do app
 ```
 
 No `--list`, cada participante aparece como `TEAM <nome>`, `CLIENT` ou

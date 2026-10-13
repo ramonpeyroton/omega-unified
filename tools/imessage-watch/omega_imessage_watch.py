@@ -16,6 +16,7 @@ Usage:
   python3 omega_imessage_watch.py            normal hourly run
   python3 omega_imessage_watch.py --list     show client groups + who is who (no report)
   python3 omega_imessage_watch.py --dry-run  report, but the app only says what it WOULD send
+  python3 omega_imessage_watch.py --unmatched  active groups NOT recognised as client groups
 
 Python 3.8+ standard library only (macOS Command Line Tools).
 """
@@ -226,12 +227,40 @@ def scan(con, directory, cfg):
     return groups, pending
 
 
+def unmatched(con, directory, cfg):
+    """Group chats with recent messages but no client phone from the app."""
+    team_by_digits, _, extra, clients, ignore = build_identity(directory, cfg)
+    since_apple = (datetime.now(timezone.utc).timestamp() - LOOKBACK_DAYS * 86400 - APPLE_EPOCH) * 1e9
+    rows = con.execute(
+        """SELECT c.ROWID, c.display_name, MAX(m.date) AS last
+           FROM chat c JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID
+           JOIN message m ON m.ROWID = cmj.message_id
+           WHERE c.style = ? AND m.date > ? GROUP BY c.ROWID ORDER BY last DESC""",
+        (GROUP_STYLE, since_apple)).fetchall()
+    found = 0
+    for r in rows:
+        handles = [h["id"] for h in con.execute(
+            "SELECT h.id FROM chat_handle_join chj JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = ?",
+            (r["ROWID"],))]
+        if any(last10(h) in clients for h in handles):
+            continue
+        found += 1
+        print(f"\n== {r['display_name'] or '(no name)'}  last message {apple_time(r['last']).astimezone():%a %b %d %H:%M}")
+        for h in handles:
+            k = who_is(h, team_by_digits, extra)
+            print(f"   {h:<32} {'TEAM ' + k if k else 'SUB (ignored)' if ignored(h, ignore) else 'not in the app'}")
+    print(f"\n{found} active groups without a client phone from the app")
+
+
 def main():
     args = set(sys.argv[1:])
     cfg = load_config()
     directory = api(cfg, "GET")
     con, tmp = open_db_copy()
     try:
+        if "--unmatched" in args:
+            unmatched(con, directory, cfg)
+            return
         groups, pending = scan(con, directory, cfg)
     finally:
         con.close()
