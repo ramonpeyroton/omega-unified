@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Truck, Circle, Loader2, Phone, PackageCheck, AlertTriangle, User } from 'lucide-react';
+import { Check, Truck, Circle, Loader2, Phone, PackageCheck, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../shared/lib/supabase';
 import { STATUSES, listProgress, setItemStatus } from '../../shared/lib/purchaseLists';
 import { SERVICE_LABEL, parseJobServices } from '../../shared/data/services';
@@ -9,13 +9,12 @@ import logo from '../../assets/logo.png';
 // URL: /purchase-list/:id — sent by SMS + email when Attila clicks Send.
 // Each item: Not purchased yet / Ordered (arrives on…) / At the house.
 // Everyone with the link sees the same list, live: if one spouse marks the
-// tile in the morning, the other sees it in the afternoon. The page asks
-// "who's updating?" once (kept on the phone) so the team knows who marked
-// what. ?preview=1 = the team looking at a list before sending (read-only).
+// tile in the morning, the other sees it in the afternoon. No name asked —
+// one tap per item (Ramon, 13/10/26); the team sees "Client" + the date.
+// ?preview=1 = the team looking at a list before sending (read-only).
 
 const ORANGE = '#E8732A';
 const OFFICE_PHONE = '(203) 451-4846';
-const NAME_KEY = 'omega_purchase_list_name';
 
 function prettyDay(key) {
   if (!key) return '';
@@ -46,9 +45,6 @@ export default function PurchaseListView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(null);       // item id being saved
-  const [name, setName] = useState(() => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } });
-  const [askName, setAskName] = useState(null);     // pending { item, patch }
-  const [nameDraft, setNameDraft] = useState('');
 
   const load = useCallback(async () => {
     if (!listId) { setError('This link is incomplete.'); setLoading(false); return; }
@@ -83,10 +79,11 @@ export default function PurchaseListView() {
     };
   }, [listId, load]);
 
-  async function apply(item, patch, who) {
+  async function change(item, patch) {
+    if (preview) return;
     setSaving(item.id);
     try {
-      const updated = await setItemStatus(item, patch, { name: who, kind: 'client' }, list);
+      const updated = await setItemStatus(item, patch, { name: null, kind: 'client' }, list);
       setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)));
     } catch {
       alert('Could not save. Please check your connection and try again.');
@@ -95,21 +92,6 @@ export default function PurchaseListView() {
     }
   }
 
-  function change(item, patch) {
-    if (preview) return;
-    if (!name) { setAskName({ item, patch }); setNameDraft(''); return; }
-    apply(item, patch, name);
-  }
-
-  function saveName() {
-    const n = nameDraft.trim();
-    if (!n) return;
-    try { localStorage.setItem(NAME_KEY, n); } catch { /* private mode */ }
-    setName(n);
-    const pending = askName;
-    setAskName(null);
-    if (pending?.item) apply(pending.item, pending.patch, n);
-  }
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#f5f5f3]"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
@@ -161,12 +143,6 @@ export default function PurchaseListView() {
         )}
       </div>
 
-      {name && !preview && (
-        <p className="mt-3 text-sm text-gray-500 flex items-center gap-1.5">
-          <User className="w-4 h-4" /> Updating as <strong className="text-gray-700">{name}</strong>
-          <button onClick={() => { setAskName({}); setNameDraft(name); }} className="ml-1 underline">change</button>
-        </p>
-      )}
 
       {/* Items */}
       <ul className="mt-4 space-y-3">
@@ -235,8 +211,8 @@ export default function PurchaseListView() {
                 </div>
               )}
 
-              {it.updated_by && (
-                <p className="mt-2 text-xs text-gray-400">Updated by {it.updated_by} · {when(it.updated_at)}</p>
+              {it.updated_by_kind && (
+                <p className="mt-2 text-xs text-gray-400">Updated · {when(it.updated_at)}</p>
               )}
             </li>
           );
@@ -252,26 +228,6 @@ export default function PurchaseListView() {
         </div>
       )}
 
-      {/* Who's updating? */}
-      {askName && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4" onClick={() => setAskName(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <p className="font-bold text-lg text-[#2C2C2A]">Who's updating the list?</p>
-            <p className="text-sm text-gray-500 mt-1">So everyone can see who marked each item.</p>
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') saveName(); }}
-              placeholder="Your first name"
-              className="mt-3 w-full h-12 px-3 rounded-xl border border-gray-300 text-base"
-            />
-            <button onClick={saveName} disabled={!nameDraft.trim()} className="mt-3 w-full h-12 rounded-xl text-white font-bold disabled:opacity-50" style={{ background: ORANGE }}>
-              Continue
-            </button>
-          </div>
-        </div>
-      )}
     </Shell>
   );
 }

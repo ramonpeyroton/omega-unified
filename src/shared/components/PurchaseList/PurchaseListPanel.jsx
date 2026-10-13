@@ -329,9 +329,9 @@ function ManageModal({ job, user, list, items, canEdit, onClose, onChanged }) {
                       </label>
                     )}
                     {busy === it.id && <Loader2 className="w-4 h-4 animate-spin text-omega-stone" />}
-                    {it.updated_by && (
+                    {it.updated_by_kind && (
                       <span className="text-xs text-omega-fog">
-                        {it.updated_by_kind === 'client' ? 'Client' : 'Team'}: {it.updated_by} · {new Date(it.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {it.updated_by_kind === 'client' ? 'Client' : `Team${it.updated_by ? `: ${it.updated_by}` : ''}`} · {new Date(it.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
                     )}
                   </div>
