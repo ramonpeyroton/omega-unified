@@ -17,6 +17,7 @@ Usage:
   python3 omega_imessage_watch.py --list     show client groups + who is who (no report)
   python3 omega_imessage_watch.py --dry-run  report, but the app only says what it WOULD send
   python3 omega_imessage_watch.py --unmatched  active groups NOT recognised as client groups
+  python3 omega_imessage_watch.py --test-acks  which sample messages count as "no answer needed"
 
 Python 3.8+ standard library only (macOS Command Line Tools).
 """
@@ -39,12 +40,28 @@ APPLE_EPOCH = 978307200  # 2001-01-01 in unix seconds
 LOOKBACK_DAYS = 4
 GROUP_STYLE = 43  # chat.style for group chats
 
-# Messages that don't need an answer.
-ACK_WORDS = {
-    "ok", "okay", "k", "kk", "thanks", "thank you", "thank you so much", "thanks so much", "thx", "ty",
-    "great", "perfect", "awesome", "sounds good", "got it", "cool", "nice", "yes", "yep", "sure", "will do",
-    "obrigado", "obrigada", "valeu", "beleza", "blz", "show", "certo", "combinado", "perfeito", "otimo", "ótimo",
+# Messages that don't need an answer: short replies made ONLY of these words
+# (plus team names, emoji and the filler words below), e.g. "Awesome, thank
+# you Attila!" or "Perfect thanks so much 🙏". Anything with a "?" or another
+# word counts as a message that needs an answer (Ramon, 14/10/26).
+ACK_TOKENS = {
+    "ok", "okay", "k", "kk", "thanks", "thank", "you", "u", "thx", "ty", "tysm", "tks",
+    "great", "perfect", "awesome", "amazing", "wonderful", "excellent", "fantastic", "beautiful",
+    "sounds", "good", "looks", "got", "it", "cool", "nice", "yes", "yep", "yeah", "yup", "sure",
+    "will", "do", "appreciate", "appreciated", "noted", "understood", "alright", "right", "fine",
+    "love", "np", "no", "problem", "welcome", "youre", "glad", "job", "done", "deal",
+    "obrigado", "obrigada", "valeu", "beleza", "blz", "show", "certo", "combinado", "perfeito",
+    "otimo", "maravilha", "top", "tmj", "massa", "legal", "joia", "sim", "ta", "bom",
 }
+ACK_FILLER = {
+    "so", "much", "a", "lot", "very", "really", "again", "guys", "team", "all", "as", "always",
+    "for", "everything", "the", "update", "info", "man", "buddy", "sir", "and", "omega",
+    "muito", "pessoal", "de", "novo", "mesmo", "e", "pela", "pelo", "atualizacao",
+}
+# iMessage reactions (tapbacks) from the team count as "answered":
+# 2000 love, 2001 like, 2002 dislike, 2003 laugh, 2004 emphasize, 2006 emoji.
+# 2005 ("?") does not — that's asking, not answering. 3000+ = reaction removed.
+TEAM_REACTIONS = {2000, 2001, 2002, 2003, 2004, 2006}
 
 
 def log(*args):
@@ -111,14 +128,18 @@ def decode_attributed_body(blob):
     return blob[i:i + n].decode("utf-8", "replace")
 
 
-def is_ack(text):
+def is_ack(text, names=()):
     t = fold(text).strip()
-    t = re.sub(r"[\s!.,?❤️👍🙏😊🙂😀👌🏻🏼🏽🏾🏿]+$", "", t).strip()
-    if not t:
+    if not t or not re.search(r"[a-z0-9]", t):  # empty / emoji / punctuation only
         return True
-    if not re.search(r"[a-z0-9]", t):  # emoji / punctuation only
-        return True
-    return t in ACK_WORDS
+    if "?" in t:
+        return False
+    words = re.findall(r"[a-z0-9]+", t.replace("'", "").replace("’", ""))
+    if not words or len(words) > 10:
+        return False
+    skip = ACK_FILLER | {n for n in names if n}
+    rest = [w for w in words if w not in skip]
+    return bool(rest) and all(w in ACK_TOKENS for w in rest)
 
 
 def open_db_copy():
@@ -178,12 +199,13 @@ def scan(con, directory, cfg):
             continue  # not a client group (family, friends, team-only…)
 
         rows = con.execute(
-            """SELECT m.guid, m.text, m.attributedBody, m.is_from_me, m.date, m.cache_has_attachments, h.id AS handle
+            """SELECT m.guid, m.text, m.attributedBody, m.is_from_me, m.date, m.cache_has_attachments, h.id AS handle,
+                      COALESCE(m.associated_message_type, 0) AS reaction
                FROM chat_message_join cmj
                JOIN message m ON m.ROWID = cmj.message_id
                LEFT JOIN handle h ON h.ROWID = m.handle_id
                WHERE cmj.chat_id = ? AND m.date > ?
-                 AND COALESCE(m.associated_message_type, 0) = 0
+                 AND (COALESCE(m.associated_message_type, 0) = 0 OR m.associated_message_type BETWEEN 2000 AND 2006)
                  AND COALESCE(m.item_type, 0) = 0
                ORDER BY m.date""",
             (chat["ROWID"], since_apple)).fetchall()
@@ -193,6 +215,12 @@ def scan(con, directory, cfg):
         for m in rows:
             if not m["is_from_me"] and ignored(m["handle"], ignore):
                 continue  # a subcontractor: neither a question nor an answer
+            if m["reaction"]:
+                # A 👍/❤️/… from the team = everything before it is answered.
+                sender = me if m["is_from_me"] else who_is(m["handle"], team_by_digits, extra)
+                if sender and m["reaction"] in TEAM_REACTIONS:
+                    last_team = (len(msgs) - 1, sender)
+                continue  # client reactions are neither questions nor answers
             text = m["text"] or decode_attributed_body(m["attributedBody"]) or ""
             text = text.replace("￼", "").strip()
             if not text and m["cache_has_attachments"]:
@@ -203,7 +231,8 @@ def scan(con, directory, cfg):
                 last_team = (len(msgs) - 1, sender)
 
         start = last_team[0] + 1 if last_team else 0
-        waiting = [x for x in msgs[start:] if not x["team"] and x["text"] and not is_ack(x["text"])]
+        names = set(team_first.values())
+        waiting = [x for x in msgs[start:] if not x["team"] and x["text"] and not is_ack(x["text"], names)]
         name = chat["display_name"] or f"{group_clients[0]['name']} group"
         groups.append({"chat": chat, "name": name, "handles": handles, "clients": group_clients,
                        "waiting": waiting, "last_team": last_team[1] if last_team else None})
@@ -252,8 +281,30 @@ def unmatched(con, directory, cfg):
     print(f"\n{found} active groups without a client phone from the app")
 
 
+ACK_SAMPLES = [
+    ("Awesome", True), ("Awesome!", True), ("Awesome, thank you!", True), ("Awesome thanks Attila", True),
+    ("Perfect, thanks so much 🙏", True), ("Great, thank you guys!", True), ("Thank you so much again Inácio", True),
+    ("👍", True), ("Ok sounds good", True), ("Valeu, obrigado!", True), ("Got it, will do", True),
+    ("You're welcome", True), ("Awesome, when do you start?", False), ("Ok?", False),
+    ("Thanks, can you send the invoice", False), ("Perfect, see you Monday at 9", False),
+    ("The tile arrived broken", False), ("[photo/attachment]", False), ("No, the plumber didn't come", False),
+]
+
+
+def test_acks():
+    bad = 0
+    for text, want in ACK_SAMPLES:
+        got = is_ack(text, {"attila", "inacio", "joel", "rafaela", "ramon"})
+        bad += got != want
+        print(f"{'OK ' if got == want else 'BAD'}  {'no answer needed' if got else 'needs an answer':<17} {text}")
+    print(f"\n{len(ACK_SAMPLES) - bad}/{len(ACK_SAMPLES)} as expected")
+    return bad
+
+
 def main():
     args = set(sys.argv[1:])
+    if "--test-acks" in args:
+        sys.exit(1 if test_acks() else 0)
     cfg = load_config()
     directory = api(cfg, "GET")
     con, tmp = open_db_copy()

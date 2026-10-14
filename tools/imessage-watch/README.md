@@ -9,7 +9,11 @@ respondeu:
   de trabalho. Quem foi perguntado: o nome citado na mensagem; se não houver,
   quem da equipe falou por último no grupo; se ninguém falou, o Inácio.
 - **Às 17h**, o que ainda estiver sem resposta vai para o Inácio.
-- "ok", "thanks", "obrigado", só emoji e reações não contam como pergunta.
+- Agradecimento/confirmação não conta como pergunta: "ok", "Awesome, thank you
+  Attila!", "Perfect thanks so much 🙏", "valeu, obrigado", só emoji, reações
+  do cliente. Mensagem com "?" sempre conta.
+- **Reação do time encerra:** um 👍 ❤️ 😂 ‼️ (ou reação com emoji) de alguém da
+  equipe na conversa = tudo antes dela está respondido. A reação ❓ não conta.
 - O primeiro aviso só sai depois de 1 hora sem resposta.
 
 Conversas pessoais nunca saem do Mac. Só vai para o app a mensagem do cliente
@@ -53,6 +57,19 @@ acrescente em `team_handles` no `config.json`, por exemplo:
 O registro de cada execução fica em `~/omega-imessage-watch/watch.log`. Se o
 Mac parar de checar por mais de 3 horas num dia útil, o Ramon recebe um aviso
 no WhatsApp.
+
+## Atualizar (quando o script muda)
+
+No Terminal do Mac, um comando só (baixa a versão nova do GitHub; o
+`config.json` e o agendamento continuam como estão):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ramonpeyroton/omega-unified/main/tools/imessage-watch/omega_imessage_watch.py -o ~/omega-imessage-watch/omega_imessage_watch.py && python3 ~/omega-imessage-watch/omega_imessage_watch.py --test-acks
+```
+
+O `--test-acks` mostra quais frases contam como "não precisa responder" — tem
+que terminar com "as expected". A próxima checagem (de hora em hora) já usa a
+versão nova.
 
 ## Desligar
 
