@@ -9,7 +9,7 @@ import Toast from './Toast';
 import StatusBadge from './StatusBadge';
 import ContractTemplate, { buildContractDocFromDom } from './Contract/ContractTemplate';
 import InvoiceTemplate from './Contract/InvoiceTemplate';
-import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus, sendPaymentReceipt, localDayISO } from '../lib/finance';
+import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus, sendPaymentReceipt, localDayISO, billEstimateDirect } from '../lib/finance';
 import { priceMode, sectionMode, sectionPrice } from '../lib/estimatePricing';
 import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
@@ -312,6 +312,9 @@ export default function EstimateFlow({ job, user, onBack }) {
   // the math is derived from those rows. Picker is always shown so we
   // get an explicit confirmation, even when there's only one estimate.
   const [approvedEstimates, setApprovedEstimates] = useState([]); // list of estimate rows shown in the picker
+  // Approved estimates billed without a contract (estimates.bill_direct,
+  // migration 089) — collected in Finance, never offered for a contract.
+  const [directEstimates, setDirectEstimates] = useState([]);
   const [pickedEstimateIds, setPickedEstimateIds] = useState([]); // currently checked
   const [planSourceEstimateId, setPlanSourceEstimateId] = useState(null); // when plans differ, which plan to use
   const [showPlanChooserModal, setShowPlanChooserModal] = useState(false);
@@ -352,8 +355,10 @@ export default function EstimateFlow({ job, user, onBack }) {
       // or signed. These are the candidates Attila can include in a
       // contract. Drafts and sent-but-not-yet-approved stay off the
       // picker so they don't pollute the math.
-      const approved = list.filter((e) => e.status === 'approved' || e.status === 'signed' || e.signed_at);
+      const isApproved = (e) => e.status === 'approved' || e.status === 'signed' || e.signed_at;
+      const approved = list.filter((e) => isApproved(e) && !e.bill_direct);
       setApprovedEstimates(approved);
+      setDirectEstimates(list.filter((e) => isApproved(e) && e.bill_direct));
 
       // ─── 2. Load the existing contract (if any) ─────────────────
       const { data: rawCtr } = await supabase
@@ -1287,6 +1292,21 @@ export default function EstimateFlow({ job, user, onBack }) {
           <EstimatePicker
             perms={perms}
             approvedEstimates={approvedEstimates}
+            directEstimates={directEstimates}
+            onBillDirect={async (e) => {
+              const tag = e.estimate_number ? `OM-${e.estimate_number}` : 'this estimate';
+              if (!confirm(`Bill ${tag} ($${Number(e.total_amount || 0).toLocaleString()}) without a contract?\n\nIts payment plan becomes installments in Finance → Clients, and it won't be offered for a contract.`)) return;
+              setSaving(true);
+              try {
+                await billEstimateDirect(e, user);
+                setToast({ type: 'success', message: `${tag} is billed without a contract — collect it in Finance → Clients.` });
+                await loadData();
+              } catch (err) {
+                setToast({ type: 'error', message: err.message || 'Could not bill it without a contract' });
+              } finally {
+                setSaving(false);
+              }
+            }}
             pickedEstimateIds={pickedEstimateIds}
             planSourceEstimateId={planSourceEstimateId}
             onTogglePick={(id, checked) => {
@@ -1707,6 +1727,8 @@ export default function EstimateFlow({ job, user, onBack }) {
 function EstimatePicker({
   perms,
   approvedEstimates,
+  directEstimates = [],
+  onBillDirect,
   pickedEstimateIds,
   planSourceEstimateId,
   onTogglePick,
@@ -1729,9 +1751,11 @@ function EstimatePicker({
       <section className="bg-white rounded-xl border border-gray-200 p-6 text-center">
         <h2 className="text-lg font-bold text-omega-charcoal">Select Estimates</h2>
         <p className="text-sm text-omega-stone mt-3">
-          No approved estimates yet for this job. Once the customer signs an
-          estimate the contract flow will pick up automatically here.
+          {directEstimates.length
+            ? 'No estimates left for a contract — the approved ones below are billed without a contract.'
+            : 'No approved estimates yet for this job. Once the customer signs an estimate the contract flow will pick up automatically here.'}
         </p>
+        <DirectEstimatesList estimates={directEstimates} />
         <button
           onClick={onBack}
           className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 hover:border-omega-orange text-sm font-semibold text-omega-charcoal"
@@ -1793,10 +1817,24 @@ function EstimatePicker({
                   ${amount.toLocaleString()}
                 </span>
               </label>
+              {/* Small service / upgrade sold without a contract: its own
+                  installments in Finance instead of a contract. */}
+              {!readOnly && onBillDirect && (
+                <button
+                  type="button"
+                  onClick={() => onBillDirect(e)}
+                  disabled={saving}
+                  className="mt-1 ml-12 text-[11px] font-semibold text-omega-stone hover:text-omega-orange disabled:opacity-50"
+                >
+                  No contract for this one? Bill it directly →
+                </button>
+              )}
             </li>
           );
         })}
       </ul>
+
+      <DirectEstimatesList estimates={directEstimates} />
 
       {/* Plan-source picker — only shown when picked plans diverge */}
       {plansDiffer && (
@@ -1860,6 +1898,26 @@ function EstimatePicker({
         </div>
       </div>
     </section>
+  );
+}
+
+// Approved estimates billed without a contract (bill_direct) — shown so the
+// seller knows where they went; they're collected in Finance → Clients.
+function DirectEstimatesList({ estimates }) {
+  if (!estimates?.length) return null;
+  return (
+    <div className="mt-5 text-left rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-amber-900">Billed without a contract</p>
+      <ul className="mt-2 space-y-1.5">
+        {estimates.map((e) => (
+          <li key={e.id} className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-semibold text-omega-charcoal">{e.estimate_number ? `OM-${e.estimate_number}` : 'Estimate'}</span>
+            <span className="text-xs text-amber-900/80 flex-1">collect in Finance → Clients</span>
+            <span className="font-bold tabular-nums">${(Number(e.total_amount) || 0).toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

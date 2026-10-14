@@ -51,6 +51,55 @@ export function summarizeCo(title, items) {
   return (items || []).map((i) => i.title).filter(Boolean).join('; ');
 }
 
+// ─── Kinds ────────────────────────────────────────────────────────
+// The same table, editor, client page and signature also carry the
+// "Survey & Plans" agreement (kind = 'plans', migration 089): small jobs
+// sold without a contract. Rows from before 089 have no kind → change order.
+
+export const PLANS_TERMS = [
+  'This agreement covers only the survey and/or drawing services described above. Construction work is not included and is quoted separately.',
+  'Payment follows the schedule below. The deposit is due upon signing, and work starts once it is received.',
+  'Deposits are non-refundable once work has started.',
+  'Drawings and survey documents are released to the client when paid in full.',
+  'Pricing is valid for 15 days from the date above.',
+];
+
+export const DEFAULT_PLANS_PLAN = [
+  { label: 'Deposit', percent: 50 },
+  { label: 'Upon delivery', percent: 50 },
+];
+
+const KINDS = {
+  change_order: { name: 'Change Order', prefix: 'CO', terms: CO_TERMS },
+  plans:        { name: 'Survey & Plans', prefix: 'SP', terms: PLANS_TERMS },
+};
+
+export function coKind(co) {
+  return co?.kind === 'plans' ? 'plans' : 'change_order';
+}
+
+export function kindMeta(kind) {
+  return KINDS[kind === 'plans' ? 'plans' : 'change_order'];
+}
+
+export function coTerms(co) {
+  return kindMeta(coKind(co)).terms;
+}
+
+export function coTermsText(co) {
+  return coTerms(co).map((t, i) => `${i + 1}. ${t}`).join('\n');
+}
+
 export function coNumberLabel(co) {
-  return co?.co_number ? `CO-${co.co_number}` : 'Change Order';
+  const { name, prefix } = kindMeta(coKind(co));
+  return co?.co_number ? `${prefix}-${co.co_number}` : name;
+}
+
+// How the client pays: a change order is due in full on signing; a Survey
+// & Plans agreement follows its own plan (default 50/50). Percent-based —
+// amounts come from co.amount.
+export function coPaymentPlan(co) {
+  if (coKind(co) === 'change_order') return [{ label: 'Due upon signing', percent: 100 }];
+  const plan = Array.isArray(co?.payment_plan) ? co.payment_plan.filter((p) => Number(p?.percent) > 0) : [];
+  return plan.length ? plan : DEFAULT_PLANS_PLAN;
 }

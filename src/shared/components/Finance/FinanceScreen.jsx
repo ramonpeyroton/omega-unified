@@ -21,7 +21,9 @@ import {
   effectiveStatus, milestoneAmount, ensureMilestonesForContract,
   ensureSubPaymentsForAgreement, markMilestoneReceived, markSubPaymentPaid,
   loadFinanceTotals, sendPaymentReceipt, dueDay,
+  ensureMilestonesForChangeOrder, ensureMilestonesForEstimate,
 } from '../../lib/finance';
+import { coNumberLabel, coKind } from '../../lib/changeOrders';
 import { logAudit } from '../../lib/audit';
 import { loadBillsTotals } from '../../lib/bills';
 import GhostAccountTab from './GhostAccountTab';
@@ -783,15 +785,35 @@ function ClientsTab({ user, accounts }) {
         .not('signed_at', 'is', null)
         .order('signed_at', { ascending: false });
 
-      const ids = (contracts || []).map((c) => c.id);
-      const jobIds = [...new Set((contracts || []).map((c) => c.job_id).filter(Boolean))];
+      // Money owed without a contract (migration 089): signed change orders
+      // and Survey & Plans agreements, and estimates billed directly.
+      // Before 089 runs these queries fail and the tab shows contracts only.
+      const [{ data: signedCos }, { data: directEsts }] = await Promise.all([
+        supabase.from('change_orders').select('*').eq('status', 'signed'),
+        supabase.from('estimates').select('*').eq('bill_direct', true),
+      ]);
+      const cos = signedCos || [];
+      const ests = (directEsts || []).filter((e) => e.status !== 'superseded');
+      await Promise.all([
+        ...cos.map((c) => ensureMilestonesForChangeOrder(c).catch(() => null)),
+        ...ests.map((e) => ensureMilestonesForEstimate(e).catch(() => null)),
+      ]);
 
-      const [{ data: milestones }, { data: jobs }] = await Promise.all([
+      const ids = (contracts || []).map((c) => c.id);
+      const jobIds = [...new Set([...(contracts || []), ...cos, ...ests].map((c) => c.job_id).filter(Boolean))];
+
+      const [{ data: milestones }, { data: jobs }, { data: coMs }, { data: estMs }] = await Promise.all([
         ids.length
           ? supabase.from('payment_milestones').select('*').in('contract_id', ids).order('order_idx')
           : Promise.resolve({ data: [] }),
         jobIds.length
           ? supabase.from('jobs').select('id, client_name, client_email, address, city, service').in('id', jobIds)
+          : Promise.resolve({ data: [] }),
+        cos.length
+          ? supabase.from('payment_milestones').select('*').in('change_order_id', cos.map((c) => c.id)).order('order_idx')
+          : Promise.resolve({ data: [] }),
+        ests.length
+          ? supabase.from('payment_milestones').select('*').in('estimate_id', ests.map((e) => e.id)).order('order_idx')
           : Promise.resolve({ data: [] }),
       ]);
 
@@ -818,7 +840,22 @@ function ClientsTab({ user, accounts }) {
 
       const built = (contracts || []).map((c) => {
         const ms = milestonesByContract[c.id] || [];
-        return { contract: c, job: jobsById[c.job_id] || {}, milestones: ms, totals: contractTotals(ms, c.total_amount) };
+        return { contract: c, source: CONTRACT_SOURCE, job: jobsById[c.job_id] || {}, milestones: ms, totals: contractTotals(ms, c.total_amount) };
+      });
+      const byKey = (rows, key) => {
+        const out = {};
+        (rows || []).forEach((m) => { (out[m[key]] = out[m[key]] || []).push(m); });
+        return out;
+      };
+      const coMap = byKey(coMs, 'change_order_id');
+      const estMap = byKey(estMs, 'estimate_id');
+      cos.forEach((c) => {
+        const ms = coMap[c.id] || [];
+        built.push({ contract: c, source: coSource(c), job: jobsById[c.job_id] || {}, milestones: ms, totals: contractTotals(ms, c.amount) });
+      });
+      ests.forEach((e) => {
+        const ms = estMap[e.id] || [];
+        built.push({ contract: e, source: estimateSource(e), job: jobsById[e.job_id] || {}, milestones: ms, totals: contractTotals(ms, e.total_amount) });
       });
       setContractRows(built);
 
@@ -915,13 +952,13 @@ function ClientsTab({ user, accounts }) {
           received list (Ramon, 03/10). */}
       <div>
         <p className="text-[11px] font-semibold text-omega-stone uppercase tracking-wider mb-3 px-1">
-          All Contracts ({contractRows.length})
+          To receive · contracts, change orders, survey &amp; plans, direct estimates ({contractRows.length})
         </p>
         {contractRows.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
             <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
-            <p className="text-sm font-semibold">No signed contracts yet.</p>
-            <p className="text-[11px] mt-1">Once a client signs via DocuSign it appears here.</p>
+            <p className="text-sm font-semibold">Nothing to receive yet.</p>
+            <p className="text-[11px] mt-1">Signed contracts, change orders and survey &amp; plans agreements appear here.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -985,6 +1022,45 @@ function ClientsTab({ user, accounts }) {
   );
 }
 
+// Where a row's installments come from. `fk` is the payment_milestones
+// column that links them; `short` names the total in the card/drawer.
+const CONTRACT_SOURCE = { kind: 'contract', label: 'Contract', short: 'Contract', fk: 'contract_id' };
+
+function coSource(co) {
+  const plans = coKind(co) === 'plans';
+  return {
+    kind: plans ? 'plans' : 'change_order',
+    label: plans ? `Survey & Plans ${co.co_number ? `SP-${co.co_number}` : ''}`.trim() : coNumberLabel(co),
+    short: plans ? 'Agreement' : 'Change order',
+    fk: 'change_order_id',
+  };
+}
+
+function estimateSource(est) {
+  return {
+    kind: 'estimate',
+    label: `Estimate ${est.estimate_number ? `#${est.estimate_number}` : ''} · no contract`.trim(),
+    short: 'Estimate',
+    fk: 'estimate_id',
+  };
+}
+
+const SOURCE_CHIP = {
+  contract:     'bg-gray-100 text-omega-charcoal border-gray-200',
+  change_order: 'bg-blue-50 text-blue-700 border-blue-200',
+  plans:        'bg-purple-50 text-purple-700 border-purple-200',
+  estimate:     'bg-amber-50 text-amber-800 border-amber-200',
+};
+
+function SourceChip({ source }) {
+  if (!source) return null;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide ${SOURCE_CHIP[source.kind] || SOURCE_CHIP.contract}`}>
+      {source.label}
+    </span>
+  );
+}
+
 function contractTotals(milestones, contractTotal) {
   const total = Number(contractTotal || 0);
   const due = milestones.reduce((s, m) => s + Number(m.due_amount || 0), 0);
@@ -999,7 +1075,7 @@ function contractTotals(milestones, contractTotal) {
 }
 
 function ContractCard({ row, onOpen }) {
-  const { contract, job, milestones, totals } = row;
+  const { contract, job, milestones, totals, source } = row;
   const progressPct = totals.due > 0 ? Math.round((totals.received / totals.due) * 100) : 0;
   const hasOverdue = totals.overdueCount > 0;
 
@@ -1012,6 +1088,7 @@ function ContractCard({ row, onOpen }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-bold text-omega-charcoal truncate">{job.client_name || '—'}</p>
+            <SourceChip source={source} />
             {hasOverdue && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold uppercase">
                 <AlertTriangle className="w-3 h-3" /> {totals.overdueCount} overdue
@@ -1032,7 +1109,7 @@ function ContractCard({ row, onOpen }) {
           </div>
         </div>
         <div className="flex-shrink-0 text-right min-w-[140px]">
-          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Contract total</p>
+          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{source?.short || 'Contract'} total</p>
           <p className="text-base font-bold text-omega-charcoal">{money(totals.total || totals.due)}</p>
           <p className="text-[11px] text-green-700 mt-0.5">Received: {money(totals.received)}</p>
           {totals.next && (
@@ -1053,6 +1130,7 @@ function ContractCard({ row, onOpen }) {
 
 function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
   const { contract, job, milestones, totals } = row;
+  const source = row.source || CONTRACT_SOURCE;
   const [markFor, setMarkFor]   = useState(null);
   const [editFor, setEditFor]   = useState(null); // milestone or null
   const [addingNew, setAddingNew] = useState(false);
@@ -1069,7 +1147,8 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
     if (form.__new) {
       const maxIdx = milestones.reduce((max, m) => Math.max(max, m.order_idx || 0), -1);
       const { error } = await supabase.from('payment_milestones').insert([{
-        contract_id: contract.id,
+        contract_id: null,
+        [source.fk]: contract.id,
         job_id: contract.job_id || null,
         order_idx: maxIdx + 1,
         label: form.label || `Installment ${maxIdx + 2}`,
@@ -1102,12 +1181,13 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
           <div className="min-w-0">
             <p className="font-bold text-omega-charcoal truncate">{job.client_name || '—'}</p>
             <p className="text-xs text-omega-stone truncate">{[job.address, job.city].filter(Boolean).join(', ') || '—'}</p>
+            <div className="mt-1"><SourceChip source={source} /></div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="px-5 py-3 grid grid-cols-3 gap-3 border-b border-gray-100 flex-shrink-0 bg-omega-cloud">
-          <SmallStat label="Contract" value={money(totals.total || totals.due)} />
+          <SmallStat label={source.short} value={money(totals.total || totals.due)} />
           <SmallStat label="Received" value={money(totals.received)} />
           <SmallStat label="Balance" value={money(totals.remaining)} />
         </div>

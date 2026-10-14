@@ -17,6 +17,7 @@
 import { supabase } from './supabase';
 import { logAudit } from './audit';
 import { apiFetch } from './apiFetch.js';
+import { coPaymentPlan } from './changeOrders';
 
 const OVERDUE_GRACE_DAYS = 3;
 
@@ -119,6 +120,66 @@ export async function ensureMilestonesForContract(contract) {
     throw error;
   }
   return { created: data?.length || 0, alreadyExisted: false };
+}
+
+// ─── Installments that don't come from a contract (migration 089) ──
+// A signed change order / Survey & Plans agreement (change_orders) and an
+// approved estimate billed without a contract (estimates.bill_direct) get
+// their own rows, linked by change_order_id / estimate_id. Same idempotent
+// pattern as contracts: existing rows win, the unique slot index turns a
+// race into a no-op.
+async function insertPlanRows(fk, id, jobId, plan, total, firstDueDay) {
+  const { data: existing } = await supabase
+    .from('payment_milestones').select('id').eq(fk, id).limit(1);
+  if (existing && existing.length > 0) return { created: 0, alreadyExisted: true };
+  if (!plan.length || !(Number(total) > 0)) return { created: 0, alreadyExisted: false };
+  const rows = plan.map((p, idx) => ({
+    [fk]: id,
+    contract_id: null,
+    job_id: jobId || null,
+    order_idx: idx,
+    label: p.label || `Installment ${idx + 1}`,
+    due_amount: milestoneAmount(p, total),
+    // The first payment is due when the client signs/approves; the rest
+    // get a date when the work reaches them (edit in the drawer).
+    due_date: idx === 0 ? (firstDueDay || null) : null,
+    received_amount: 0,
+    status: 'pending',
+  }));
+  const { data, error } = await supabase.from('payment_milestones').insert(rows).select();
+  if (error) {
+    if (error.code === '23505') return { created: 0, alreadyExisted: true };
+    throw error;
+  }
+  return { created: data?.length || 0, alreadyExisted: false };
+}
+
+const dayOf = (iso) => (iso ? String(iso).slice(0, 10) : null);
+
+export async function ensureMilestonesForChangeOrder(co) {
+  if (!co?.id || co.status !== 'signed') return { created: 0, alreadyExisted: false };
+  return insertPlanRows('change_order_id', co.id, co.job_id, coPaymentPlan(co), co.amount, co.signed_date || dayOf(co.signed_at));
+}
+
+export async function ensureMilestonesForEstimate(est) {
+  if (!est?.id || !est.bill_direct) return { created: 0, alreadyExisted: false };
+  const plan = (Array.isArray(est.payment_plan) ? est.payment_plan : [])
+    .filter((p) => Number(p?.percent) > 0 || Number(p?.amount) > 0)
+    .map((p) => ({ label: p.label, percent: p.percent, amount: p.percent ? undefined : p.amount }));
+  const fallback = [{ label: 'Due upon approval', percent: 100 }];
+  return insertPlanRows('estimate_id', est.id, est.job_id, plan.length ? plan : fallback, est.total_amount,
+    est.signed_date || dayOf(est.signed_at || est.approved_at));
+}
+
+// "Bill without a contract": the estimate's own payment plan becomes its
+// installments in Finance, and the contract picker stops offering it.
+export async function billEstimateDirect(est, user) {
+  const { data, error } = await supabase.from('estimates')
+    .update({ bill_direct: true }).eq('id', est.id).select().single();
+  if (error) throw error;
+  await ensureMilestonesForEstimate(data);
+  logAudit({ user, action: 'estimate.bill_direct', entityType: 'estimate', entityId: est.id, details: { job_id: est.job_id, total: est.total_amount, estimate_number: est.estimate_number } });
+  return data;
 }
 
 // ─── Mark a milestone as received (full or partial) ───────────────
@@ -366,16 +427,17 @@ export async function loadFinanceTotals() {
   horizon30.setDate(horizon30.getDate() + 30);
 
   const [{ data: allMilestones }, { data: allSubs }, { data: contracts }, { data: agreements }] = await Promise.all([
-    supabase.from('payment_milestones').select('contract_id, due_amount, received_amount, due_date, status, received_at'),
+    supabase.from('payment_milestones').select('*'),
     supabase.from('sub_payments').select('agreement_id, due_amount, paid_amount, due_date, status, paid_at'),
     supabase.from('contracts').select('id'),
     supabase.from('subcontractor_agreements').select('id'),
   ]);
 
   // Rows whose contract / agreement was deleted don't count anymore.
+  // Change-order / estimate rows cascade-delete with their source (089).
   const contractIds = new Set((contracts || []).map((c) => c.id));
   const agreementIds = new Set((agreements || []).map((a) => a.id));
-  const milestones = (allMilestones || []).filter((m) => contractIds.has(m.contract_id));
+  const milestones = (allMilestones || []).filter((m) => contractIds.has(m.contract_id) || m.change_order_id || m.estimate_id);
   const subs = (allSubs || []).filter((p) => agreementIds.has(p.agreement_id));
 
   const sumOpenIn30 = (rows, paidField) => (rows || []).reduce((s, r) => {

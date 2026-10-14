@@ -406,7 +406,10 @@ export default function DocumentsSection({ job, user, onJobUpdated, onEditEstima
           </div>
         ))}
       </div>
-      <ChangeOrdersFolder job={job} user={user} />
+      <div className="space-y-4">
+        <ChangeOrdersFolder job={job} user={user} />
+        <ChangeOrdersFolder job={job} user={user} kind="plans" />
+      </div>
       </div>
 
       {/* Folders grid */}

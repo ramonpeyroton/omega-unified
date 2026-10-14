@@ -6,6 +6,10 @@
 // copied) or voided (PIN) so the client can no longer sign it. A signed
 // change order's amount is added to the job's revenue by the financials
 // layer.
+//
+// kind = 'plans' renders the "Survey & Plans" block instead: the same
+// document for small survey / drawing jobs sold without a contract
+// (numbered SP-1, SP-2…). Signed ones become installments in Finance.
 
 import { useEffect, useState } from 'react';
 import {
@@ -15,7 +19,7 @@ import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import { logAudit } from '../lib/audit';
 import { validateUserPinDetailed } from '../lib/userPin';
-import { coItems, isLegacyCo, isCoVoid } from '../lib/changeOrders';
+import { coItems, isLegacyCo, isCoVoid, coKind, kindMeta, coNumberLabel } from '../lib/changeOrders';
 import ChangeOrderEditor from './ChangeOrderEditor';
 import { clientEmailsText } from '../lib/clientEmails';
 
@@ -40,7 +44,9 @@ const PIN_ERRORS = {
   query_failed:  'Network error — try again.',
 };
 
-export default function ChangeOrdersFolder({ job, user }) {
+export default function ChangeOrdersFolder({ job, user, kind = 'change_order' }) {
+  const meta = kindMeta(kind);
+  const isPlans = kind === 'plans';
   const [cos, setCos] = useState([]);
   const [loading, setLoading] = useState(true);
   // null = closed · { co: null } = new · { co: row } = editing that row
@@ -58,7 +64,7 @@ export default function ChangeOrdersFolder({ job, user }) {
         .from('change_orders').select('*')
         .eq('job_id', job.id)
         .order('created_at', { ascending: false });
-      setCos(data || []);
+      setCos((data || []).filter((c) => coKind(c) === kind));
     } finally {
       setLoading(false);
     }
@@ -115,7 +121,7 @@ export default function ChangeOrdersFolder({ job, user }) {
         <div className="w-8 h-8 rounded-lg bg-omega-pale flex items-center justify-center">
           <FileText className="w-4 h-4 text-omega-orange" />
         </div>
-        <h3 className="text-sm font-bold text-omega-charcoal flex-1">Change Orders</h3>
+        <h3 className="text-sm font-bold text-omega-charcoal flex-1">{isPlans ? 'Survey & Plans' : 'Change Orders'}</h3>
         <span className="text-[10px] font-bold text-omega-stone bg-gray-100 px-2 py-0.5 rounded-full">{cos.length}</span>
         <button onClick={() => { setError(''); setEditor({ co: null }); }} className="inline-flex items-center gap-1 text-omega-orange hover:text-omega-dark text-xs font-bold">
           <Plus className="w-3.5 h-3.5" /> Add
@@ -127,7 +133,9 @@ export default function ChangeOrdersFolder({ job, user }) {
       {loading ? (
         <div className="flex items-center justify-center py-6"><Loader2 className="w-4 h-4 animate-spin text-omega-stone" /></div>
       ) : cos.length === 0 ? (
-        <p className="px-4 py-5 text-xs text-omega-stone italic text-center">No change orders yet. Tap &ldquo;Add&rdquo; to create one.</p>
+        <p className="px-4 py-5 text-xs text-omega-stone italic text-center">
+          {isPlans ? 'No survey or plans agreements yet.' : 'No change orders yet.'} Tap &ldquo;Add&rdquo; to create one.
+        </p>
       ) : (
         cos.map((co) => {
           const meta = STATUS_META[co.status] || STATUS_META.draft;
@@ -142,7 +150,7 @@ export default function ChangeOrdersFolder({ job, user }) {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-bold text-omega-charcoal">{co.co_number ? `#CO-${co.co_number}` : 'Change Order'}</p>
+                  <p className="text-sm font-bold text-omega-charcoal">{co.co_number ? `#${coNumberLabel(co)}` : meta.name}</p>
                   <span className={`flex-shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>
                 </div>
                 <p className="text-[12px] text-omega-charcoal mt-0.5 break-words">
@@ -183,7 +191,7 @@ export default function ChangeOrdersFolder({ job, user }) {
                     <button
                       onClick={() => { setError(''); setVoiding(co); }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-200 hover:border-red-300 hover:text-red-600 text-[11px] font-semibold text-omega-stone"
-                      title="Cancel this change order so the client can no longer sign it"
+                      title="Cancel it so the client can no longer sign it"
                     >
                       <Ban className="w-3 h-3" /> Void
                     </button>
@@ -192,7 +200,7 @@ export default function ChangeOrdersFolder({ job, user }) {
               </div>
               <div className="flex flex-col items-end gap-1 flex-shrink-0">
                 <p className={`text-sm font-black tabular-nums ${isVoid ? 'text-omega-stone line-through' : 'text-omega-charcoal'}`}>{money(co.amount)}</p>
-                <a href={link} target="_blank" rel="noopener noreferrer" className="text-omega-stone hover:text-omega-orange" title="Open the change order the client sees">
+                <a href={link} target="_blank" rel="noopener noreferrer" className="text-omega-stone hover:text-omega-orange" title="Open the page the client sees">
                   <ExternalLink className="w-4 h-4" />
                 </a>
               </div>
@@ -206,6 +214,7 @@ export default function ChangeOrdersFolder({ job, user }) {
           job={job}
           user={user}
           co={editor.co}
+          kind={kind}
           nextNumber={nextNumber}
           onClose={() => setEditor(null)}
           onSaved={() => load()}
@@ -254,12 +263,12 @@ function VoidPinModal({ co, user, onClose, onConfirm }) {
             <Ban className="w-5 h-5 text-red-600" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-omega-charcoal">Void #CO-{co.co_number} · {money(co.amount)}</h3>
+            <h3 className="text-sm font-bold text-omega-charcoal">Void #{coNumberLabel(co)} · {money(co.amount)}</h3>
             <p className="text-xs text-omega-stone mt-0.5">Enter your PIN to confirm.</p>
           </div>
         </div>
         <p className="text-xs text-omega-stone mb-4 leading-relaxed">
-          The client will no longer be able to sign this change order — the link shows it as cancelled.
+          The client will no longer be able to sign it — the link shows it as cancelled.
           It never counts toward the job&rsquo;s revenue. This can&rsquo;t be undone.
         </p>
         <input
@@ -279,7 +288,7 @@ function VoidPinModal({ co, user, onClose, onConfirm }) {
             Cancel
           </button>
           <button onClick={confirm} disabled={verifying} className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
-            {verifying ? 'Verifying…' : 'Void change order'}
+            {verifying ? 'Verifying…' : 'Void'}
           </button>
         </div>
       </div>

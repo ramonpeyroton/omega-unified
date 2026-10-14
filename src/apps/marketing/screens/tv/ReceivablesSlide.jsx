@@ -67,12 +67,24 @@ export async function load(now = Date.now()) {
   const contracts = contractsRes.data || [];
   const contractJob = Object.fromEntries(contracts.map((c) => [c.id, c.job_id]));
 
-  const milestones = await selectIn(
+  const contractMilestones = await selectIn(
     'payment_milestones',
     'id, contract_id, job_id, label, due_amount, received_amount, due_date, status, received_at',
     'contract_id',
     contracts.map((c) => c.id),
   );
+  // Installments without a contract (migration 089): signed change orders,
+  // Survey & Plans agreements, estimates billed directly. Before 089 the
+  // columns don't exist and this adds nothing.
+  let otherMilestones = [];
+  try {
+    const { data, error } = await supabase
+      .from('payment_milestones')
+      .select('id, contract_id, job_id, label, due_amount, received_amount, due_date, status, received_at')
+      .or('change_order_id.not.is.null,estimate_id.not.is.null');
+    if (!error) otherMilestones = data || [];
+  } catch { /* contracts only */ }
+  const milestones = [...contractMilestones, ...otherMilestones];
 
   const jobIdOf = (m) => m.job_id || contractJob[m.contract_id] || null;
   let clientOf = {};

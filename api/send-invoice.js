@@ -142,7 +142,22 @@ function projectName(job) {
   return ids.length ? ids.map((id) => SERVICE_NAMES[id] || id).join(' + ') : 'your project';
 }
 
-function renderReceiptEmailHTML({ job, company, milestone, installmentNumber, totalInstallments, amount, receivedOn, receiptNo, contractTotal, paidToDate, next }) {
+// What the balance is about: the whole project (a contract) or one smaller
+// piece billed on its own — a change order, a Survey & Plans agreement or an
+// estimate sold without a contract (migration 089).
+const PROJECT_SCOPE = { total: 'Contract total', whole: 'project' };
+function receiptScope(milestone, source) {
+  if (milestone.change_order_id) {
+    return source?.kind === 'plans'
+      ? { total: 'Agreement total', whole: 'survey & plans agreement' }
+      : { total: 'Change order total', whole: 'change order' };
+  }
+  if (milestone.estimate_id) return { total: 'Estimate total', whole: 'estimate' };
+  return PROJECT_SCOPE;
+}
+
+function renderReceiptEmailHTML({ job, company, milestone, installmentNumber, totalInstallments, amount, receivedOn, receiptNo, contractTotal, paidToDate, next, scope = PROJECT_SCOPE }) {
+  const isProject = scope.whole === 'project';
   const logoUrl = company?.logo_url || `${PUBLIC_APP_URL.replace(/\/$/, '')}/logo.png`;
   const companyName = company?.company_name || 'Omega Development';
   const first = (job.client_name || 'there').split(' ')[0];
@@ -171,7 +186,7 @@ function renderReceiptEmailHTML({ job, company, milestone, installmentNumber, to
       </table>`;
 
   const message = fullyPaid
-    ? `Thank you for your payment! We've received <strong>${money(amount)}</strong> for the <strong>${escape(label)}</strong> installment, and your ${escape(project)} is now <strong>fully paid</strong>. It has been a pleasure working with you — thank you for trusting ${escape(companyName)}.`
+    ? `Thank you for your payment! We've received <strong>${money(amount)}</strong> for the <strong>${escape(label)}</strong> installment, and ${isProject ? `your ${escape(project)}` : `this ${escape(scope.whole)}`} is now <strong>fully paid</strong>. It has been a pleasure working with you — thank you for trusting ${escape(companyName)}.`
     : leftOnThis > 0.005
       ? `Thank you for your payment! We've received <strong>${money(amount)}</strong> toward the <strong>${escape(label)}</strong> installment of your ${escape(project)}. <strong>${money(leftOnThis)}</strong> is still due on this installment.`
       : `Thank you for your payment! We've received <strong>${money(amount)}</strong> for the <strong>${escape(label)}</strong> installment of your ${escape(project)}. We truly appreciate your trust in ${escape(companyName)} — our team is excited to keep your project moving.`;
@@ -191,7 +206,7 @@ function renderReceiptEmailHTML({ job, company, milestone, installmentNumber, to
 
     <div style="margin-top:28px;text-align:center;">
       <div style="width:56px;height:56px;border-radius:50%;background:#16a34a;color:white;font-size:30px;font-weight:900;line-height:56px;margin:0 auto;">&#10003;</div>
-      <h1 style="font-size:24px;margin:14px 0 4px;font-weight:900;">${fullyPaid ? 'Your project is fully paid — thank you!' : 'Payment received — thank you!'}</h1>
+      <h1 style="font-size:24px;margin:14px 0 4px;font-weight:900;">${fullyPaid ? (isProject ? 'Your project is fully paid — thank you!' : 'Paid in full — thank you!') : 'Payment received — thank you!'}</h1>
       <div style="font-size:12px;color:#6b6b6b;">Receipt #${escape(receiptNo)} · ${escape(fmtDate(receivedOn))}</div>
     </div>
 
@@ -209,16 +224,16 @@ function renderReceiptEmailHTML({ job, company, milestone, installmentNumber, to
     </div>
 
     ${contractTotal > 0 ? `
-    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#6b6b6b;font-weight:800;">Your project balance</div>
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#6b6b6b;font-weight:800;">${isProject ? 'Your project balance' : `Balance on this ${escape(scope.whole)}`}</div>
     <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;">
-      <tr><td style="padding:5px 0;color:#555;">Contract total</td><td style="padding:5px 0;text-align:right;font-weight:600;">${money(contractTotal)}</td></tr>
+      <tr><td style="padding:5px 0;color:#555;">${escape(scope.total)}</td><td style="padding:5px 0;text-align:right;font-weight:600;">${money(contractTotal)}</td></tr>
       <tr><td style="padding:5px 0;color:#555;">Paid to date</td><td style="padding:5px 0;text-align:right;font-weight:700;color:#15803d;">${money(paidToDate)}</td></tr>
       <tr style="border-top:2px solid #2C2C2A;"><td style="padding:9px 0 5px;font-weight:800;">Remaining balance</td><td style="padding:9px 0 5px;text-align:right;font-weight:900;font-size:18px;">${money(remaining)}</td></tr>
     </table>
     <div style="height:10px;border-radius:5px;background:#ececE9;margin-top:10px;overflow:hidden;">
       <div style="height:10px;width:${pct}%;background:#16a34a;"></div>
     </div>
-    <div style="font-size:11px;color:#6b6b6b;margin-top:5px;">${pct}% of your project is paid</div>` : ''}
+    <div style="font-size:11px;color:#6b6b6b;margin-top:5px;">${pct}% ${isProject ? 'of your project' : `of this ${escape(scope.whole)}`} is paid</div>` : ''}
 
     ${nextHTML}
 
@@ -243,9 +258,17 @@ async function handleReceipt(res, body) {
     .from('payment_milestones').select('*').eq('id', milestoneId).maybeSingle();
   if (!milestone) return json(res, 404, { ok: false, error: 'Installment not found' });
 
-  const [{ data: siblings }, { data: contract }, { data: job }, { data: company }] = await Promise.all([
-    supabase.from('payment_milestones').select('*').eq('contract_id', milestone.contract_id).order('order_idx', { ascending: true }),
-    supabase.from('contracts').select('id, total_amount').eq('id', milestone.contract_id).maybeSingle(),
+  // Installments group by where they came from: a contract, or (089) a
+  // change order / Survey & Plans agreement, or an estimate billed directly.
+  const fk = milestone.change_order_id ? 'change_order_id' : milestone.estimate_id ? 'estimate_id' : 'contract_id';
+  const sourceQuery = fk === 'change_order_id'
+    ? supabase.from('change_orders').select('*').eq('id', milestone.change_order_id).maybeSingle()
+    : fk === 'estimate_id'
+      ? supabase.from('estimates').select('id, total_amount').eq('id', milestone.estimate_id).maybeSingle()
+      : supabase.from('contracts').select('id, total_amount').eq('id', milestone.contract_id).maybeSingle();
+  const [{ data: siblings }, { data: source }, { data: job }, { data: company }] = await Promise.all([
+    supabase.from('payment_milestones').select('*').eq(fk, milestone[fk]).order('order_idx', { ascending: true }),
+    sourceQuery,
     supabase.from('jobs').select('*').eq('id', milestone.job_id).maybeSingle(),
     supabase.from('company_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
@@ -255,7 +278,8 @@ async function handleReceipt(res, body) {
   const list = siblings || [milestone];
   const totalInstallments = list.length || 1;
   const installmentNumber = Math.max(1, list.findIndex((s) => s.id === milestone.id) + 1);
-  const contractTotal = Number(contract?.total_amount) || list.reduce((s, m) => s + (Number(m.due_amount) || 0), 0);
+  const contractTotal = Number(source?.total_amount ?? source?.amount) || list.reduce((s, m) => s + (Number(m.due_amount) || 0), 0);
+  const scope = receiptScope(milestone, source);
   const paidToDate = list.reduce((s, m) => s + (Number(m.received_amount) || 0), 0);
   // Next installment still owed: first one after this, else any earlier one.
   const open = list.filter((m) => m.id !== milestone.id && Number(m.received_amount || 0) < Number(m.due_amount || 0) - 0.005);
@@ -269,12 +293,12 @@ async function handleReceipt(res, body) {
 
   const html = renderReceiptEmailHTML({
     job, company, milestone, installmentNumber, totalInstallments,
-    amount: amt, receivedOn: day, receiptNo, contractTotal, paidToDate, next,
+    amount: amt, receivedOn: day, receiptNo, contractTotal, paidToDate, next, scope,
   });
   const fullyPaid = contractTotal > 0 && contractTotal - paidToDate < 0.005;
   const companyName = company?.company_name || 'Omega Development';
   const subject = fullyPaid
-    ? `Your project is fully paid — thank you! — ${companyName}`
+    ? `${scope.whole === 'project' ? 'Your project is fully paid' : 'Paid in full'} — thank you! — ${companyName}`
     : `Payment received — thank you! — ${companyName}`;
   const officeCopy = company?.email || 'office@omeganyct.com';
 

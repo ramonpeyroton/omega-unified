@@ -652,6 +652,17 @@ async function handleEstimateOpened(estimateId, res) {
 // Items + price format mirror src/shared/lib/changeOrders.js (coItems /
 // coPriceMode) — api code can't import from src. Rows from before
 // migration 085 have only description + amount: one line, one total.
+// Change order or Survey & Plans agreement (kind = 'plans', migration 089) —
+// same table and page, different name. Mirrors kindMeta in changeOrders.js.
+function coDoc(co) {
+  const plans = co?.kind === 'plans';
+  return {
+    name: plans ? 'Survey & Plans Agreement' : 'Change Order',
+    noun: plans ? 'agreement' : 'change order',
+    number: co?.co_number ? `#${plans ? 'SP' : 'CO'}-${co.co_number}` : '',
+  };
+}
+
 function changeOrderItemsForEmail(co) {
   const hasItems = Array.isArray(co?.items) && co.items.length > 0;
   const items = hasItems
@@ -674,6 +685,7 @@ function renderChangeOrderHTML({ co, job, company, clientLink }) {
         </td>
       </tr></table>`;
   const { items, itemized } = changeOrderItemsForEmail(co);
+  const doc = coDoc(co);
   const rows = items.map((it, i) => `
       <tr>
         <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;color:#E8732A;font-weight:900;width:22px;">${i + 1}</td>
@@ -690,15 +702,15 @@ function renderChangeOrderHTML({ co, job, company, clientLink }) {
     <div style="height:5px;background:#E8732A;"></div>
     <div style="padding:28px;">
       ${brandHTML}
-      <h1 style="font-size:22px;margin:24px 0 4px;font-weight:900;">Change Order${co.co_number ? ` #CO-${co.co_number}` : ''}</h1>
-      <p style="font-size:14px;color:#555;margin:0 0 18px;line-height:1.55;">Hi ${escape(clientName)}, here is a change order for your project${job?.address ? ` at ${escape(job.address)}` : ''}. Please review it and sign online.</p>
+      <h1 style="font-size:22px;margin:24px 0 4px;font-weight:900;">${doc.name}${doc.number ? ` ${doc.number}` : ''}</h1>
+      <p style="font-size:14px;color:#555;margin:0 0 18px;line-height:1.55;">Hi ${escape(clientName)}, here is ${doc.noun === 'agreement' ? 'the survey &amp; plans agreement' : 'a change order'} for your project${job?.address ? ` at ${escape(job.address)}` : ''}. Please review it and sign online.</p>
       ${co.title ? `<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;background:#2C2C2A;color:white;padding:9px 12px;">${escape(co.title)}</div>` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:14px;">${rows}</table>
       <table style="width:100%;border-collapse:collapse;background:#fdf4ee;margin-bottom:22px;"><tr>
-        <td style="padding:12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7a5a46;">${itemized ? 'Total for this change order' : 'Price for all work above'}</td>
+        <td style="padding:12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7a5a46;">${itemized ? `Total for this ${doc.noun}` : 'Price for all work above'}</td>
         <td style="padding:12px;text-align:right;font-size:18px;font-weight:900;white-space:nowrap;">${money(co.amount)}</td>
       </tr></table>
-      <a href="${clientLink}" style="display:inline-block;background:#E8732A;color:white;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;font-size:15px;">Review &amp; Sign Change Order &rarr;</a>
+      <a href="${clientLink}" style="display:inline-block;background:#E8732A;color:white;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;font-size:15px;">Review &amp; Sign ${doc.name} &rarr;</a>
       <p style="font-size:12px;color:#999;margin:24px 0 0;line-height:1.6;">${footer}</p>
     </div>
   </div>
@@ -709,8 +721,9 @@ async function sendChangeOrder(req, res, body) {
   const coId = (body?.changeOrderId || '').toString();
   const { data: co } = await supabase.from('change_orders').select('*').eq('id', coId).maybeSingle();
   if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
-  if (co.status === 'void') return json(res, 400, { ok: false, error: 'This change order was voided — it can no longer be sent.' });
-  if (co.status === 'signed') return json(res, 400, { ok: false, error: 'This change order is already signed.' });
+  const doc = coDoc(co);
+  if (co.status === 'void') return json(res, 400, { ok: false, error: `This ${doc.noun} was voided — it can no longer be sent.` });
+  if (co.status === 'signed') return json(res, 400, { ok: false, error: `This ${doc.noun} is already signed.` });
   const { data: job } = await supabase.from('jobs').select('*').eq('id', co.job_id).maybeSingle();
   if (!job) return json(res, 404, { ok: false, error: 'Job not found' });
   if (!clientEmails(job).length) return json(res, 400, { ok: false, error: 'Client has no email on file' });
@@ -719,7 +732,7 @@ async function sendChangeOrder(req, res, body) {
 
   const clientLink = `${PUBLIC_APP_URL.replace(/\/$/, '')}/change-order-view/${coId}`;
   const html = renderChangeOrderHTML({ co, job, company, clientLink });
-  const subject = `Change Order${co.co_number ? ` #CO-${co.co_number}` : ''} — ${company?.company_name || 'Omega Development'}`;
+  const subject = `${doc.name}${doc.number ? ` ${doc.number}` : ''} — ${company?.company_name || 'Omega Development'}`;
   const requester = {
     role: (req.headers['x-omega-role'] || '').toString(),
     name: (req.headers['x-omega-user'] || '').toString(),
@@ -754,7 +767,7 @@ async function sendChangeOrder(req, res, body) {
 // ─── Change Order: opened beacon (public) ─────────────────────────────
 async function handleChangeOrderOpened(coId, res) {
   const { data: co } = await supabase
-    .from('change_orders').select('id, job_id, client_opened_at, client_open_count, last_open_notified_at, co_number, sent_at, status').eq('id', coId).maybeSingle();
+    .from('change_orders').select('*').eq('id', coId).maybeSingle();
   if (!co) return json(res, 404, { ok: false, error: 'Change order not found' });
 
   const isFirstOpen = !co.client_opened_at;
@@ -776,8 +789,8 @@ async function handleChangeOrderOpened(coId, res) {
       await notifyOfficeRoles(supabase, {
         jobId: co.job_id,
         type: 'change_order',
-        title: '📬 Client opened change order',
-        message: `${clientName} just viewed the change order${co.co_number ? ` (#CO-${co.co_number})` : ''}.`,
+        title: `📬 Client opened ${coDoc(co).noun}`,
+        message: `${clientName} just viewed the ${coDoc(co).noun}${coDoc(co).number ? ` (${coDoc(co).number})` : ''}.`,
       });
     } catch { /* non-fatal */ }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import html2pdf from 'html2pdf.js';
 import { Printer, Download } from 'lucide-react';
 import { supabase } from '../../shared/lib/supabase';
-import { CO_TERMS, CO_TERMS_TEXT, coItems, coPriceMode, coNumberLabel, isCoVoid } from '../../shared/lib/changeOrders';
+import { coItems, coPriceMode, coNumberLabel, isCoVoid, coKind, coTerms, coTermsText, coPaymentPlan } from '../../shared/lib/changeOrders';
 import { SERVICE_LABEL, parseJobServices } from '../../shared/data/services';
 
 // Public, auth-less page that renders a single Change Order on Omega's
@@ -10,6 +10,8 @@ import { SERVICE_LABEL, parseJobServices } from '../../shared/data/services';
 // /estimate-view. URL: /change-order-view/:id
 // Omega's side comes pre-signed by Inácio (same signature image as the
 // contract). Items show their own prices or one total, per co.price_mode.
+// kind = 'plans' renders the Survey & Plans Agreement (no contract): its own
+// intro, terms and payment schedule.
 
 const ORANGE = '#E8732A';
 const INK = '#2C2C2A';
@@ -81,10 +83,13 @@ export default function ChangeOrderView() {
     })();
   }, []);
 
-  if (loading) return <p style={{ padding: 40, fontFamily: 'sans-serif' }}>Loading change order…</p>;
+  if (loading) return <p style={{ padding: 40, fontFamily: 'sans-serif' }}>Loading…</p>;
   if (err)     return <p style={{ padding: 40, fontFamily: 'sans-serif', color: '#b00' }}>{err}</p>;
   if (!co) return null;
 
+  const isPlans = coKind(co) === 'plans';
+  const docTitle = isPlans ? 'Survey & Plans Agreement' : 'Change Order';
+  const docNoun = isPlans ? 'agreement' : 'change order';
   const items = coItems(co);
   const itemized = coPriceMode(co) === 'itemized';
   const number = coNumberLabel(co);
@@ -103,7 +108,7 @@ export default function ChangeOrderView() {
       await html2pdf()
         .set({
           margin: [8, 4, 8, 4],
-          filename: `Omega_Change_Order_${number}_${client}.pdf`,
+          filename: `Omega_${isPlans ? 'Survey_Plans' : 'Change_Order'}_${number}_${client}.pdf`,
           image: { type: 'jpeg', quality: 0.95 },
           html2canvas: { scale: 2, useCORS: true, ignoreElements: (el) => el.classList?.contains('no-print') },
           jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
@@ -137,7 +142,7 @@ export default function ChangeOrderView() {
           <div style={{ height: 6, background: ORANGE }} />
           {isCoVoid(co) && (
             <div style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '12px 20px', fontSize: 13.5, lineHeight: 1.5, textAlign: 'center' }}>
-              <strong>This change order was cancelled</strong> by {companyName} and can no longer be signed.
+              <strong>This {docNoun} was cancelled</strong> by {companyName} and can no longer be signed.
               {company?.phone ? ` Questions? Call ${company.phone}.` : ''}
             </div>
           )}
@@ -165,13 +170,13 @@ export default function ChangeOrderView() {
                 </div>
               </div>
               <div style={{ textAlign: 'right', marginLeft: 'auto' }}>
-                <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.01em' }}>Change Order</div>
+                <div style={{ fontSize: isPlans ? 26 : 30, fontWeight: 900, letterSpacing: '-0.01em' }}>{docTitle}</div>
                 <table style={{ marginLeft: 'auto', marginTop: 8, fontSize: 12, borderCollapse: 'collapse' }}>
                   <tbody>
                     {[
-                      ['Change Order #', number],
+                      [isPlans ? 'Agreement #' : 'Change Order #', number],
                       ['Date', prettyDate(issuedOn)],
-                      contractSignedAt ? ['Contract', `Signed ${prettyDate(contractSignedAt)}`] : null,
+                      !isPlans && contractSignedAt ? ['Contract', `Signed ${prettyDate(contractSignedAt)}`] : null,
                     ].filter(Boolean).map(([k, v]) => (
                       <tr key={k}>
                         <td style={{ color: '#8a8a8a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', fontSize: 10.5, padding: '2px 10px 2px 0', textAlign: 'right' }}>{k}</td>
@@ -203,15 +208,22 @@ export default function ChangeOrderView() {
               </div>
             </div>
 
-            <p style={{ fontSize: 13, color: '#444', lineHeight: 1.65, marginTop: 20 }}>
-              This Change Order modifies the contract between <strong>{companyName}</strong> and <strong>{job?.client_name || 'the client'}</strong> for
-              the project above. It adds the work described below. All other terms of the original contract remain unchanged.
-            </p>
+            {isPlans ? (
+              <p style={{ fontSize: 13, color: '#444', lineHeight: 1.65, marginTop: 20 }}>
+                This agreement between <strong>{companyName}</strong> and <strong>{job?.client_name || 'the client'}</strong> covers
+                the survey and/or drawing services described below for the property above. Construction work is not included.
+              </p>
+            ) : (
+              <p style={{ fontSize: 13, color: '#444', lineHeight: 1.65, marginTop: 20 }}>
+                This Change Order modifies the contract between <strong>{companyName}</strong> and <strong>{job?.client_name || 'the client'}</strong> for
+                the project above. It adds the work described below. All other terms of the original contract remain unchanged.
+              </p>
+            )}
 
             {/* Items */}
             <div style={{ marginTop: 18 }}>
               <div style={{ background: INK, color: 'white', padding: '10px 16px', fontSize: 13, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <span>{co.title || 'Changes to the scope of work'}</span>
+                <span>{co.title || (isPlans ? 'Survey & drawing services' : 'Changes to the scope of work')}</span>
                 {itemized && <span style={{ opacity: 0.7 }}>Price</span>}
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -230,17 +242,36 @@ export default function ChangeOrderView() {
               </table>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fdf4ee' }}>
                 <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#7a5a46' }}>
-                  {itemized ? 'Total for this change order' : 'Price for all work above'}
+                  {itemized ? (isPlans ? 'Total' : 'Total for this change order') : 'Price for all work above'}
                 </span>
                 <span style={{ fontSize: 20, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{money(co.amount)}</span>
               </div>
             </div>
 
+            {isPlans && (
+              <div style={{ marginTop: 22 }}>
+                <Kicker>Payment schedule</Kicker>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+                  <tbody>
+                    {coPaymentPlan(co).map((p, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #efefef' }}>
+                        <td style={{ padding: '8px 0', fontWeight: 700 }}>{p.label}</td>
+                        <td style={{ padding: '8px 12px', color: '#777', textAlign: 'right', width: 60 }}>{Number(p.percent)}%</td>
+                        <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', width: 120 }}>
+                          {money((Number(co.amount) || 0) * (Number(p.percent) || 0) / 100)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {/* Terms */}
             <div style={{ marginTop: 22 }}>
-              <Kicker>Terms of this change order</Kicker>
+              <Kicker>Terms of this {docNoun}</Kicker>
               <ol style={{ fontSize: 12, color: '#555', lineHeight: 1.65, margin: '8px 0 0', paddingLeft: 18, listStyle: 'decimal' }}>
-                {CO_TERMS.map((t) => <li key={t}>{t}</li>)}
+                {coTerms(co).map((t) => <li key={t}>{t}</li>)}
               </ol>
             </div>
 
@@ -248,6 +279,7 @@ export default function ChangeOrderView() {
               <Signatures
                 co={co}
                 number={number}
+                docTitle={docTitle}
                 customerName={job?.client_name || ''}
                 omegaDate={prettyDate(issuedOn)}
                 onSigned={(signed) => setCo((prev) => ({ ...prev, status: 'signed', ...signed }))}
@@ -261,7 +293,7 @@ export default function ChangeOrderView() {
 }
 
 // ─── Signatures: Omega (pre-signed) + client (draw, name, date, consent) ───
-function Signatures({ co, number, customerName, omegaDate, onSigned }) {
+function Signatures({ co, number, docTitle, customerName, omegaDate, onSigned }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
   const lastRef = useRef({ x: 0, y: 0 });
@@ -336,7 +368,7 @@ function Signatures({ co, number, customerName, omegaDate, onSigned }) {
           signed_by: name,
           signed_date: signedDate,
           // The terms are on the page above; the consent box accepts them.
-          disclaimers: CO_TERMS_TEXT,
+          disclaimers: coTermsText(co),
           disclaimers_acknowledged: true,
           consent: true,
         }),
@@ -365,7 +397,7 @@ function Signatures({ co, number, customerName, omegaDate, onSigned }) {
         <div style={{ marginTop: 24, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#16a34a', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>✓</div>
           <div style={{ fontSize: 13, color: '#166534' }}>
-            <strong style={{ color: '#15803d' }}>Change Order approved</strong> — signed by <strong>{co.signed_by}</strong> on {prettyDate(co.signed_date || co.signed_at)}.
+            <strong style={{ color: '#15803d' }}>{docTitle} approved</strong> — signed by <strong>{co.signed_by}</strong> on {prettyDate(co.signed_date || co.signed_at)}.
           </div>
         </div>
       )}
@@ -419,7 +451,7 @@ function Signatures({ co, number, customerName, omegaDate, onSigned }) {
           <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5, color: '#444', lineHeight: 1.55, marginTop: 14, cursor: 'pointer' }}>
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 2, width: 17, height: 17, accentColor: ORANGE, flexShrink: 0 }} />
             <span>
-              I approve Change Order #{number} and authorize Omega Development LLC to perform the work above
+              I approve {docTitle} #{number} and authorize Omega Development LLC to perform the work above
               for {money(co.amount)}. I agree that my electronic signature is legally binding.
             </span>
           </label>
@@ -440,7 +472,7 @@ function Signatures({ co, number, customerName, omegaDate, onSigned }) {
               fontSize: 15, fontWeight: 800, cursor: canSign ? 'pointer' : 'not-allowed',
             }}
           >
-            {submitting ? 'Signing…' : 'Sign & Approve Change Order'}
+            {submitting ? 'Signing…' : `Sign & Approve ${docTitle}`}
           </button>
           <p style={{ fontSize: 10.5, color: '#999', textAlign: 'center', marginTop: 8 }}>
             Your name, date, IP address and time of signing are recorded as part of the signature record.

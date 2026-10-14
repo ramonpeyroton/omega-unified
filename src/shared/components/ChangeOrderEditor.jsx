@@ -1,8 +1,10 @@
-// ChangeOrderEditor — full popup to create or edit a change order.
+// ChangeOrderEditor — full popup to create or edit a change order, or a
+// Survey & Plans agreement (kind = 'plans': same document, no contract,
+// with its own payment plan — default 50/50).
 // The seller lists the items (title + details + price) and picks how the
 // client sees the price: 'itemized' (each item priced, total = sum) or
 // 'single' (items listed, one price for all). Save draft, Preview (opens the
-// client page) or Send to client. Signed change orders never open here.
+// client page) or Send to client. Signed documents never open here.
 
 import { useState } from 'react';
 import {
@@ -11,7 +13,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/apiFetch';
 import { logAudit } from '../lib/audit';
-import { coItems, coPriceMode, itemsTotal, summarizeCo } from '../lib/changeOrders';
+import { coItems, coPriceMode, itemsTotal, summarizeCo, coKind, kindMeta, DEFAULT_PLANS_PLAN } from '../lib/changeOrders';
 import { clientEmailsText } from '../lib/clientEmails';
 
 const blankItem = () => ({ title: '', details: '', price: '' });
@@ -28,7 +30,19 @@ const PRICE_MODES = [
 const labelCls = 'block text-[11px] font-bold uppercase tracking-wider text-omega-stone mb-1.5';
 const inputCls = 'w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-omega-orange focus:outline-none text-base lg:text-sm';
 
-export default function ChangeOrderEditor({ job, user, co = null, nextNumber, onClose, onSaved }) {
+// One-tap starters for the Survey & Plans agreement.
+const PLANS_STARTERS = ['A-2 Survey', 'Building Plans'];
+
+export default function ChangeOrderEditor({ job, user, co = null, kind: kindProp = 'change_order', nextNumber, onClose, onSaved }) {
+  const kind = co ? coKind(co) : (kindProp === 'plans' ? 'plans' : 'change_order');
+  const meta = kindMeta(kind);
+  const isPlans = kind === 'plans';
+  const [plan, setPlan] = useState(() => {
+    const p = Array.isArray(co?.payment_plan) && co.payment_plan.length ? co.payment_plan : DEFAULT_PLANS_PLAN;
+    return p.map((r) => ({ label: r.label || '', percent: String(r.percent ?? '') }));
+  });
+  const planPct = plan.reduce((s, r) => s + (Number(r.percent) || 0), 0);
+
   // The row as last saved — after a Preview (or a failed send) of a new
   // change order, the next save must update it, not insert a duplicate.
   const [saved, setSaved] = useState(co);
@@ -71,7 +85,11 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
     if (!clean.length) return 'Add at least one item.';
     if (clean.some((i) => !i.title)) return 'Every item needs a title.';
     if (mode === 'itemized' && clean.some((i) => !(Number(i.price) > 0))) return 'Enter a price for every item.';
-    if (!(total > 0)) return mode === 'single' ? 'Enter the price for this change order.' : 'The total must be more than $0.';
+    if (!(total > 0)) return mode === 'single' ? 'Enter the price.' : 'The total must be more than $0.';
+    if (isPlans) {
+      if (plan.some((r) => !r.label.trim() || !(Number(r.percent) > 0))) return 'Every payment needs a name and a %.';
+      if (Math.round(planPct * 100) !== 10000) return `The payments add up to ${planPct}% — they must add up to 100%.`;
+    }
     return null;
   }
 
@@ -91,13 +109,17 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
       description: summarizeCo(title, clean),
       updated_at: new Date().toISOString(),
     };
+    if (isPlans) {
+      payload.kind = 'plans';
+      payload.payment_plan = plan.map((r) => ({ label: r.label.trim(), percent: Number(r.percent) }));
+    }
     const query = editing
       ? supabase.from('change_orders').update(payload).eq('id', saved.id)
       : supabase.from('change_orders').insert([{
           ...payload, job_id: job.id, co_number: number, status: 'draft', created_by: user?.name || null,
         }]);
     const { data, error: dbErr } = await query.select().single();
-    if (dbErr) { setError(dbErr.message || 'Failed to save the change order.'); return null; }
+    if (dbErr) { setError(dbErr.message || 'Failed to save.'); return null; }
     setSaved(data);
     logAudit({
       user, action: editing ? 'change_order.update' : 'change_order.create', entityType: 'change_order',
@@ -169,8 +191,8 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
           </span>
           <div className="flex-1 min-w-0">
             <h3 className="text-base font-bold text-omega-charcoal">
-              {editing ? 'Edit Change Order' : 'New Change Order'}
-              {number ? <span className="text-omega-stone font-semibold"> · #CO-{number}</span> : null}
+              {editing ? 'Edit' : 'New'} {meta.name}
+              {number ? <span className="text-omega-stone font-semibold"> · #{meta.prefix}-{number}</span> : null}
             </h3>
             <p className="text-xs text-omega-stone truncate">{[job?.client_name, job?.address].filter(Boolean).join(' · ')}</p>
           </div>
@@ -184,7 +206,7 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Shower niche & lighting upgrades"
+              placeholder={isPlans ? 'e.g. Survey & building plans for the addition' : 'e.g. Shower niche & lighting upgrades'}
               className={`${inputCls} font-semibold text-omega-charcoal`}
             />
           </div>
@@ -253,20 +275,36 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setItems((prev) => [...prev, blankItem()])} className="mt-2 inline-flex items-center gap-1 py-1.5 text-sm font-bold text-omega-orange hover:text-omega-dark">
-              <Plus className="w-4 h-4" /> Add item
-            </button>
+            <div className="mt-2 flex items-center gap-3 flex-wrap">
+              <button type="button" onClick={() => setItems((prev) => [...prev, blankItem()])} className="inline-flex items-center gap-1 py-1.5 text-sm font-bold text-omega-orange hover:text-omega-dark">
+                <Plus className="w-4 h-4" /> Add item
+              </button>
+              {isPlans && PLANS_STARTERS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setItems((prev) => {
+                    const blankAt = prev.findIndex((it) => !it.title && !it.details && !it.price);
+                    if (blankAt >= 0) return prev.map((it, j) => (j === blankAt ? { ...it, title: t } : it));
+                    return [...prev, { ...blankItem(), title: t }];
+                  })}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-200 hover:border-omega-orange text-xs font-bold text-omega-charcoal"
+                >
+                  <Plus className="w-3 h-3" /> {t}
+                </button>
+              ))}
+            </div>
           </div>
 
           {mode === 'itemized' ? (
             <div className="flex items-center justify-between rounded-xl bg-gray-50 border border-gray-200 px-4 py-3">
-              <p className="text-sm font-bold text-omega-charcoal">Total for this change order</p>
+              <p className="text-sm font-bold text-omega-charcoal">Total</p>
               <p className="text-lg font-black text-omega-charcoal tabular-nums">{money(total)}</p>
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-omega-orange/40 bg-omega-pale/40 px-4 py-3">
               <div>
-                <p className="text-sm font-bold text-omega-charcoal">Price for this change order</p>
+                <p className="text-sm font-bold text-omega-charcoal">Price</p>
                 <p className="text-[11px] text-omega-stone">One price for all items above</p>
               </div>
               <div className="relative w-40 flex-shrink-0">
@@ -278,6 +316,45 @@ export default function ChangeOrderEditor({ job, user, co = null, nextNumber, on
                   placeholder="0"
                   className={`${inputCls} pl-7 font-black text-right tabular-nums`}
                 />
+              </div>
+            </div>
+          )}
+
+          {isPlans && (
+            <div>
+              <label className={labelCls}>Payment schedule (shows on the document · becomes the installments in Finance)</label>
+              <div className="space-y-2">
+                {plan.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      value={r.label}
+                      onChange={(e) => setPlan((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                      placeholder="e.g. Deposit"
+                      className={`${inputCls} flex-1`}
+                    />
+                    <div className="relative w-24 flex-shrink-0">
+                      <input
+                        type="number" min="0" max="100" step="1" inputMode="decimal"
+                        value={r.percent}
+                        onChange={(e) => setPlan((prev) => prev.map((x, j) => (j === i ? { ...x, percent: e.target.value } : x)))}
+                        className={`${inputCls} pr-7 text-right font-bold tabular-nums`}
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-omega-stone">%</span>
+                    </div>
+                    <span className="w-24 text-right text-sm font-semibold text-omega-charcoal tabular-nums flex-shrink-0">
+                      {money(((Number(r.percent) || 0) / 100) * total)}
+                    </span>
+                    <button type="button" onClick={() => setPlan((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev))} className="p-1 text-gray-400 hover:text-red-500" aria-label="Remove payment">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <button type="button" onClick={() => setPlan((prev) => [...prev, { label: '', percent: '' }])} className="inline-flex items-center gap-1 py-1.5 text-sm font-bold text-omega-orange hover:text-omega-dark">
+                  <Plus className="w-4 h-4" /> Add payment
+                </button>
+                <span className={`text-xs font-bold ${Math.round(planPct * 100) === 10000 ? 'text-green-700' : 'text-red-600'}`}>{planPct}% of 100%</span>
               </div>
             </div>
           )}

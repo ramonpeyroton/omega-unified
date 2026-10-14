@@ -349,7 +349,7 @@ async function signChangeOrder(req, res, body) {
 
   const { data: co, error: cErr } = await supabase
     .from('change_orders')
-    .select('id, job_id, status, signed_at, amount, description')
+    .select('*')
     .eq('id', change_order_id).maybeSingle();
   if (cErr || !co) return json(res, 404, { ok: false, error: 'Change order not found' });
   if (co.signed_at) return json(res, 409, { ok: false, error: 'This change order has already been signed.' });
@@ -377,10 +377,19 @@ async function signChangeOrder(req, res, body) {
   }).eq('id', change_order_id);
   if (updErr) return json(res, 500, { ok: false, error: updErr.message || 'Failed to save signature' });
 
+  const plans = co.kind === 'plans';
+  const noun = plans ? 'survey & plans agreement' : 'change order';
+
+  // Installments for Finance → Clients (migration 089), same as a signed
+  // contract gets. The Finance screen also creates them on load if this
+  // misses (migration not run yet, network) — the unique slot index keeps
+  // the two from doubling.
+  try { await materializeCoMilestones({ ...co, signed_at }); } catch { /* Finance retries */ }
+
   // Notify sales + operations + owner (same bell the estimate flow uses).
   try {
-    const title = `Change order signed by ${signed_by}`;
-    const message = `Customer signed a change order${co.amount ? ` for ${money(co.amount)}` : ''}${co.description ? `: ${co.description}` : ''}.`;
+    const title = `${plans ? 'Survey & plans agreement' : 'Change order'} signed by ${signed_by}`;
+    const message = `Customer signed a ${noun}${co.amount ? ` for ${money(co.amount)}` : ''}${co.description ? `: ${co.description}` : ''}.`;
     await notifyOfficeRoles(supabase, { jobId: co.job_id, type: 'change_order', title, message });
   } catch { /* ignore */ }
 
@@ -392,13 +401,13 @@ async function signChangeOrder(req, res, body) {
       const to = company?.email;
       if (to) {
         const clientName = job?.client_name || signed_by || 'Client';
-        const subject = `✅ ${clientName} signed a change order`;
+        const subject = `✅ ${clientName} signed a ${noun}`;
         const when = new Date(signed_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
         const html = `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2C2C2A;">
   <div style="max-width:520px;margin:0 auto;background:white;padding:24px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.05);">
-    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#22c55e;font-weight:800;">Change order signed</div>
-    <h1 style="font-size:22px;margin:6px 0 16px;font-weight:900;">${escapeHtml(clientName)} signed a change order</h1>
+    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#22c55e;font-weight:800;">${plans ? 'Survey &amp; plans agreement' : 'Change order'} signed</div>
+    <h1 style="font-size:22px;margin:6px 0 16px;font-weight:900;">${escapeHtml(clientName)} signed a ${escapeHtml(noun)}</h1>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       ${job?.address ? `<tr><td style="padding:6px 0;color:#6b6b6b;width:32%;">Project</td><td style="padding:6px 0;">${escapeHtml(job.address)}</td></tr>` : ''}
       ${co.amount ? `<tr><td style="padding:6px 0;color:#6b6b6b;">Amount</td><td style="padding:6px 0;font-weight:700;">${money(co.amount)}</td></tr>` : ''}
@@ -418,4 +427,35 @@ async function signChangeOrder(req, res, body) {
   }
 
   return json(res, 200, { ok: true, signed_at, signed_by, signed_date });
+}
+
+// Mirrors coPaymentPlan + ensureMilestonesForChangeOrder in
+// src/shared/lib/changeOrders.js / finance.js (api code can't import src):
+// a change order is due in full on signing; a plans agreement follows its
+// own plan (default 50/50).
+async function materializeCoMilestones(co) {
+  const { data: existing, error } = await supabase
+    .from('payment_milestones').select('id').eq('change_order_id', co.id).limit(1);
+  if (error || (existing && existing.length)) return;
+  const total = Number(co.amount) || 0;
+  if (!(total > 0)) return;
+  const plans = co.kind === 'plans';
+  const custom = Array.isArray(co.payment_plan) ? co.payment_plan.filter((p) => Number(p?.percent) > 0) : [];
+  const plan = !plans
+    ? [{ label: 'Due upon signing', percent: 100 }]
+    : (custom.length ? custom : [{ label: 'Deposit', percent: 50 }, { label: 'Upon delivery', percent: 50 }]);
+  const signDay = String(co.signed_at || new Date().toISOString()).slice(0, 10);
+  const rows = plan.map((p, idx) => ({
+    change_order_id: co.id,
+    contract_id: null,
+    job_id: co.job_id || null,
+    order_idx: idx,
+    label: p.label || `Installment ${idx + 1}`,
+    due_amount: Math.round(total * (Number(p.percent) || 0)) / 100,
+    // The first payment is due on signing; the rest when the work gets there.
+    due_date: idx === 0 ? signDay : null,
+    received_amount: 0,
+    status: 'pending',
+  }));
+  await supabase.from('payment_milestones').insert(rows);
 }
