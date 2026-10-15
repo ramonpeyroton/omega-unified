@@ -772,7 +772,9 @@ function ClientsTab({ user, accounts }) {
   const [loading, setLoading] = useState(true);
   const [receivedRows, setReceivedRows] = useState([]);  // flat, paid milestones
   const [contractRows, setContractRows] = useState([]);  // full contract rows for drawer
-  const [drawerContractId, setDrawerContractId] = useState(null);
+  // The drawer shows one client (job) with every contract / change order /
+  // survey & plans / direct estimate they owe on (Ramon, 15/10).
+  const [drawerJobId, setDrawerJobId] = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -881,7 +883,8 @@ function ClientsTab({ user, accounts }) {
 
   if (loading) return <Spinner />;
 
-  const drawerRow = contractRows.find((r) => r.contract.id === drawerContractId);
+  const groups = groupByClient(contractRows);
+  const drawerGroup = groups.find((g) => g.key === drawerJobId);
   const totalReceived = receivedRows.reduce((s, r) => s + Number(r.milestone.received_amount || 0), 0);
 
   // Overdue milestones — flat list with contract/job context, sorted by most overdue first
@@ -901,10 +904,6 @@ function ClientsTab({ user, accounts }) {
   });
   overdueItems.sort((a, b) => b.daysPast - a.daysPast);
 
-  // Contracts sorted: overdue first, then by signed date
-  const sortedContractRows = [...contractRows].sort(
-    (a, b) => b.totals.overdueCount - a.totals.overdueCount,
-  );
 
   return (
     <div className="space-y-5">
@@ -925,7 +924,7 @@ function ClientsTab({ user, accounts }) {
             {overdueItems.map(({ milestone: m, contract, job, remaining, daysPast }) => (
               <button
                 key={m.id}
-                onClick={() => setDrawerContractId(contract.id)}
+                onClick={() => setDrawerJobId(groupKeyOf(contract))}
                 className="w-full text-left px-4 py-3 hover:bg-red-100 transition flex items-center gap-4"
               >
                 <div className="flex-1 min-w-0">
@@ -952,9 +951,9 @@ function ClientsTab({ user, accounts }) {
           received list (Ramon, 03/10). */}
       <div>
         <p className="text-[11px] font-semibold text-omega-stone uppercase tracking-wider mb-3 px-1">
-          To receive · contracts, change orders, survey &amp; plans, direct estimates ({contractRows.length})
+          To receive · by client ({groups.length})
         </p>
-        {contractRows.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-omega-stone">
             <FileText className="w-10 h-10 mx-auto mb-2 text-omega-fog" />
             <p className="text-sm font-semibold">Nothing to receive yet.</p>
@@ -962,8 +961,8 @@ function ClientsTab({ user, accounts }) {
           </div>
         ) : (
           <div className="space-y-3">
-            {sortedContractRows.map((r) => (
-              <ContractCard key={r.contract.id} row={r} onOpen={() => setDrawerContractId(r.contract.id)} />
+            {groups.map((g) => (
+              <ClientCard key={g.key} group={g} onOpen={() => setDrawerJobId(g.key)} />
             ))}
           </div>
         )}
@@ -988,7 +987,7 @@ function ClientsTab({ user, accounts }) {
             {receivedRows.map(({ milestone: m, contract, job }) => (
               <button
                 key={m.id}
-                onClick={() => setDrawerContractId(contract.id)}
+                onClick={() => setDrawerJobId(groupKeyOf(contract))}
                 className="w-full text-left px-4 py-3 hover:bg-omega-cloud transition flex items-center gap-4 flex-wrap sm:flex-nowrap"
               >
                 <div className="flex-1 min-w-0">
@@ -1009,12 +1008,12 @@ function ClientsTab({ user, accounts }) {
         )}
       </div>
 
-      {drawerRow && (
+      {drawerGroup && (
         <PaymentDrawer
-          row={drawerRow}
+          group={drawerGroup}
           accounts={accounts}
           user={user}
-          onClose={() => setDrawerContractId(null)}
+          onClose={() => setDrawerJobId(null)}
           onChanged={load}
         />
       )}
@@ -1074,9 +1073,36 @@ function contractTotals(milestones, contractTotal) {
   return { total, due, received, remaining, paidCount, overdueCount, next, count: milestones.length };
 }
 
-function ContractCard({ row, onOpen }) {
-  const { contract, job, milestones, totals, source } = row;
-  const progressPct = totals.due > 0 ? Math.round((totals.received / totals.due) * 100) : 0;
+// One card per client (job). Rows = the contract and anything billed on
+// its own (change orders, survey & plans, estimates without a contract).
+const groupKeyOf = (src) => src?.job_id || src?.id;
+
+const SOURCE_ORDER = { contract: 0, estimate: 1, plans: 2, change_order: 3 };
+
+function groupByClient(rows) {
+  const map = new Map();
+  rows.forEach((r) => {
+    const key = groupKeyOf(r.contract);
+    if (!map.has(key)) map.set(key, { key, job: r.job, rows: [] });
+    map.get(key).rows.push(r);
+  });
+  const groups = [...map.values()].map((g) => {
+    g.rows.sort((a, b) => (SOURCE_ORDER[a.source?.kind] ?? 9) - (SOURCE_ORDER[b.source?.kind] ?? 9)
+      || String(a.contract.co_number || '').localeCompare(String(b.contract.co_number || ''), undefined, { numeric: true }));
+    const all = g.rows.flatMap((r) => r.milestones);
+    const t = contractTotals(all, 0);
+    // A source with no installments yet still counts with its own total.
+    t.total = g.rows.reduce((sum, r) => sum + (Number(r.totals.total) || r.totals.due || 0), 0);
+    t.remaining = Math.max(0, t.total - t.received);
+    return { ...g, totals: t };
+  });
+  // Overdue first, then most still to receive.
+  return groups.sort((a, b) => (b.totals.overdueCount - a.totals.overdueCount) || (b.totals.remaining - a.totals.remaining));
+}
+
+function ClientCard({ group, onOpen }) {
+  const { job, rows, totals } = group;
+  const progressPct = totals.total > 0 ? Math.min(100, Math.round((totals.received / totals.total) * 100)) : 0;
   const hasOverdue = totals.overdueCount > 0;
 
   return (
@@ -1088,7 +1114,6 @@ function ContractCard({ row, onOpen }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-bold text-omega-charcoal truncate">{job.client_name || '—'}</p>
-            <SourceChip source={source} />
             {hasOverdue && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold uppercase">
                 <AlertTriangle className="w-3 h-3" /> {totals.overdueCount} overdue
@@ -1099,6 +1124,9 @@ function ContractCard({ row, onOpen }) {
             {[job.address, job.city].filter(Boolean).join(', ') || '—'}
             {job.service && <> · <span className="uppercase text-omega-orange font-semibold">{job.service}</span></>}
           </p>
+          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+            {rows.map((r) => <SourceChip key={r.contract.id} source={r.source} />)}
+          </div>
           <div className="mt-3 flex items-center gap-2">
             <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
               <div className={`h-full transition-all ${hasOverdue ? 'bg-red-500' : 'bg-omega-success'}`} style={{ width: `${progressPct}%` }} />
@@ -1108,10 +1136,10 @@ function ContractCard({ row, onOpen }) {
             </span>
           </div>
         </div>
-        <div className="flex-shrink-0 text-right min-w-[140px]">
-          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">{source?.short || 'Contract'} total</p>
-          <p className="text-base font-bold text-omega-charcoal">{money(totals.total || totals.due)}</p>
-          <p className="text-[11px] text-green-700 mt-0.5">Received: {money(totals.received)}</p>
+        <div className="flex-shrink-0 text-right min-w-[150px]">
+          <p className="text-[10px] uppercase tracking-wider text-omega-stone font-semibold">Still to receive</p>
+          <p className="text-base font-bold text-omega-charcoal">{money(totals.remaining)}</p>
+          <p className="text-[11px] text-omega-stone mt-0.5">of {money(totals.total)} · received {money(totals.received)}</p>
           {totals.next && (
             <p className="text-[11px] text-omega-charcoal mt-1">
               Next: <span className="font-semibold">{shortDate(totals.next.due_date)}</span> · {money(Math.max(0, Number(totals.next.due_amount) - Number(totals.next.received_amount || 0)))}
@@ -1128,12 +1156,11 @@ function ContractCard({ row, onOpen }) {
 // PAYMENT DRAWER — milestones + full CRUD
 // ─────────────────────────────────────────────────────────────────────
 
-function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
-  const { contract, job, milestones, totals } = row;
-  const source = row.source || CONTRACT_SOURCE;
+function PaymentDrawer({ group, accounts, user, onClose, onChanged }) {
+  const { job, rows, totals } = group;
   const [markFor, setMarkFor]   = useState(null);
-  const [editFor, setEditFor]   = useState(null); // milestone or null
-  const [addingNew, setAddingNew] = useState(false);
+  const [editFor, setEditFor]   = useState(null); // { row, milestone } or null
+  const [addingFor, setAddingFor] = useState(null); // row or null
 
   async function deleteMilestone(m) {
     if (!confirm(`Delete "${m.label || 'this installment'}" (${money(m.due_amount)})? This cannot be undone.`)) return;
@@ -1145,11 +1172,13 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
 
   async function saveMilestone(form) {
     if (form.__new) {
-      const maxIdx = milestones.reduce((max, m) => Math.max(max, m.order_idx || 0), -1);
+      const row = addingFor;
+      const source = row.source || CONTRACT_SOURCE;
+      const maxIdx = row.milestones.reduce((max, m) => Math.max(max, m.order_idx || 0), -1);
       const { error } = await supabase.from('payment_milestones').insert([{
         contract_id: null,
-        [source.fk]: contract.id,
-        job_id: contract.job_id || null,
+        [source.fk]: row.contract.id,
+        job_id: row.contract.job_id || null,
         order_idx: maxIdx + 1,
         label: form.label || `Installment ${maxIdx + 2}`,
         due_amount: Number(form.due_amount) || 0,
@@ -1158,7 +1187,7 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
         status: 'pending',
       }]);
       if (error) throw error;
-      logAudit({ user, action: 'milestone.create', entityType: 'payment_milestone', entityId: contract.id, details: form });
+      logAudit({ user, action: 'milestone.create', entityType: 'payment_milestone', entityId: row.contract.id, details: form });
     } else {
       const { error } = await supabase.from('payment_milestones').update({
         label: form.label,
@@ -1169,7 +1198,7 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
       if (error) throw error;
       logAudit({ user, action: 'milestone.update', entityType: 'payment_milestone', entityId: form.id, details: form });
     }
-    setAddingNew(false);
+    setAddingFor(null);
     setEditFor(null);
     onChanged();
   }
@@ -1181,84 +1210,98 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
           <div className="min-w-0">
             <p className="font-bold text-omega-charcoal truncate">{job.client_name || '—'}</p>
             <p className="text-xs text-omega-stone truncate">{[job.address, job.city].filter(Boolean).join(', ') || '—'}</p>
-            <div className="mt-1"><SourceChip source={source} /></div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-omega-stone hover:bg-omega-cloud"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="px-5 py-3 grid grid-cols-3 gap-3 border-b border-gray-100 flex-shrink-0 bg-omega-cloud">
-          <SmallStat label={source.short} value={money(totals.total || totals.due)} />
+          <SmallStat label="Total" value={money(totals.total)} />
           <SmallStat label="Received" value={money(totals.received)} />
-          <SmallStat label="Balance" value={money(totals.remaining)} />
+          <SmallStat label="Still to receive" value={money(totals.remaining)} />
         </div>
 
-        <div className="overflow-y-auto p-5 space-y-2 flex-1">
-          {milestones.map((m) => {
-            const status = effectiveStatus(m);
-            const remaining = Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0));
+        <div className="overflow-y-auto p-5 space-y-5 flex-1">
+          {rows.map((row) => {
+            const source = row.source || CONTRACT_SOURCE;
+            const rowTotal = Number(row.totals.total) || row.totals.due;
             return (
-              <div key={m.id} className="border border-gray-200 rounded-xl p-3">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <StatusPill status={status} />
-                      <p className="font-semibold text-omega-charcoal text-sm">{m.label || `Installment ${(m.order_idx || 0) + 1}`}</p>
-                    </div>
-                    <p className="text-[11px] text-omega-stone mt-1">
-                      Due: {shortDate(m.due_date)}
-                      {Number(m.received_amount) > 0 && <> · Received: {shortDate(m.received_at)}</>}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0 space-y-1">
-                    <p className="text-sm font-bold text-omega-charcoal">{money(m.due_amount)}</p>
-                    {Number(m.received_amount) > 0 && (
-                      <p className="text-[11px] text-green-700">Received: {money(m.received_amount)}</p>
-                    )}
-                    <div className="flex items-center gap-1 justify-end flex-wrap">
-                      {status !== 'paid' && (
-                        <button
-                          onClick={() => setMarkFor({ milestone: m, suggestedAmount: remaining })}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-omega-success hover:bg-green-700 text-white text-[11px] font-semibold"
-                        >
-                          <Check className="w-3 h-3" /> Mark received
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setEditFor(m)}
-                        className="p-1 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal"
-                        title="Edit"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      {status === 'pending' && (
-                        <button
-                          onClick={() => deleteMilestone(m)}
-                          className="p-1 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+              <section key={row.contract.id}>
+                <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                  <SourceChip source={source} />
+                  <p className="text-[11px] text-omega-stone">
+                    {money(rowTotal)} · received <span className="text-green-700 font-semibold">{money(row.totals.received)}</span>
+                    {' · '}left <span className="font-semibold text-omega-charcoal">{money(Math.max(0, rowTotal - row.totals.received))}</span>
+                  </p>
                 </div>
-                {m.notes && (
-                  <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">{m.notes}</p>
-                )}
-              </div>
+                <div className="space-y-2">
+                  {row.milestones.map((m) => {
+                    const status = effectiveStatus(m);
+                    const remaining = Math.max(0, Number(m.due_amount || 0) - Number(m.received_amount || 0));
+                    return (
+                      <div key={m.id} className="border border-gray-200 rounded-xl p-3">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <StatusPill status={status} />
+                              <p className="font-semibold text-omega-charcoal text-sm">{m.label || `Installment ${(m.order_idx || 0) + 1}`}</p>
+                            </div>
+                            <p className="text-[11px] text-omega-stone mt-1">
+                              Due: {shortDate(m.due_date)}
+                              {Number(m.received_amount) > 0 && <> · Received: {shortDate(m.received_at)}</>}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0 space-y-1">
+                            <p className="text-sm font-bold text-omega-charcoal">{money(m.due_amount)}</p>
+                            {Number(m.received_amount) > 0 && (
+                              <p className="text-[11px] text-green-700">Received: {money(m.received_amount)}</p>
+                            )}
+                            <div className="flex items-center gap-1 justify-end flex-wrap">
+                              {status !== 'paid' && (
+                                <button
+                                  onClick={() => setMarkFor({ milestone: m, suggestedAmount: remaining })}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-omega-success hover:bg-green-700 text-white text-[11px] font-semibold"
+                                >
+                                  <Check className="w-3 h-3" /> Mark received
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setEditFor({ row, milestone: m })}
+                                className="p-1 rounded-lg text-omega-stone hover:bg-omega-cloud hover:text-omega-charcoal"
+                                title="Edit"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              {status === 'pending' && (
+                                <button
+                                  onClick={() => deleteMilestone(m)}
+                                  className="p-1 rounded-lg text-omega-stone hover:bg-red-50 hover:text-red-600"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {m.notes && (
+                          <p className="text-[11px] text-omega-stone mt-2 whitespace-pre-line border-t border-gray-100 pt-2">{m.notes}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {row.milestones.length === 0 && (
+                    <p className="text-xs text-omega-stone px-1">No installments yet.</p>
+                  )}
+                  <button
+                    onClick={() => setAddingFor(row)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed border-gray-200 text-xs font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add installment to {source.label}
+                  </button>
+                </div>
+              </section>
             );
           })}
-
-          {milestones.length === 0 && (
-            <p className="text-sm text-omega-stone p-4 text-center">No installments yet. Add one below.</p>
-          )}
-
-          <button
-            onClick={() => setAddingNew(true)}
-            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-gray-300 text-sm font-semibold text-omega-stone hover:border-omega-orange hover:text-omega-orange"
-          >
-            <Plus className="w-4 h-4" /> Add Installment
-          </button>
         </div>
       </div>
 
@@ -1275,10 +1318,10 @@ function PaymentDrawer({ row, accounts, user, onClose, onChanged }) {
         />
       )}
 
-      {(editFor || addingNew) && (
+      {(editFor || addingFor) && (
         <MilestoneFormModal
-          initial={addingNew ? { __new: true } : editFor}
-          onClose={() => { setEditFor(null); setAddingNew(false); }}
+          initial={addingFor ? { __new: true } : editFor.milestone}
+          onClose={() => { setEditFor(null); setAddingFor(null); }}
           onSave={saveMilestone}
         />
       )}
