@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import html2pdf from 'html2pdf.js';
+import { printableClone } from '../../shared/lib/pdfExport';
 import { Printer, Download } from 'lucide-react';
 import { supabase } from '../../shared/lib/supabase';
 import { coItems, coPriceMode, coNumberLabel, isCoVoid, coKind, coTerms, coTermsText, coPaymentPlan } from '../../shared/lib/changeOrders';
@@ -114,7 +115,7 @@ export default function ChangeOrderView() {
           jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         })
-        .from(contentRef.current)
+        .from(printableClone(contentRef.current))
         .save();
     } catch (pdfErr) {
       console.error('PDF download failed:', pdfErr);

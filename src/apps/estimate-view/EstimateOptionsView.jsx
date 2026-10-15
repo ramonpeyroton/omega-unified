@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
+import { printableClone } from '../../shared/lib/pdfExport';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
+import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
+import ImageLightbox from '../../shared/components/ui/ImageLightbox';
+import { estimatePhotoList } from '../../shared/lib/estimatePhotos';
 
 // Public, auth-less page the customer lands on when they receive a
 // multi-option estimate email. Shows N proposals side-by-side, lets
@@ -40,6 +44,7 @@ export default function EstimateOptionsView() {
   // which one the customer picked (radio).
   const [expandedId, setExpandedId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  const [viewer, setViewer] = useState(null); // { list, index } — photos of one option (migration 089)
 
   useEffect(() => {
     const groupId = window.location.pathname.split('/').pop();
@@ -105,7 +110,7 @@ export default function EstimateOptionsView() {
           jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         })
-        .from(contentRef.current)
+        .from(printableClone(contentRef.current))
         .save();
     } catch (pdfErr) {
       console.error('PDF download failed:', pdfErr);
@@ -174,6 +179,7 @@ export default function EstimateOptionsView() {
                 disabled={!!signedOption}
                 onSelect={() => !signedOption && setSelectedId(est.id)}
                 onToggleExpand={() => setExpandedId(expandedId === est.id ? null : est.id)}
+                onOpenPhoto={(list, index) => setViewer({ list, index })}
               />
             ))}
           </div>
@@ -203,6 +209,14 @@ export default function EstimateOptionsView() {
           .no-print { display: none !important; }
         }
       `}</style>
+      {viewer && viewer.list[viewer.index] && (
+        <ImageLightbox
+          images={viewer.list.map((p) => ({ url: p.url, kind: 'image', caption: p.caption || p.where || '', sub: p.caption ? p.where : '' }))}
+          index={viewer.index}
+          onIndexChange={(index) => setViewer((v) => (v ? { ...v, index } : v))}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 }
@@ -247,7 +261,12 @@ function Header({ company }) {
 }
 
 // ─── Option card ─────────────────────────────────────────────────────
-function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLockedOut, disabled, onSelect, onToggleExpand }) {
+function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLockedOut, disabled, onSelect, onToggleExpand, onOpenPhoto }) {
+  const photoList = estimatePhotoList(estimate);
+  const openPhoto = (p) => {
+    const i = photoList.findIndex((x) => (x.id && x.id === p.id) || x.url === p.url);
+    if (i >= 0) onOpenPhoto?.(photoList, i);
+  };
   const label = estimate.option_label || `Option ${index + 1}`;
   const estTotal = estimateTotal(estimate);
   const sections = Array.isArray(estimate.sections) ? estimate.sections : [];
@@ -350,9 +369,15 @@ function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLocke
                   {it.scope && <div style={{ color: '#555', fontSize: 11, whiteSpace: 'pre-line', marginTop: 3, lineHeight: 1.5 }}>{it.scope}</div>}
                 </div>
               ))}
+              <EstimatePhotoBlock photos={s.photos} onOpen={openPhoto} compact />
             </div>
           ))}
+          <EstimatePhotoBlock photos={estimate.photos} title="Photos & references" onOpen={openPhoto} compact />
         </div>
+      )}
+      {/* Collapsed: a hint that the option has photos. */}
+      {!isExpanded && photoList.length > 0 && (
+        <p style={{ fontSize: 11, color: '#888', margin: '0 0 8px' }}>📷 {photoList.length} photo{photoList.length === 1 ? '' : 's'} — view full details</p>
       )}
 
       <button

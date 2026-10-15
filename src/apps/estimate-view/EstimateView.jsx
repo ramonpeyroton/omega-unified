@@ -1,9 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
+import { printableClone } from '../../shared/lib/pdfExport';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
+import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
+import ImageLightbox from '../../shared/components/ui/ImageLightbox';
+import { estimatePhotoList } from '../../shared/lib/estimatePhotos';
 
 // Public, auth-less page that renders a single estimate.
 // URL: /estimate-view/:id  — ID is pulled from the path.
@@ -45,6 +49,7 @@ export default function EstimateView() {
   const [company, setCompany] = useState(null);
   const [err, setErr] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [viewer, setViewer] = useState(null); // index into the estimate's photos (migration 089)
   const contentRef = useRef(null);
 
   useEffect(() => {
@@ -86,6 +91,12 @@ export default function EstimateView() {
   if (!estimate) return null;
 
   const sections = Array.isArray(estimate.sections) ? estimate.sections : [];
+  // Every photo in reading order — one sequence for the full-screen viewer.
+  const photoList = estimatePhotoList(estimate);
+  const openPhoto = (p) => {
+    const i = photoList.findIndex((x) => (x.id && x.id === p.id) || x.url === p.url);
+    if (i >= 0) setViewer(i);
+  };
   const total = estimateTotal(estimate);
   // 'breakdown' = price per item · 'section' = price per section · 'single' = total only
   const mode = priceMode(estimate.display_mode);
@@ -114,7 +125,7 @@ export default function EstimateView() {
           jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         })
-        .from(contentRef.current)
+        .from(printableClone(contentRef.current))
         .save();
     } catch (pdfErr) {
       console.error('PDF download failed:', pdfErr);
@@ -249,8 +260,24 @@ export default function EstimateView() {
                   ))}
                 </tbody>
               </table>
+              <EstimatePhotoBlock photos={sec.photos} onOpen={openPhoto} />
             </div>
           ))}
+
+          {/* Photos & references gallery (migration 089) */}
+          {(estimate.photos || []).length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <EstimatePhotoBlock
+                photos={estimate.photos}
+                onOpen={openPhoto}
+                header={(
+                  <div style={{ background: '#2C2C2A', color: 'white', padding: '10px 16px', marginBottom: 14, fontSize: 14, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', textAlign: 'center' }}>
+                    Photos &amp; References
+                  </div>
+                )}
+              />
+            </div>
+          )}
 
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 28 }}>
             <tbody>
@@ -479,6 +506,14 @@ export default function EstimateView() {
           .no-print { display: none !important; }
         }
       `}</style>
+      {viewer !== null && photoList[viewer] && (
+        <ImageLightbox
+          images={photoList.map((p) => ({ url: p.url, kind: 'image', caption: p.caption || p.where || '', sub: p.caption ? p.where : '' }))}
+          index={viewer}
+          onIndexChange={setViewer}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 }

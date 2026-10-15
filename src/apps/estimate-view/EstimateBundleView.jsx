@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../shared/lib/supabase';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
+import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
+import ImageLightbox from '../../shared/components/ui/ImageLightbox';
+import { estimatePhotoList } from '../../shared/lib/estimatePhotos';
 
 // Public, auth-less page the customer lands on when they receive a
 // multi-service bundle email. Shows N proposals (different services),
@@ -24,6 +27,12 @@ export default function EstimateBundleView() {
   const [err, setErr] = useState(null);
   // Track which estimate's sign panel is open.
   const [signingId, setSigningId] = useState(null);
+  const [viewer, setViewer] = useState(null); // { list, index } — photos of one proposal (migration 089)
+  const openPhoto = (est, p) => {
+    const list = estimatePhotoList(est);
+    const i = list.findIndex((x) => (x.id && x.id === p.id) || x.url === p.url);
+    if (i >= 0) setViewer({ list, index: i });
+  };
 
   useEffect(() => {
     const bundleId = window.location.pathname.split('/').pop();
@@ -200,9 +209,11 @@ export default function EstimateBundleView() {
                           ))}
                         </tbody>
                       </table>
+                      <EstimatePhotoBlock photos={sec.photos} onOpen={(p) => openPhoto(est, p)} />
                     </div>
                     );
                   })}
+                  <EstimatePhotoBlock photos={est.photos} title="Photos & references" onOpen={(p) => openPhoto(est, p)} />
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '2px solid #2C2C2A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>Total</span>
                     <span style={{ fontSize: 20, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{money(total)}</span>
@@ -285,6 +296,14 @@ export default function EstimateBundleView() {
           {companyName} · Questions? Call {company?.phone || ''}
         </div>
       </div>
+      {viewer && viewer.list[viewer.index] && (
+        <ImageLightbox
+          images={viewer.list.map((p) => ({ url: p.url, kind: 'image', caption: p.caption || p.where || '', sub: p.caption ? p.where : '' }))}
+          index={viewer.index}
+          onIndexChange={(index) => setViewer((v) => (v ? { ...v, index } : v))}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 }

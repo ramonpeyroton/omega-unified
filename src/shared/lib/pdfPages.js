@@ -67,7 +67,10 @@ export async function pdfToPageImages(file, opts = {}) {
     // White matte — scanned receipts otherwise render on transparent.
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport: scaled }).promise;
+    // intent 'print': pdf.js then renders without requestAnimationFrame,
+    // which stalls in a background tab — a long PDF keeps converting even
+    // if the user switches tabs meanwhile.
+    await page.render({ canvasContext: ctx, viewport: scaled, intent: 'print' }).promise;
 
     const dataUrl = canvas.toDataURL('image/jpeg', quality);
     const base64  = dataUrl.split(',')[1];

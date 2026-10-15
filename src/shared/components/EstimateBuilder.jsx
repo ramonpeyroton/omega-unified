@@ -19,6 +19,7 @@ import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
 import { sectionsTotal, itemsTotal } from '../lib/estimatePricing';
 import EstimateChooser, { isEstimateLocked } from './EstimateChooser';
+import EstimatePhotosEditor from './EstimatePhotos/EstimatePhotosEditor';
 import { StepBadge } from './JobFullView';
 import { clientEmailsText } from '../lib/clientEmails';
 
@@ -36,6 +37,8 @@ function ensureIds(sections) {
     title: s.title || '',
     // Section price — only used in "Price by Section" mode.
     ...(s.price !== undefined ? { price: s.price } : {}),
+    // Photos / PDF pages of this section (migration 089).
+    ...(Array.isArray(s.photos) && s.photos.length ? { photos: s.photos } : {}),
     items: (s.items || []).map((it) => ({ id: it.id || newId(), ...it })),
   }));
 }
@@ -124,6 +127,7 @@ function versionData(row) {
     display_mode: row.display_mode ?? 'breakdown',
     disclaimers: row.disclaimers ?? null,
     show_financing: row.show_financing !== false,
+    photos: Array.isArray(row.photos) ? row.photos : [],
   };
 }
 
@@ -147,6 +151,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // Disclaimers shown to the customer right above the signature flow.
   // Defaults to the global template; the seller can edit them per-estimate.
   const [disclaimers, setDisclaimers] = useState(DEFAULT_ESTIMATE_DISCLAIMERS);
+  // "Photos & references" gallery at the end of the estimate (migration 089).
+  // Section photos live in sections[i].photos.
+  const [photos, setPhotos] = useState([]);
 
   // Multi-option state. `options` is the whole group, ordered by
   // option_order. When there's 0 or 1 rows, the switcher hides.
@@ -246,7 +253,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // only saves when something actually changed.
   const savedSnapshotRef = useRef(null);
   function formSnapshot() {
-    return JSON.stringify([headerDescription, sections, customerMessage, paymentPlan, optionLabel, disclaimers, bundleLabel, displayMode, showFinancing]);
+    return JSON.stringify([headerDescription, sections, customerMessage, paymentPlan, optionLabel, disclaimers, bundleLabel, displayMode, showFinancing, photos]);
   }
   // loadIntoForm sets the estimate and every form field in one render.
   useEffect(() => { savedSnapshotRef.current = formSnapshot(); /* eslint-disable-next-line */ }, [estimate?.id]);
@@ -336,6 +343,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setActiveId(row?.id || null);
     setHeaderDescription(row?.header_description || '');
     setSections(Array.isArray(row?.sections) && row.sections.length ? ensureIds(row.sections) : [emptySection()]);
+    setPhotos(Array.isArray(row?.photos) ? row.photos : []);
     setCustomerMessage(row?.customer_message || DEFAULT_PAYMENT);
     // Seed the structured plan from the saved column when present; else
     // parse the old text (backward compat); else the 30/30/30/10 default.
@@ -544,6 +552,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       // Acorn financing toggle (migration 065). Defaults to true; sellers
       // flip off per-estimate when financing doesn't apply.
       show_financing: showFinancing,
+      photos,
       ...extra,
     };
     // Preserve an existing row's status on save (was dropping 'sent'
@@ -759,6 +768,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         // Same price format as the option it copies — without it a
         // "Price by Section" copy would reopen as Breakdown at $0.
         display_mode: current.display_mode,
+        // Photos come along; the seller removes what doesn't apply.
+        photos: current.photos || [],
         status: 'draft',
         group_id: groupId,
         option_label: nextLabel,
@@ -1418,6 +1429,8 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
                   onUpdateItem={(iIdx, patch) => updateItem(sIdx, iIdx, patch)}
                   onAddItem={() => addItem(sIdx)}
                   onRemoveItem={(iIdx) => removeItem(sIdx, iIdx)}
+                  jobId={job.id}
+                  onPhotos={(next) => updateSection(sIdx, { photos: next })}
                   disableUp={sIdx === 0}
                   disableDown={sIdx === sections.length - 1}
                 />
@@ -1451,6 +1464,16 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             <div />
           )}
         </div>
+      </div>
+
+      {/* Photos & references — gallery at the end of the client's estimate
+          (photos of the current space, inspiration, renders, plan pages). */}
+      <div className={`bg-white rounded-xl border border-gray-200 p-4 sm:p-6 ${!displayMode ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+        <h2 className="text-base font-bold text-omega-charcoal">Photos &amp; references</h2>
+        <p className="text-xs text-omega-stone mt-0.5">
+          Shown at the end of the estimate and in its PDF — current conditions, inspiration, renders, plans. A PDF becomes one image per page. To show a photo with one section, add it inside that section instead.
+        </p>
+        <EstimatePhotosEditor jobId={job.id} photos={photos} onChange={setPhotos} label="Gallery" readOnly={locked} />
       </div>
 
       {/* Step (4): Project Disclaimers. Same content as before, now
@@ -1852,7 +1875,7 @@ function SaveStatus({ saving, estimate }) {
   );
 }
 
-function SectionCard({ section, sectionIndex = 1, priceBySection, onTitle, onPrice, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown }) {
+function SectionCard({ section, sectionIndex = 1, priceBySection, onTitle, onPrice, onMoveUp, onMoveDown, onRemove, onUpdateItem, onAddItem, onRemoveItem, disableUp, disableDown, jobId, onPhotos }) {
   // Whole-section sortable: the section card itself reorders within
   // the parent SortableContext when its grip is dragged.
   const {
@@ -1947,6 +1970,10 @@ function SectionCard({ section, sectionIndex = 1, priceBySection, onTitle, onPri
         >
           <Plus className="w-3 h-3" /> Add Item
         </button>
+        {/* Photos / PDF pages shown with this section on the client's estimate. */}
+        {onPhotos && (
+          <EstimatePhotosEditor jobId={jobId} photos={section.photos || []} onChange={onPhotos} label="Section photos" />
+        )}
       </div>
     </div>
   );
