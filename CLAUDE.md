@@ -590,6 +590,28 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-15 (Fotos e PDF dentro do estimate)** — Ramon + Claude (Opus 5.5).
+
+- Pedido do Inácio. `EstimateBuilder`: "Section photos" em cada seção
+  (`sections[i].photos`) + card "Photos & references" (`estimates.photos`,
+  **migration 089 — já rodada**). Upload de foto (comprimida) ou PDF → uma
+  imagem por página (escolhe as páginas); ou fotos que já estão no job.
+  Editor: `src/shared/components/EstimatePhotos/EstimatePhotosEditor.jsx`;
+  helpers: `src/shared/lib/estimatePhotos.js` (bucket `job-documents`,
+  pasta `estimates/<job_id>/`).
+- Cliente vê em `EstimateView`, `EstimateOptionsView`, `EstimateBundleView`
+  (`EstimatePhotoBlock.jsx`, em linhas que não quebram no PDF) + visualizador
+  em tela cheia. Só no estimate — **não vai pro contrato** (decisão do Ramon).
+  Alternativa nova copia as fotos; o vendedor remove o que não serve.
+- **Fix junto (Download PDF):** `ignoreElements` do html2canvas fazia tudo
+  subir ~64px (a barra Close/Print/Download contava nas quebras mas não no
+  desenho) → título de seção sozinho no fim da página. Agora
+  `printableClone()` (`src/shared/lib/pdfExport.js`) tira o `.no-print` antes
+  do html2pdf medir — estimate, alternativas e change order.
+- `pdfPages.js` renderiza com `intent: 'print'` (não trava com aba escondida).
+
+---
+
 **2026-10-12 (Inácio: "New Client" com formulário curto)** — Ramon + Claude (Opus 5.5).
 
 - Menu do Owner (Sidebar + "More" no celular): "New Lead" virou **"New Client"** → rota
