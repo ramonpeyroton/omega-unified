@@ -363,6 +363,9 @@ export default function EstimateFlow({ job, user, onBack }) {
       // ─── 2. Load the existing contract (if any) ─────────────────
       const { data: rawCtr } = await supabase
         .from('contracts').select('*').eq('job_id', job.id)
+        // A deactivated contract (status 'void' — e.g. the deal was closed
+        // verbally and billed directly) no longer drives the flow.
+        .or('status.is.null,status.neq.void')
         .order('created_at', { ascending: false }).limit(1).maybeSingle();
       let ctr = rawCtr;
       setContract(ctr || null);

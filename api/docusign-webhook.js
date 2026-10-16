@@ -270,6 +270,15 @@ export default async function handler(req, res) {
       .eq('docusign_envelope_id', envelopeId)
       .maybeSingle();
 
+    if (contract?.status === 'void') {
+      // Deactivated in the app (deal closed another way, billed directly).
+      // An old envelope signed late must not bring it back — that would
+      // bill the job twice. Only keep DocuSign's status for the record.
+      await supabase.from('contracts').update({ docusign_status: status }).eq('id', contract.id);
+      res.status(200).json({ ok: true, ignored: 'contract void' });
+      return;
+    }
+
     if (contract) {
       const patch = { docusign_status: status };
       const becomingSigned =
