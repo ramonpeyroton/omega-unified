@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../shared/lib/supabase';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
 import SignatureFlow from '../../shared/components/SignatureFlow';
+import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
 import ImageLightbox from '../../shared/components/ui/ImageLightbox';
 import { estimatePhotoList } from '../../shared/lib/estimatePhotos';
@@ -249,7 +250,7 @@ export default function EstimateBundleView() {
                       estimateId={est.id}
                       customerName={job?.client_name}
                       companyPhone={company?.phone}
-                      disclaimers={est.disclaimers || ''}
+                      disclaimers={est.disclaimers || DEFAULT_ESTIMATE_DISCLAIMERS}
                       signButtonLabel={`Sign & Approve — ${label}`}
                       onSigned={() => handleSigned(est.id)}
                     />
