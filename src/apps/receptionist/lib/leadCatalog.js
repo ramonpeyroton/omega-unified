@@ -138,6 +138,7 @@ export const LEAD_SOURCES = [
   'Local Services',
   'Google Ads',
   'Website',
+  'ChatGPT',
   'Called In',
   'Referral',
   'Repeat Client',
