@@ -1115,6 +1115,28 @@ function waitingText(sinceMs, nowMs, lang) {
 
 const MIN_WAIT_MS = 60 * 60_000;
 
+// "No answer needed" — same lists as is_ack() in omega_imessage_watch.py
+// (keep both in sync). The current Mac script already drops these, but an older
+// copy still reports "Ok thanks!" as unanswered; this side filters it too.
+const ACK_TOKENS = new Set(('ok okay k kk thanks thank you u thx ty tysm tks great perfect awesome amazing '
+  + 'wonderful excellent fantastic beautiful sounds good looks got it cool nice yes yep yeah yup sure will do '
+  + 'appreciate appreciated noted understood alright right fine love np no problem welcome youre glad job done '
+  + 'deal obrigado obrigada valeu beleza blz show certo combinado perfeito otimo maravilha top tmj massa legal '
+  + 'joia sim ta bom').split(' '));
+const ACK_FILLER = new Set(('so much a lot very really again guys team all as always for everything the update '
+  + 'info man buddy sir and omega muito pessoal de novo mesmo e pela pelo atualizacao').split(' '));
+
+export function isAck(text, names = []) {
+  const t = String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  if (!t || !/[a-z0-9]/.test(t)) return true; // empty / emoji / punctuation only
+  if (t.includes('?')) return false;
+  const words = t.replace(/['’]/g, '').match(/[a-z0-9]+/g) || [];
+  if (!words.length || words.length > 10) return false;
+  const skip = new Set([...ACK_FILLER, ...names.filter(Boolean)]);
+  const rest = words.filter((w) => !skip.has(w));
+  return rest.length > 0 && rest.every((w) => ACK_TOKENS.has(w));
+}
+
 // payload: { pending: [{ chat, msg, group, client, text, since, asked, count }], dry_run }
 export async function groupWatchReport(payload, nowMs = Date.now()) {
   const auth = twilioAuth();
@@ -1131,11 +1153,18 @@ export async function groupWatchReport(payload, nowMs = Date.now()) {
     .eq('action', 'team_alert.sent').gte('timestamp', new Date(nowMs - 3 * 86_400_000).toISOString()), 'audit_log');
   const sent = new Set(sentRows.map((r) => r.details?.key).filter(Boolean));
 
+  const teamNames = Object.values(people).map((x) => String(x.first || '')
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase());
   const plan = [];
+  let acksSkipped = 0;
   for (const it of pending) {
     const sinceMs = Date.parse(it.since || '');
     if (!it.chat || !it.msg || !Number.isFinite(sinceMs) || nowMs - sinceMs < MIN_WAIT_MS) continue;
     const count = Number(it.count) || 1;
+    // Only "Ok, thanks!" waiting → nothing to answer. With more messages
+    // (count > 1) an older Mac only sends the first one's text, and a real
+    // question may come after it, so those still alert.
+    if (count === 1 && isAck(it.text, teamNames)) { acksSkipped++; continue; }
     const quote = `"${String(it.text || '[attachment]').replace(/\s+/g, ' ').slice(0, 200)}"${count > 1 ? ` (+${count - 1} more)` : ''}`;
     const group = String(it.group || 'Client group').slice(0, 80);
     const client = String(it.client || 'Client').slice(0, 80);
@@ -1174,7 +1203,8 @@ export async function groupWatchReport(payload, nowMs = Date.now()) {
   if (!dryRun) {
     await supabase.from('audit_log').insert([{
       user_name: 'imessage-watch', user_role: 'system', action: 'imessage_watch.report', entity_type: 'imessage', entity_id: null,
-      details: { pending: pending.length, sent: result.sent.length },
+      // version: which copy of the Mac script is running (null = older than v3).
+      details: { pending: pending.length, sent: result.sent.length, acks_skipped: acksSkipped, version: payload?.version || null },
     }]);
   }
   result.waiting_approval = [...new Set(result.waiting_approval)];

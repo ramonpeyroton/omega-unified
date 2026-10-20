@@ -39,6 +39,9 @@ CHAT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 APPLE_EPOCH = 978307200  # 2001-01-01 in unix seconds
 LOOKBACK_DAYS = 4
 GROUP_STYLE = 43  # chat.style for group chats
+# Sent with every report; the app logs it in the hourly heartbeat, so we can
+# see from the app whether the Mac is running the latest copy.
+WATCHER_VERSION = 3
 
 # Messages that don't need an answer: short replies made ONLY of these words
 # (plus team names, emoji and the filler words below), e.g. "Awesome, thank
@@ -332,7 +335,7 @@ def main():
         print(f"\n{len(groups)} client groups, {len(pending)} unanswered")
         return
 
-    result = api(cfg, "POST", {"pending": pending, "dry_run": "--dry-run" in args})
+    result = api(cfg, "POST", {"pending": pending, "dry_run": "--dry-run" in args, "version": WATCHER_VERSION})
     log(f"groups={len(groups)} pending={len(pending)}", json.dumps(result, ensure_ascii=False))
 
 
