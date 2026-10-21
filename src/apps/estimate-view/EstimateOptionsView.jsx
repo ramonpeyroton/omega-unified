@@ -4,6 +4,7 @@ import { printableClone } from '../../shared/lib/pdfExport';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
+import EstimateDiscountLines from '../../shared/components/EstimateDiscountLines';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
 import ImageLightbox from '../../shared/components/ui/ImageLightbox';
@@ -325,6 +326,7 @@ function OptionCard({ index, estimate, isSelected, isExpanded, isSigned, isLocke
       <div style={{ fontSize: 28, fontWeight: 900, color: '#2C2C2A', marginBottom: 12, fontVariantNumeric: 'tabular-nums' }}>
         {money(estTotal)}
       </div>
+      <EstimateDiscountLines estimate={estimate} fontSize={12} style={{ marginTop: -6, marginBottom: 12 }} />
 
       {estimate.header_description && (
         <p style={{ fontSize: 12, color: '#555', lineHeight: 1.55, marginBottom: 10, whiteSpace: 'pre-line' }}>

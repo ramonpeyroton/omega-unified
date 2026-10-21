@@ -10,7 +10,7 @@ import StatusBadge from './StatusBadge';
 import ContractTemplate, { buildContractDocFromDom } from './Contract/ContractTemplate';
 import InvoiceTemplate from './Contract/InvoiceTemplate';
 import { ensureMilestonesForContract, markMilestoneReceived, effectiveStatus, sendPaymentReceipt, localDayISO, billEstimateDirect } from '../lib/finance';
-import { priceMode, sectionMode, sectionPrice } from '../lib/estimatePricing';
+import { priceMode, sectionMode, sectionPrice, estimateDiscount } from '../lib/estimatePricing';
 import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
 import { notify } from '../lib/notifications';
@@ -181,8 +181,21 @@ function buildPickedEstimate({ estimates, pickedIds, planSourceId }) {
   // Use the latest picked estimate as the "carrier" — the id/number we
   // keep so DB writes (mark approved, etc.) still target a real row.
   const carrier = list[list.length - 1];
+  // Each picked estimate's discount (migration 090) becomes a line above
+  // the contract total. total_amount is already after them.
+  const discounts = list.map((e, idx) => {
+    const d = estimateDiscount(e);
+    if (!d) return null;
+    const tag = e.option_label || e.bundle_label || (e.estimate_number ? `#${e.estimate_number}` : `Estimate ${idx + 1}`);
+    return { label: list.length > 1 ? `${d.label} — ${tag}` : d.label, amount: d.amount };
+  }).filter(Boolean);
   const estimate = {
     ...carrier,
+    // The merged sections have no single discount — the lines are in `discounts`.
+    discount_type: null,
+    discount_value: null,
+    discount_label: null,
+    discounts,
     sections: mergedSections,
     total_amount: mergedTotal,
     payment_plan: scaledPlan,

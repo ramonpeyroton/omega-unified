@@ -962,6 +962,23 @@ export default function ContractTemplate({
                 </div>
               ))}
 
+              {/* Discounts given on the estimates (migration 090) — the
+                  total below is already after them. */}
+              {(estimate?.discounts || []).length > 0 && (
+                <div className="px-5 py-3 mt-2 space-y-1 text-[13px] tabular-nums">
+                  <div className="flex items-center justify-between text-gray-500">
+                    <span>Subtotal</span>
+                    <span>{fmtMoney(totalAmount + estimate.discounts.reduce((s, d) => s + (Number(d.amount) || 0), 0))}</span>
+                  </div>
+                  {estimate.discounts.map((d, i) => (
+                    <div key={i} className="flex items-center justify-between text-green-700 font-semibold">
+                      <span>{d.label}</span>
+                      <span>−{fmtMoney(d.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Total row */}
               <div className="flex items-center justify-between px-5 py-4 rounded-xl mt-2"
                 style={{ background: '#1a1a1a' }}>

@@ -35,6 +35,38 @@ export function sectionsTotal(sections, mode) {
   return (sections || []).reduce((acc, s) => acc + sectionPrice(s, sectionMode(s, mode)), 0);
 }
 
+// ─── Discount (migration 090) ─────────────────────────────────────
+// One discount on the whole estimate: discount_type 'percent' (value = %)
+// or 'amount' (value = $), with an optional client-facing label. The saved
+// total_amount is the price AFTER the discount.
+
+export function discountAmount(subtotal, type, value) {
+  const v = Number(value) || 0;
+  const sub = Number(subtotal) || 0;
+  if (!(v > 0) || !(sub > 0) || (type !== 'percent' && type !== 'amount')) return 0;
+  const raw = type === 'percent' ? (sub * Math.min(v, 100)) / 100 : v;
+  return Math.round(Math.min(raw, sub) * 100) / 100;
+}
+
+export function discountLabel(type, value, label) {
+  const name = (label || '').trim() || 'Discount';
+  return type === 'percent' ? `${name} (${Number(value)}%)` : name;
+}
+
+// { subtotal, amount, label, total } for a saved estimate, or null.
+export function estimateDiscount(estimate) {
+  if (!estimate?.discount_type || !(Number(estimate.discount_value) > 0)) return null;
+  const subtotal = sectionsTotal(Array.isArray(estimate.sections) ? estimate.sections : [], estimate.display_mode);
+  const amount = discountAmount(subtotal, estimate.discount_type, estimate.discount_value);
+  if (!(amount > 0)) return null;
+  return {
+    subtotal,
+    amount,
+    label: discountLabel(estimate.discount_type, estimate.discount_value, estimate.discount_label),
+    total: Math.round((subtotal - amount) * 100) / 100,
+  };
+}
+
 // Saved total first (it is what finance and the contract use); the
 // section math is only a fallback for rows saved without one.
 export function estimateTotal(estimate) {

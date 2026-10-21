@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../shared/lib/supabase';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
+import EstimateDiscountLines from '../../shared/components/EstimateDiscountLines';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
@@ -215,6 +216,7 @@ export default function EstimateBundleView() {
                     );
                   })}
                   <EstimatePhotoBlock photos={est.photos} title="Photos & references" onOpen={(p) => openPhoto(est, p)} />
+                  <EstimateDiscountLines estimate={est} style={{ marginTop: 12 }} />
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '2px solid #2C2C2A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>Total</span>
                     <span style={{ fontSize: 20, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{money(total)}</span>

@@ -4,6 +4,7 @@ import { printableClone } from '../../shared/lib/pdfExport';
 import { supabase } from '../../shared/lib/supabase';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../../shared/data/estimateDisclaimers';
 import { priceMode, sectionPrice, estimateTotal } from '../../shared/lib/estimatePricing';
+import EstimateDiscountLines from '../../shared/components/EstimateDiscountLines';
 import SignatureFlow from '../../shared/components/SignatureFlow';
 import EstimatePhotoBlock from '../../shared/components/EstimatePhotos/EstimatePhotoBlock';
 import ImageLightbox from '../../shared/components/ui/ImageLightbox';
@@ -291,6 +292,7 @@ export default function EstimateView() {
                   </div>
                 </td>
                 <td style={{ verticalAlign: 'top', width: '40%', paddingLeft: 12, textAlign: 'right' }}>
+                  <EstimateDiscountLines estimate={estimate} style={{ marginBottom: 10, textAlign: 'left' }} />
                   <Kicker>Estimate Total</Kicker>
                   <div style={{ fontSize: 34, color: '#E8732A', fontWeight: 900, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                     {money(total)}

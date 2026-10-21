@@ -17,7 +17,7 @@ import { logAudit } from '../lib/audit';
 import { apiFetch } from '../lib/apiFetch.js';
 import { DEFAULT_ESTIMATE_DISCLAIMERS } from '../data/estimateDisclaimers';
 import { autofillSectionsFromAnswers, canAutofill } from '../data/estimateAutofill';
-import { sectionsTotal, itemsTotal } from '../lib/estimatePricing';
+import { sectionsTotal, itemsTotal, discountAmount, discountLabel } from '../lib/estimatePricing';
 import EstimateChooser, { isEstimateLocked } from './EstimateChooser';
 import EstimatePhotosEditor from './EstimatePhotos/EstimatePhotosEditor';
 import { StepBadge } from './JobFullView';
@@ -128,6 +128,9 @@ function versionData(row) {
     disclaimers: row.disclaimers ?? null,
     show_financing: row.show_financing !== false,
     photos: Array.isArray(row.photos) ? row.photos : [],
+    discount_type: row.discount_type ?? null,
+    discount_value: row.discount_value ?? null,
+    discount_label: row.discount_label ?? null,
   };
 }
 
@@ -179,6 +182,13 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // financing doesn't apply (commercial work, cash client, sub-only scope).
   const [showFinancing, setShowFinancing] = useState(true);
 
+  // Discount on the whole estimate (migration 090): 'percent' | 'amount',
+  // a value, and an optional name the client sees. total_amount is saved
+  // AFTER the discount.
+  const [discountType, setDiscountType] = useState('percent');
+  const [discountValue, setDiscountValue] = useState('');
+  const [discountName, setDiscountName] = useState('');
+
   // The tab opens on a choice — "New Estimate" or one of the job's
   // estimates — instead of dropping the seller into the latest one
   // (EstimateChooser). 'choose' = that step, 'edit' = the builder.
@@ -225,6 +235,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     setCustomerMessage(DEFAULT_PAYMENT); setPaymentPlan(DEFAULT_PLAN_ROWS.map((r) => ({ ...r }))); setOptionLabel('');
     setDisclaimers(DEFAULT_ESTIMATE_DISCLAIMERS);
     setDisplayMode(null); setShowFinancing(true);
+    setDiscountType('percent'); setDiscountValue(''); setDiscountName('');
   }
 
   function startNewEstimate() {
@@ -253,7 +264,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // only saves when something actually changed.
   const savedSnapshotRef = useRef(null);
   function formSnapshot() {
-    return JSON.stringify([headerDescription, sections, customerMessage, paymentPlan, optionLabel, disclaimers, bundleLabel, displayMode, showFinancing, photos]);
+    return JSON.stringify([headerDescription, sections, customerMessage, paymentPlan, optionLabel, disclaimers, bundleLabel, displayMode, showFinancing, photos, discountType, discountValue, discountName]);
   }
   // loadIntoForm sets the estimate and every form field in one render.
   useEffect(() => { savedSnapshotRef.current = formSnapshot(); /* eslint-disable-next-line */ }, [estimate?.id]);
@@ -361,6 +372,9 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
     // Default to TRUE when the column is absent (pre-migration rows) or
     // explicitly true. Only honor an explicit `false`.
     setShowFinancing(row?.show_financing !== false);
+    setDiscountType(row?.discount_type === 'amount' ? 'amount' : 'percent');
+    setDiscountValue(Number(row?.discount_value) > 0 ? String(row.discount_value) : '');
+    setDiscountName(row?.discount_label || '');
   }
 
   // Switching INTO "Price by Section" seeds each section that has no
@@ -499,7 +513,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
   // ─── Totals ───────────────────────────────────────────────────────
   // Section prices in "Price by Section" mode, item prices otherwise.
   const priceBySection = displayMode === 'section';
-  const total = sectionsTotal(sections, displayMode);
+  const subtotal = sectionsTotal(sections, displayMode);
+  const discount = discountAmount(subtotal, discountType, discountValue);
+  // What the client pays — saved as total_amount; the payment plan,
+  // contract, invoices and Finance all run on it.
+  const total = Math.round((subtotal - discount) * 100) / 100;
 
   // ─── Payment plan editor handlers ─────────────────────────────────
   // Editing the rows keeps the customer-facing message text in sync so
@@ -555,6 +573,13 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
       photos,
       ...extra,
     };
+    // Discount columns (migration 090) — only sent when there's a discount
+    // or the row already has them, so saving still works before 090 runs.
+    if (discount > 0 || (estimate && 'discount_type' in estimate)) {
+      base.discount_type = discount > 0 ? discountType : null;
+      base.discount_value = discount > 0 ? Number(discountValue) : null;
+      base.discount_label = discount > 0 ? (discountName.trim() || null) : null;
+    }
     // Preserve an existing row's status on save (was dropping 'sent'
     // back to 'draft' every time before — that was wrong).
     if (!('status' in base)) base.status = estimate?.status || 'draft';
@@ -770,6 +795,12 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
         display_mode: current.display_mode,
         // Photos come along; the seller removes what doesn't apply.
         photos: current.photos || [],
+        // Same discount as the option it copies (only when it has one).
+        ...(current.discount_type ? {
+          discount_type: current.discount_type,
+          discount_value: current.discount_value,
+          discount_label: current.discount_label,
+        } : {}),
         status: 'draft',
         group_id: groupId,
         option_label: nextLabel,
@@ -948,7 +979,7 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
           .eq('id', job.id).select().single();
         if (j) onJobUpdated?.(j);
       }
-      logAudit({ user, action: 'estimate.save', entityType: 'estimate', entityId: saved.id, details: { total } });
+      logAudit({ user, action: 'estimate.save', entityType: 'estimate', entityId: saved.id, details: { total, discount: discount > 0 ? { type: discountType, value: Number(discountValue), amount: discount, label: discountName || null } : null } });
       setToast({ type: 'success', message: 'Estimate saved' });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to save' });
@@ -1402,6 +1433,11 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             <p className="text-2xl font-black text-omega-charcoal tabular-nums leading-none mt-0.5">
               ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
+            {discount > 0 && (
+              <p className="text-[11px] text-green-700 font-semibold mt-1 tabular-nums">
+                after {discountLabel(discountType, discountValue, discountName)} −${discount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
           </div>
         </div>
 
@@ -1462,6 +1498,49 @@ export default function EstimateBuilder({ job, user, onJobUpdated, editEstimateI
             // no questionnaire seed available, instead of letting it
             // stretch to full width.
             <div />
+          )}
+        </div>
+
+        {/* Discount on the whole estimate — the client sees Subtotal,
+            this line and the Total. */}
+        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-bold text-omega-charcoal mr-auto">Discount <span className="text-xs font-normal text-omega-stone">(optional)</span></p>
+            <div className="inline-flex rounded-lg border border-gray-200 bg-white overflow-hidden">
+              {[['percent', '%'], ['amount', '$']].map(([k, sym]) => (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setDiscountType(k)}
+                  className={`px-3 py-1.5 text-sm font-bold ${discountType === k ? 'bg-omega-orange text-white' : 'text-omega-stone hover:text-omega-charcoal'}`}
+                >
+                  {sym}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number" min="0" step="0.01" inputMode="decimal"
+              value={discountValue}
+              disabled={locked}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 1000'}
+              className="w-28 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-base sm:text-sm text-right font-bold tabular-nums focus:outline-none focus:border-omega-orange"
+            />
+            <input
+              value={discountName}
+              disabled={locked}
+              onChange={(e) => setDiscountName(e.target.value)}
+              placeholder="Name the client sees (e.g. Fall promotion)"
+              className="w-full sm:w-64 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-base sm:text-sm focus:outline-none focus:border-omega-orange"
+            />
+          </div>
+          {discount > 0 && (
+            <div className="mt-3 text-sm tabular-nums space-y-0.5">
+              <div className="flex justify-between text-omega-stone"><span>Subtotal</span><span>${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between text-green-700 font-semibold"><span>{discountLabel(discountType, discountValue, discountName)}</span><span>−${discount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between font-black text-omega-charcoal border-t border-gray-200 pt-1"><span>Total</span><span>${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+            </div>
           )}
         </div>
       </div>
