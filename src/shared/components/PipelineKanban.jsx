@@ -17,7 +17,7 @@ import {
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
-  ChevronDown, ChevronRight, SlidersHorizontal, GitBranch, ArrowUpDown,
+  ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
   PhoneCall, CalendarClock, ClipboardCheck, ExternalLink, Ban,
 } from 'lucide-react';
 import PageHeader from './ui/PageHeader';
@@ -122,10 +122,10 @@ function sortJobsForKanban(arr) {
   });
 }
 
-// ─── Per-column sort (Ramon, Oct/26) ───────────────────────────────
-// Each column can show its cards in the manual drag order (default) or
-// sorted by date / name. The choice is per column, saved in this
-// browser. A sorted column ignores in-column drag reorders.
+// ─── Board sort (Ramon, Oct/26) ────────────────────────────────────
+// One picker in the filter bar orders the cards of EVERY column: the
+// manual drag order (default) or by date / name. Saved in this browser.
+// While sorted, drag reorders inside a column are ignored.
 const COLUMN_SORTS = [
   { id: 'manual', label: 'Manual' },
   { id: 'newest', label: 'Newest first' },
@@ -135,7 +135,7 @@ const COLUMN_SORTS = [
   { id: 'stage',  label: 'Longest in stage' },
 ];
 const SORT_LABEL = Object.fromEntries(COLUMN_SORTS.map((o) => [o.id, o.label]));
-const SORT_STORAGE_KEY = 'omega.pipeline.columnSort.v1';
+const SORT_STORAGE_KEY = 'omega.pipeline.sort.v1';
 
 function jobName(j) {
   return (j.client_name || j.name || '').trim().toLowerCase();
@@ -165,8 +165,11 @@ function sortColumn(list, mode) {
     default:       return list; // manual = pipeline_position order
   }
 }
-function loadColumnSort() {
-  try { return JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || '{}') || {}; } catch { return {}; }
+function loadBoardSort() {
+  try {
+    const v = localStorage.getItem(SORT_STORAGE_KEY);
+    return SORT_LABEL[v] ? v : 'manual';
+  } catch { return 'manual'; }
 }
 
 // Compact USD formatter for column totals — always shows the $ sign and
@@ -497,32 +500,6 @@ function SortableJobCard({ id, children }) {
 // and the parent's overflow-hidden silently clipped them. Now each
 // column scrolls independently. `min-h-[200px]` ensures empty columns
 // still register a hit area for cross-column drops.
-// Small sort picker in a column's colored header. Native <select> so the
-// list isn't clipped by the column's overflow-hidden.
-function ColumnSortSelect({ value, onChange, label }) {
-  const active = value !== 'manual';
-  return (
-    <label
-      className={`relative inline-flex items-center gap-1 rounded-md pl-1.5 pr-1 py-0.5 text-[10px] font-semibold cursor-pointer transition-colors ${
-        active ? 'bg-white text-omega-charcoal' : 'bg-white/20 text-white hover:bg-white/30'
-      }`}
-      title={`Sort ${label}`}
-    >
-      <ArrowUpDown className="w-3 h-3 flex-shrink-0" />
-      <span className="truncate max-w-[92px]">{SORT_LABEL[value] || 'Manual'}</span>
-      <ChevronDown className="w-3 h-3 flex-shrink-0 opacity-70" />
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="absolute inset-0 opacity-0 cursor-pointer"
-        aria-label={`Sort ${label} column`}
-      >
-        {COLUMN_SORTS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
-    </label>
-  );
-}
-
 function DroppableColumn({ columnId, children, isOver }) {
   const { setNodeRef } = useDroppable({ id: columnId });
   // ⚠️ min-h-[80vh]: empty columns used to collapse to ~200px,
@@ -784,14 +761,10 @@ export default function PipelineKanban({
   // table (fresh env without migration 050) just leaves this empty.
   const [jobCosts, setJobCosts] = useState([]);
   const [toast, setToast] = useState(null);
-  const [columnSort, setColumnSort] = useState(loadColumnSort);
-  function changeColumnSort(colId, mode) {
-    setColumnSort((prev) => {
-      const next = { ...prev, [colId]: mode };
-      if (mode === 'manual') delete next[colId];
-      try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
-      return next;
-    });
+  const [boardSort, setBoardSort] = useState(loadBoardSort);
+  function changeBoardSort(mode) {
+    setBoardSort(mode);
+    try { localStorage.setItem(SORT_STORAGE_KEY, mode); } catch { /* storage blocked */ }
   }
 
   const [activeId, setActiveId] = useState(null);
@@ -1109,9 +1082,9 @@ export default function PipelineKanban({
         || 0;
       totals[key] += amount;
     });
-    Object.keys(grouped).forEach((k) => { grouped[k] = sortColumn(grouped[k], columnSort[k]); });
+    Object.keys(grouped).forEach((k) => { grouped[k] = sortColumn(grouped[k], boardSort); });
     return { jobsByColumn: grouped, totalsByColumn: totals };
-  }, [visibleJobs, estByJob, costByJob, anyEstByJob, columnSort]);
+  }, [visibleJobs, estByJob, costByJob, anyEstByJob, boardSort]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
   // The drag target (`event.over.id`) can be either a column id or
@@ -1175,11 +1148,10 @@ export default function PipelineKanban({
     if (!job) return;
     const previous = job.pipeline_status || 'new_lead';
 
-    // A sorted column shows cards by date/name, so a drag reorder inside
-    // it would be invisible. Moving to another column still works.
-    const sortMode = columnSort[targetCol];
-    if (previous === targetCol && sortMode && sortMode !== 'manual') {
-      setToast({ type: 'info', message: `This column is sorted by "${SORT_LABEL[sortMode]}". Switch it to Manual to reorder by dragging.` });
+    // A sorted board shows cards by date/name, so a drag reorder inside
+    // a column would be invisible. Moving to another column still works.
+    if (previous === targetCol && boardSort !== 'manual') {
+      setToast({ type: 'info', message: `The board is sorted by "${SORT_LABEL[boardSort]}". Set Sort to Manual to reorder by dragging.` });
       return;
     }
 
@@ -1445,7 +1417,7 @@ export default function PipelineKanban({
         </div>
 
         {/* Filters */}
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-6 gap-2">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-7 gap-2">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-omega-stone" />
             <input
@@ -1489,6 +1461,17 @@ export default function PipelineKanban({
               {pmOptions.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           ) : <div />}
+          {/* Orders the cards of every column at once. */}
+          <select
+            value={boardSort}
+            onChange={(e) => changeBoardSort(e.target.value)}
+            aria-label="Sort cards"
+            className={`px-3 py-2 rounded-xl border text-sm bg-white text-omega-charcoal focus:border-omega-orange focus:outline-none transition ${
+              boardSort === 'manual' ? 'border-gray-200' : 'border-omega-orange font-semibold'
+            }`}
+          >
+            {COLUMN_SORTS.map((o) => <option key={o.id} value={o.id}>Sort: {o.label}</option>)}
+          </select>
           <button
             onClick={clearFilters}
             className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-semibold hover:border-omega-orange hover:text-omega-orange flex items-center justify-center gap-2 transition"
@@ -1561,20 +1544,13 @@ export default function PipelineKanban({
                         {list.length}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      {/* Disguised total — small, semi-transparent, non-shouty.
-                          Hidden entirely for money-free roles (manager, etc.). */}
-                      {!hideMoney ? (
-                        <p className="text-[11px] font-semibold text-white/70 tabular-nums">
-                          {fmtMoneyShort(total)}
-                        </p>
-                      ) : <span />}
-                      <ColumnSortSelect
-                        value={columnSort[col.id] || 'manual'}
-                        onChange={(mode) => changeColumnSort(col.id, mode)}
-                        label={col.label}
-                      />
-                    </div>
+                    {/* Disguised total — small, semi-transparent, non-shouty.
+                        Hidden entirely for money-free roles (manager, etc.). */}
+                    {!hideMoney && (
+                      <p className="text-[11px] font-semibold text-white/70 mt-0.5 tabular-nums">
+                        {fmtMoneyShort(total)}
+                      </p>
+                    )}
                   </div>
 
                   <DroppableColumn columnId={col.id} isOver={overColumn === col.id}>
