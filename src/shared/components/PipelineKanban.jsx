@@ -17,7 +17,7 @@ import {
 import {
   Search, Filter, AlertTriangle, PhoneIncoming, Trash2, Home,
   Mail, MapPin, Zap, Hammer, FileText, CheckCircle2, XCircle,
-  ChevronDown, ChevronRight, SlidersHorizontal, GitBranch,
+  ChevronDown, ChevronRight, SlidersHorizontal, GitBranch, ArrowUpDown,
   PhoneCall, CalendarClock, ClipboardCheck, ExternalLink, Ban,
 } from 'lucide-react';
 import PageHeader from './ui/PageHeader';
@@ -120,6 +120,53 @@ function sortJobsForKanban(arr) {
     const tb = new Date(b?.created_at || 0).getTime();
     return tb - ta;
   });
+}
+
+// ─── Per-column sort (Ramon, Oct/26) ───────────────────────────────
+// Each column can show its cards in the manual drag order (default) or
+// sorted by date / name. The choice is per column, saved in this
+// browser. A sorted column ignores in-column drag reorders.
+const COLUMN_SORTS = [
+  { id: 'manual', label: 'Manual' },
+  { id: 'newest', label: 'Newest first' },
+  { id: 'oldest', label: 'Oldest first' },
+  { id: 'az',     label: 'Name A → Z' },
+  { id: 'za',     label: 'Name Z → A' },
+  { id: 'stage',  label: 'Longest in stage' },
+];
+const SORT_LABEL = Object.fromEntries(COLUMN_SORTS.map((o) => [o.id, o.label]));
+const SORT_STORAGE_KEY = 'omega.pipeline.columnSort.v1';
+
+function jobName(j) {
+  return (j.client_name || j.name || '').trim().toLowerCase();
+}
+function timeOf(v) {
+  const t = v ? new Date(v).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+// Cards with no date go last in every date sort.
+function byTime(get, dir) {
+  return (a, b) => {
+    const ta = timeOf(get(a));
+    const tb = timeOf(get(b));
+    if (ta == null && tb == null) return 0;
+    if (ta == null) return 1;
+    if (tb == null) return -1;
+    return dir * (ta - tb);
+  };
+}
+function sortColumn(list, mode) {
+  switch (mode) {
+    case 'newest': return [...list].sort(byTime((j) => j.created_at, -1));
+    case 'oldest': return [...list].sort(byTime((j) => j.created_at, 1));
+    case 'az':     return [...list].sort((a, b) => jobName(a).localeCompare(jobName(b)));
+    case 'za':     return [...list].sort((a, b) => jobName(b).localeCompare(jobName(a)));
+    case 'stage':  return [...list].sort(byTime((j) => j.stage_entered_at || j.updated_at, 1));
+    default:       return list; // manual = pipeline_position order
+  }
+}
+function loadColumnSort() {
+  try { return JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || '{}') || {}; } catch { return {}; }
 }
 
 // Compact USD formatter for column totals — always shows the $ sign and
@@ -450,6 +497,32 @@ function SortableJobCard({ id, children }) {
 // and the parent's overflow-hidden silently clipped them. Now each
 // column scrolls independently. `min-h-[200px]` ensures empty columns
 // still register a hit area for cross-column drops.
+// Small sort picker in a column's colored header. Native <select> so the
+// list isn't clipped by the column's overflow-hidden.
+function ColumnSortSelect({ value, onChange, label }) {
+  const active = value !== 'manual';
+  return (
+    <label
+      className={`relative inline-flex items-center gap-1 rounded-md pl-1.5 pr-1 py-0.5 text-[10px] font-semibold cursor-pointer transition-colors ${
+        active ? 'bg-white text-omega-charcoal' : 'bg-white/20 text-white hover:bg-white/30'
+      }`}
+      title={`Sort ${label}`}
+    >
+      <ArrowUpDown className="w-3 h-3 flex-shrink-0" />
+      <span className="truncate max-w-[92px]">{SORT_LABEL[value] || 'Manual'}</span>
+      <ChevronDown className="w-3 h-3 flex-shrink-0 opacity-70" />
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 opacity-0 cursor-pointer"
+        aria-label={`Sort ${label} column`}
+      >
+        {COLUMN_SORTS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function DroppableColumn({ columnId, children, isOver }) {
   const { setNodeRef } = useDroppable({ id: columnId });
   // ⚠️ min-h-[80vh]: empty columns used to collapse to ~200px,
@@ -711,6 +784,15 @@ export default function PipelineKanban({
   // table (fresh env without migration 050) just leaves this empty.
   const [jobCosts, setJobCosts] = useState([]);
   const [toast, setToast] = useState(null);
+  const [columnSort, setColumnSort] = useState(loadColumnSort);
+  function changeColumnSort(colId, mode) {
+    setColumnSort((prev) => {
+      const next = { ...prev, [colId]: mode };
+      if (mode === 'manual') delete next[colId];
+      try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+      return next;
+    });
+  }
 
   const [activeId, setActiveId] = useState(null);
   const [overColumn, setOverColumn] = useState(null);
@@ -1027,8 +1109,9 @@ export default function PipelineKanban({
         || 0;
       totals[key] += amount;
     });
+    Object.keys(grouped).forEach((k) => { grouped[k] = sortColumn(grouped[k], columnSort[k]); });
     return { jobsByColumn: grouped, totalsByColumn: totals };
-  }, [visibleJobs, estByJob, costByJob, anyEstByJob]);
+  }, [visibleJobs, estByJob, costByJob, anyEstByJob, columnSort]);
 
   // ─── DnD handlers ────────────────────────────────────────────────
   // The drag target (`event.over.id`) can be either a column id or
@@ -1091,6 +1174,14 @@ export default function PipelineKanban({
     const job = jobs.find((j) => j.id === activeJobId);
     if (!job) return;
     const previous = job.pipeline_status || 'new_lead';
+
+    // A sorted column shows cards by date/name, so a drag reorder inside
+    // it would be invisible. Moving to another column still works.
+    const sortMode = columnSort[targetCol];
+    if (previous === targetCol && sortMode && sortMode !== 'manual') {
+      setToast({ type: 'info', message: `This column is sorted by "${SORT_LABEL[sortMode]}". Switch it to Manual to reorder by dragging.` });
+      return;
+    }
 
     // Reconstruct the target column's current order from the SAME jobs
     // array (already sorted by pipeline_position then created_at via
@@ -1470,13 +1561,20 @@ export default function PipelineKanban({
                         {list.length}
                       </span>
                     </div>
-                    {/* Disguised total — small, semi-transparent, non-shouty.
-                        Hidden entirely for money-free roles (manager, etc.). */}
-                    {!hideMoney && (
-                      <p className="text-[11px] font-semibold text-white/70 mt-0.5 tabular-nums">
-                        {fmtMoneyShort(total)}
-                      </p>
-                    )}
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      {/* Disguised total — small, semi-transparent, non-shouty.
+                          Hidden entirely for money-free roles (manager, etc.). */}
+                      {!hideMoney ? (
+                        <p className="text-[11px] font-semibold text-white/70 tabular-nums">
+                          {fmtMoneyShort(total)}
+                        </p>
+                      ) : <span />}
+                      <ColumnSortSelect
+                        value={columnSort[col.id] || 'manual'}
+                        onChange={(mode) => changeColumnSort(col.id, mode)}
+                        label={col.label}
+                      />
+                    </div>
                   </div>
 
                   <DroppableColumn columnId={col.id} isOver={overColumn === col.id}>
