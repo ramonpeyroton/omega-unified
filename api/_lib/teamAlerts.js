@@ -1204,7 +1204,16 @@ export async function groupWatchReport(payload, nowMs = Date.now()) {
     await supabase.from('audit_log').insert([{
       user_name: 'imessage-watch', user_role: 'system', action: 'imessage_watch.report', entity_type: 'imessage', entity_id: null,
       // version: which copy of the Mac script is running (null = older than v3).
-      details: { pending: pending.length, sent: result.sent.length, acks_skipped: acksSkipped, version: payload?.version || null },
+      details: {
+        pending: pending.length, sent: result.sent.length, acks_skipped: acksSkipped, version: payload?.version || null,
+        // Why each group counts as unanswered (Mac v4+: threads merged, last
+        // team answer, unknown handles) — for checking a "but we answered!"
+        // alert without going to the Mac. No message text.
+        items: pending.slice(0, 20).map((it) => ({
+          group: String(it.group || '').slice(0, 60), client: String(it.client || '').slice(0, 60),
+          since: it.since || null, asked: it.asked || null, count: Number(it.count) || 1, diag: it.diag || null,
+        })),
+      },
     }]);
   }
   result.waiting_approval = [...new Set(result.waiting_approval)];

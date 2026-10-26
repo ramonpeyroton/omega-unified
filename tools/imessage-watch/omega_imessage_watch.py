@@ -41,7 +41,7 @@ LOOKBACK_DAYS = 4
 GROUP_STYLE = 43  # chat.style for group chats
 # Sent with every report; the app logs it in the hourly heartbeat, so we can
 # see from the app whether the Mac is running the latest copy.
-WATCHER_VERSION = 3
+WATCHER_VERSION = 4
 
 # Messages that don't need an answer: short replies made ONLY of these words
 # (plus team names, emoji and the filler words below), e.g. "Awesome, thank
@@ -187,58 +187,139 @@ def ignored(handle, ignore):
     return bool(handle) and (last10(handle) in ignore or handle.lower() in ignore)
 
 
+DIRECT_STYLE = 45  # chat.style for 1:1 chats
+# An unknown number/email in the client groups of this many different clients
+# is the team on another handle (e.g. Attila's Apple ID email), not a client.
+AUTO_TEAM_MIN_GROUPS = 3
+
+MSG_SQL = """SELECT m.guid, m.text, m.attributedBody, m.is_from_me, m.date, m.cache_has_attachments, h.id AS handle,
+                    COALESCE(m.associated_message_type, 0) AS reaction
+             FROM chat_message_join cmj
+             JOIN message m ON m.ROWID = cmj.message_id
+             LEFT JOIN handle h ON h.ROWID = m.handle_id
+             WHERE cmj.chat_id = ? AND m.date > ?
+               AND (COALESCE(m.associated_message_type, 0) = 0 OR m.associated_message_type BETWEEN 2000 AND 2006)
+               AND COALESCE(m.item_type, 0) = 0
+             ORDER BY m.date"""
+
+
+def norm_handle(h):
+    return last10(h) or (h or "").lower()
+
+
+def mask(h):
+    """Short, privacy-friendly label for a handle in the app's log."""
+    if not h:
+        return "?"
+    if last10(h):
+        return "…" + last10(h)[-4:]
+    user, _, domain = h.partition("@")
+    return f"{user[:2]}…@{domain}" if domain else h[:4] + "…"
+
+
+def chat_handles(con, rowid):
+    return [r["id"] for r in con.execute(
+        "SELECT h.id FROM chat_handle_join chj JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = ?",
+        (rowid,))]
+
+
 def scan(con, directory, cfg):
     team_by_digits, team_first, extra, clients, ignore = build_identity(directory, cfg)
     me = directory.get("me", "inacio")
     since_apple = (datetime.now(timezone.utc).timestamp() - LOOKBACK_DAYS * 86400 - APPLE_EPOCH) * 1e9
 
-    groups = []
+    # 1. Client group chats. The iPhone often keeps the same group twice (an
+    #    SMS thread and an iMessage thread with the same people), and the
+    #    client may write in one while the team answers in the other. Threads
+    #    with the same people are read as ONE group.
+    logical = {}
     for chat in con.execute("SELECT ROWID, guid, display_name FROM chat WHERE style = ?", (GROUP_STYLE,)):
-        handles = [r["id"] for r in con.execute(
-            "SELECT h.id FROM chat_handle_join chj JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = ?",
-            (chat["ROWID"],))]
+        handles = chat_handles(con, chat["ROWID"])
         group_clients = [clients[last10(h)] for h in handles if last10(h) in clients]
         if not group_clients:
             continue  # not a client group (family, friends, team-only…)
+        key = frozenset(norm_handle(h) for h in handles if h)
+        g = logical.setdefault(key, {"chats": [], "handles": set(), "clients": {}})
+        g["chats"].append(chat)
+        g["handles"].update(handles)
+        for c in group_clients:
+            g["clients"][c["digits"]] = c
 
-        rows = con.execute(
-            """SELECT m.guid, m.text, m.attributedBody, m.is_from_me, m.date, m.cache_has_attachments, h.id AS handle,
-                      COALESCE(m.associated_message_type, 0) AS reaction
-               FROM chat_message_join cmj
-               JOIN message m ON m.ROWID = cmj.message_id
-               LEFT JOIN handle h ON h.ROWID = m.handle_id
-               WHERE cmj.chat_id = ? AND m.date > ?
-                 AND (COALESCE(m.associated_message_type, 0) = 0 OR m.associated_message_type BETWEEN 2000 AND 2006)
-                 AND COALESCE(m.item_type, 0) = 0
-               ORDER BY m.date""",
-            (chat["ROWID"], since_apple)).fetchall()
+    # 2. Unknown handles seen across many clients' groups = the team.
+    seen_in = {}
+    for g in logical.values():
+        for h in g["handles"]:
+            if who_is(h, team_by_digits, extra) or ignored(h, ignore) or last10(h) in clients:
+                continue
+            seen_in.setdefault(norm_handle(h), set()).add(frozenset(g["clients"]))
+    auto_team = {n for n, s in seen_in.items() if len(s) >= AUTO_TEAM_MIN_GROUPS}
 
-        last_team = None  # (index, key)
-        msgs = []
-        for m in rows:
-            if not m["is_from_me"] and ignored(m["handle"], ignore):
-                continue  # a subcontractor: neither a question nor an answer
-            if m["reaction"]:
-                # A 👍/❤️/… from the team = everything before it is answered.
-                sender = me if m["is_from_me"] else who_is(m["handle"], team_by_digits, extra)
-                if sender and m["reaction"] in TEAM_REACTIONS:
-                    last_team = (len(msgs) - 1, sender)
-                continue  # client reactions are neither questions nor answers
-            text = m["text"] or decode_attributed_body(m["attributedBody"]) or ""
-            text = text.replace("￼", "").strip()
-            if not text and m["cache_has_attachments"]:
-                text = "[photo/attachment]"
-            sender = me if m["is_from_me"] else who_is(m["handle"], team_by_digits, extra)
-            msgs.append({"guid": m["guid"], "text": text, "at": apple_time(m["date"]), "team": sender, "handle": m["handle"]})
-            if sender:
-                last_team = (len(msgs) - 1, sender)
+    def sender_of(is_from_me, handle):
+        if is_from_me:
+            return me
+        k = who_is(handle, team_by_digits, extra)
+        if k:
+            return k
+        return "team" if handle and norm_handle(handle) in auto_team else None
+
+    # 3. Inácio texting the client directly (1:1) also answers the group.
+    direct = {}
+    for chat in con.execute("SELECT ROWID FROM chat WHERE style = ?", (DIRECT_STYLE,)):
+        hs = chat_handles(con, chat["ROWID"])
+        if len(hs) != 1 or last10(hs[0]) not in clients:
+            continue
+        for r in con.execute(
+                """SELECT m.date FROM chat_message_join cmj JOIN message m ON m.ROWID = cmj.message_id
+                   WHERE cmj.chat_id = ? AND m.date > ? AND m.is_from_me = 1""", (chat["ROWID"], since_apple)):
+            direct.setdefault(last10(hs[0]), []).append(apple_time(r["date"]))
+
+    names = set(team_first.values())
+    groups = []
+    for g in logical.values():
+        events, others = [], set()
+        for chat in g["chats"]:
+            for m in con.execute(MSG_SQL, (chat["ROWID"], since_apple)).fetchall():
+                if not m["is_from_me"] and ignored(m["handle"], ignore):
+                    continue  # a subcontractor: neither a question nor an answer
+                sender = sender_of(m["is_from_me"], m["handle"])
+                at = apple_time(m["date"])
+                if m["reaction"]:
+                    # A 👍/❤️/… from the team = everything before it is answered.
+                    if sender and m["reaction"] in TEAM_REACTIONS:
+                        events.append({"at": at, "team": sender, "mark": True})
+                    continue  # client reactions are neither questions nor answers
+                text = m["text"] or decode_attributed_body(m["attributedBody"]) or ""
+                text = text.replace("￼", "").strip()
+                if not text and m["cache_has_attachments"]:
+                    text = "[photo/attachment]"
+                if not sender and last10(m["handle"]) not in g["clients"]:
+                    others.add(mask(m["handle"]))
+                events.append({"guid": m["guid"], "chat_guid": chat["guid"], "text": text, "at": at,
+                               "team": sender, "handle": m["handle"]})
+        for d in g["clients"]:
+            for t in direct.get(d, []):
+                events.append({"at": t, "team": me, "mark": True})
+        events.sort(key=lambda e: e["at"])
+
+        msgs, last_team = [], None  # last_team = (index, who, when)
+        for e in events:
+            if e.get("mark"):
+                last_team = (len(msgs) - 1, e["team"], e["at"])
+                continue
+            msgs.append(e)
+            if e["team"]:
+                last_team = (len(msgs) - 1, e["team"], e["at"])
 
         start = last_team[0] + 1 if last_team else 0
-        names = set(team_first.values())
         waiting = [x for x in msgs[start:] if not x["team"] and x["text"] and not is_ack(x["text"], names)]
-        name = chat["display_name"] or f"{group_clients[0]['name']} group"
-        groups.append({"chat": chat, "name": name, "handles": handles, "clients": group_clients,
-                       "waiting": waiting, "last_team": last_team[1] if last_team else None})
+        clients_list = list(g["clients"].values())
+        name = next((c["display_name"] for c in g["chats"] if c["display_name"]), None) or f"{clients_list[0]['name']} group"
+        groups.append({
+            "name": name, "handles": sorted(g["handles"]), "clients": clients_list, "waiting": waiting,
+            "threads": len(g["chats"]), "last_team": last_team[1] if last_team else None,
+            "last_team_at": last_team[2] if last_team else None, "others": sorted(others),
+            "auto_team": {h for h in g["handles"] if norm_handle(h) in auto_team},
+        })
 
     pending = []
     for g in groups:
@@ -249,12 +330,20 @@ def scan(con, directory, cfg):
         # else whoever from the team spoke last in the group; else Inácio.
         said = " ".join(fold(x["text"]) for x in g["waiting"])
         asked = next((k for k, f in team_first.items() if f and re.search(r"\b" + re.escape(f) + r"\b", said)), None)
-        asked = asked or g["last_team"] or me
+        asked = asked or (g["last_team"] if g["last_team"] in team_first else me)
         sender_client = next((c for c in g["clients"] if c["digits"] == last10(first["handle"])), None)
         client = sender_client["name"] if sender_client else (first["handle"] or g["clients"][0]["name"])
+        last_team = f"{g['last_team']} {g['last_team_at'].isoformat()}" if g["last_team"] else None
         pending.append({
-            "chat": g["chat"]["guid"], "msg": first["guid"], "group": g["name"], "client": client,
+            "chat": first["chat_guid"], "msg": first["guid"], "group": g["name"], "client": client,
             "text": first["text"][:300], "since": first["at"].isoformat(), "asked": asked, "count": len(g["waiting"]),
+            # Why it counts as unanswered, kept in the app's log for checking.
+            "diag": {
+                "threads": g["threads"],
+                "last_team": last_team,
+                "from": "client" if sender_client else "unknown " + mask(first["handle"]),
+                "unknown": g["others"][:5],
+            },
         })
     return groups, pending
 
@@ -323,12 +412,16 @@ def main():
     if "--list" in args:
         team_by_digits, _, extra, _, ignore = build_identity(directory, cfg)
         for g in groups:
-            print(f"\n== {g['name']}  (clients: {', '.join(c['name'] for c in g['clients'])})")
+            threads = f", {g['threads']} threads read as one" if g["threads"] > 1 else ""
+            print(f"\n== {g['name']}  (clients: {', '.join(c['name'] for c in g['clients'])}{threads})")
             for h in g["handles"]:
                 k = who_is(h, team_by_digits, extra)
                 tag = (f"TEAM {k}" if k else "SUB (ignored)" if ignored(h, ignore)
+                       else "TEAM (other handle, seen in many client groups)" if h in g["auto_team"]
                        else "CLIENT" if last10(h) in {c['digits'] for c in g['clients']} else "other (treated as client)")
                 print(f"   {h:<32} {tag}")
+            if g["last_team_at"]:
+                print(f"   last team answer: {g['last_team']} {g['last_team_at'].astimezone():%a %H:%M}")
             if g["waiting"]:
                 w = g["waiting"][0]
                 print(f"   -> unanswered since {w['at'].astimezone():%a %H:%M}: {w['text'][:80]!r} (+{len(g['waiting']) - 1})")
