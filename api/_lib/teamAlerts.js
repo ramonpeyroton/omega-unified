@@ -1126,6 +1126,11 @@ const ACK_TOKENS = new Set(('ok okay k kk thanks thank you u thx ty tysm tks gre
 const ACK_FILLER = new Set(('so much a lot very really again guys team all as always for everything the update '
   + 'info man buddy sir and omega muito pessoal de novo mesmo e pela pelo atualizacao').split(' '));
 
+// 'Edited to "…"' (an edit seen by a Mac without iMessage editing) and
+// 'Liked "…"' (a reaction sent as text) aren't new messages — same as
+// FALLBACK_RE in omega_imessage_watch.py.
+const FALLBACK_RE = /^\s*(edited to|loved|liked|disliked|laughed at|emphasi[sz]ed|questioned|reacted .{1,12} to|removed a .{1,20} from)\s*["“”]/i;
+
 export function isAck(text, names = []) {
   const t = String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   if (!t || !/[a-z0-9]/.test(t)) return true; // empty / emoji / punctuation only
@@ -1164,7 +1169,7 @@ export async function groupWatchReport(payload, nowMs = Date.now()) {
     // Only "Ok, thanks!" waiting → nothing to answer. With more messages
     // (count > 1) an older Mac only sends the first one's text, and a real
     // question may come after it, so those still alert.
-    if (count === 1 && isAck(it.text, teamNames)) { acksSkipped++; continue; }
+    if (count === 1 && (isAck(it.text, teamNames) || FALLBACK_RE.test(String(it.text || '')))) { acksSkipped++; continue; }
     const quote = `"${String(it.text || '[attachment]').replace(/\s+/g, ' ').slice(0, 200)}"${count > 1 ? ` (+${count - 1} more)` : ''}`;
     const group = String(it.group || 'Client group').slice(0, 80);
     const client = String(it.client || 'Client').slice(0, 80);

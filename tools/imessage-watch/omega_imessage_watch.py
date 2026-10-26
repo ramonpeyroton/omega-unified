@@ -41,7 +41,7 @@ LOOKBACK_DAYS = 4
 GROUP_STYLE = 43  # chat.style for group chats
 # Sent with every report; the app logs it in the hourly heartbeat, so we can
 # see from the app whether the Mac is running the latest copy.
-WATCHER_VERSION = 4
+WATCHER_VERSION = 5
 
 # Messages that don't need an answer: short replies made ONLY of these words
 # (plus team names, emoji and the filler words below), e.g. "Awesome, thank
@@ -65,6 +65,13 @@ ACK_FILLER = {
 # 2000 love, 2001 like, 2002 dislike, 2003 laugh, 2004 emphasize, 2006 emoji.
 # 2005 ("?") does not — that's asking, not answering. 3000+ = reaction removed.
 TEAM_REACTIONS = {2000, 2001, 2002, 2003, 2004, 2006}
+# Text stand-ins for things that aren't new messages. A Mac without iMessage
+# editing (older macOS) gets each edit as a new 'Edited to "…"' message, and
+# Android/old phones send reactions as 'Liked "…"'. From a client they would
+# look like a new message after the team's answer (Nicolas & EJ, 26/10/26).
+FALLBACK_RE = re.compile(
+    r'^\s*(edited to|loved|liked|disliked|laughed at|emphasi[sz]ed|questioned|reacted .{1,12} to|removed a .{1,20} from)\s*["“”]',
+    re.IGNORECASE)
 
 
 def log(*args):
@@ -292,6 +299,8 @@ def scan(con, directory, cfg):
                 text = text.replace("￼", "").strip()
                 if not text and m["cache_has_attachments"]:
                     text = "[photo/attachment]"
+                if not sender and FALLBACK_RE.match(text):
+                    continue  # a client's edit / text reaction: not a new message
                 if not sender and last10(m["handle"]) not in g["clients"]:
                     others.add(mask(m["handle"]))
                 events.append({"guid": m["guid"], "chat_guid": chat["guid"], "text": text, "at": at,
