@@ -60,6 +60,9 @@ function defaultViewForRole(role) {
   return 'list';
 }
 
+// Rows per request — the Supabase API never returns more than 1000.
+const PAGE = 1000;
+
 function startOf(scope) {
   const d = new Date();
   if (scope === 'today') { d.setHours(0, 0, 0, 0); return d.toISOString(); }
@@ -189,31 +192,42 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
   async function load() {
     setLoading(true);
     try {
-      let q = supabase
-        .from('jobs')
-        .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
-        .order('created_at', { ascending: false })
-        .limit(2000);
-
+      // The API returns at most 1000 rows per request, and the old-sheet
+      // imports put the table past that — read it page by page.
       const gt = startOf(filter);
-      if (gt) q = q.gte('created_at', gt);
+      const data = [];
+      for (let from = 0; from < 20000; from += PAGE) {
+        let q = supabase
+          .from('jobs')
+          .select('id, client_name, client_email, client_phone, address, city, unit_number, service, additional_services, lead_source, pipeline_status, in_pipeline, lead_owner, assigned_to, preferred_visit_date, lead_date, created_at, last_touch_at, last_touch_note')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (gt) q = q.gte('created_at', gt);
+        const { data: page, error } = await q;
+        if (error) throw error;
+        data.push(...(page || []));
+        if (!page || page.length < PAGE) break;
+      }
 
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const ids = (data || []).map((r) => r.id);
+      const ids = data.map((r) => r.id);
       let apptByJob = {};
       if (ids.length) {
-        const { data: events } = await supabase
+        // Chunked: one .in() with every id makes a URL too long (HTTP 400).
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += 150) chunks.push(ids.slice(i, i + 150));
+        const results = await Promise.all(chunks.map((c) => supabase
           .from('calendar_events')
           .select('id, job_id, starts_at, kind')
           .eq('kind', 'sales_visit')
-          .in('job_id', ids)
-          .order('starts_at', { ascending: true });
+          .in('job_id', c)
+          .order('starts_at', { ascending: true })));
+        const events = results.flatMap((r) => r.data || [])
+          .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
         const now = Date.now();
         const future = {};
         const past   = {};
-        for (const ev of (events || [])) {
+        for (const ev of events) {
           if (!ev.job_id || !ev.starts_at) continue;
           const t = new Date(ev.starts_at).getTime();
           if (t >= now) {
@@ -225,7 +239,7 @@ export default function LeadsList({ user, onBack, onOpenJob }) {
         for (const jid of ids) apptByJob[jid] = future[jid] || past[jid] || null;
       }
 
-      const decorated = (data || []).map((r) => ({
+      const decorated = data.map((r) => ({
         ...r,
         appt_date_effective: apptByJob[r.id] || r.preferred_visit_date || null,
       }));
