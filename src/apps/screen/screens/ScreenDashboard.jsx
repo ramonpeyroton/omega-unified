@@ -133,6 +133,8 @@ export default function ScreenDashboard({ onLogout }) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jobs' }, (payload) => {
         const row = payload?.new;
         if (!row?.id || seenEventIds.current.has(`lead:${row.id}`)) return;
+        // Bulk imports of old sheets aren't new leads — same rule as the TV.
+        if (['import', 'legacy_import'].includes((row.created_by || '').trim())) return;
         seenEventIds.current.add(`lead:${row.id}`);
         setCelebrations((c) => [...c, {
           id: `lead:${row.id}:${Date.now()}`, kind: 'lead',
