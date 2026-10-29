@@ -7,7 +7,7 @@ import { useState } from 'react';
 import {
   Home as HomeIcon, GitBranch, Calendar as CalendarIcon, FileText,
   ClipboardList, DollarSign, MessageCircle, ChevronDown, ChevronRight,
-  LogOut,
+  LogOut, PhoneCall,
 } from 'lucide-react';
 import Logo from './Logo';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { id: 'commissions',   label: 'Commissions',   icon: DollarSign },
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'calendar',      label: 'Calendar',      icon: CalendarIcon },
+  { id: 'follow-ups',    label: 'Follow Up',     icon: PhoneCall },
   { id: 'previous-jobs', label: 'Previous Jobs', icon: ClipboardList },
 ];
 

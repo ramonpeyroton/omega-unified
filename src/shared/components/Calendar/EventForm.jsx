@@ -34,10 +34,16 @@ function minutesBetween(a, b) {
  * before saving and fires notifications (email via Resend + in-app +
  * SMS via Twilio if available) unless "Skip notifications" is checked.
  */
-export default function EventForm({ user, initialIso, initialEvent, prefillJob, onClose, onSaved }) {
+export default function EventForm({ user, initialIso, initialEvent, initialKind, prefillJob, onClose, onSaved }) {
   const editing = !!initialEvent;
 
-  const [kind,         setKind]         = useState(initialEvent?.kind || (prefillJob ? 'sales_visit' : 'sales_visit'));
+  const [kind,         setKind]         = useState(initialEvent?.kind || initialKind || 'sales_visit');
+  // Follow-ups (migration 092): always tied to a client, the time is
+  // optional ("any time that day" = all_day), no duration / location, and
+  // nothing is ever sent to the client. Reminders go to the salespeople
+  // from the server (teamAlerts), so the form sends no notification.
+  const isFollowUp = kind === 'follow_up';
+  const [anyTime,      setAnyTime]      = useState(initialEvent?.kind === 'follow_up' ? !!initialEvent.all_day : false);
   const [title,        setTitle]        = useState(initialEvent?.title || '');
   const [dateIso,      setDateIso]      = useState(() =>
     initialEvent?.starts_at
@@ -120,12 +126,20 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
     if (prefillJob || editing) return;
     let active = true;
     (async () => {
-      const { data } = await supabase
-        .from('jobs')
-        .select('id, name, client_name, address, city, service')
-        .order('client_name', { ascending: true })
-        .limit(500);
-      if (active) setJobs(data || []);
+      // Page through — the API caps each response at 1000 rows and the
+      // old-sheet imports put the client list past that.
+      const all = [];
+      for (let from = 0; from < 20000; from += 1000) {
+        const { data } = await supabase
+          .from('jobs')
+          .select('id, name, client_name, address, city, service')
+          .order('client_name', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        all.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      if (active) setJobs(all);
     })();
     return () => { active = false; };
   }, [prefillJob, editing]);
@@ -215,15 +229,23 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
     setTitle(namePart ? `${namePart} — ${kindLabel}` : kindLabel);
   }, [kind, prefillJob, autoTitle]);
 
+  // Every salesperson in the app — follow-ups are assigned to all of them.
+  const sellers = useMemo(
+    () => staff.filter((u) => u.role === 'sales' || u.role === 'salesperson').map((u) => u.name),
+    [staff],
+  );
+
   async function submit() {
     if (!title.trim()) { setToast({ type: 'error', message: 'Title is required' }); return; }
-    if (!dateIso || !timeHHMM) { setToast({ type: 'error', message: 'Pick a date and time' }); return; }
+    if (isFollowUp && !jobId) { setToast({ type: 'error', message: 'Pick the client for this follow-up' }); return; }
+    if (!dateIso || (!timeHHMM && !(isFollowUp && anyTime))) { setToast({ type: 'error', message: 'Pick a date and time' }); return; }
 
     setSaving(true);
     setConflict(null);
     try {
-      const startsAt = composeCTDateTime(dateIso, timeHHMM);
-      const endsAt   = new Date(new Date(startsAt).getTime() + durationMin * 60000).toISOString();
+      const startsAt = composeCTDateTime(dateIso, isFollowUp && anyTime ? '09:00' : timeHHMM);
+      const endsAt   = new Date(new Date(startsAt).getTime() + (isFollowUp ? 15 : durationMin) * 60000).toISOString();
+      const assignees = isFollowUp ? sellers : assignedToList;
 
       // Conflict check — only for people-scheduled events (sales_visit).
       // Multi-assign: returns the first conflict across ANY of the
@@ -253,20 +275,20 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         title: title.trim(),
         starts_at: startsAt,
         ends_at:   endsAt,
-        all_day:   durationMin >= 480,
+        all_day:   isFollowUp ? anyTime : durationMin >= 480,
         job_id:    jobId || null,
         // Primary assignee (first checked) keeps the legacy column
         // populated so old filters / lookups still work. Full roster
         // goes into the new array column. Empty array → null so the
         // DB default behaves the same as "no one assigned".
-        assigned_to_name:  assignedToList[0] || null,
-        assigned_to_names: assignedToList.length ? assignedToList : null,
+        assigned_to_name:  assignees[0] || null,
+        assigned_to_names: assignees.length ? assignees : null,
         // Role of the PRIMARY assignee, resolved from the loaded
         // staff list. Downstream targeting (notifications, jarvis
         // filters) still scopes off this single role; the additional
         // people get notified by name via assigned_to_names.
-        assigned_to_role: (staff.find((u) => u.name === assignedToList[0])?.role) || null,
-        location:  location || null,
+        assigned_to_role: (staff.find((u) => u.name === assignees[0])?.role) || null,
+        location:  isFollowUp ? null : (location || null),
         notes:     notes    || null,
         color:     persistedColor,
         // Always write visit_status — the column has a NOT NULL default
@@ -274,7 +296,10 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         // events still carry the column but its value is ignored on
         // render (eventDisplayMeta short-circuits unless kind ===
         // 'sales_visit').
-        visit_status: kind === 'sales_visit' ? visitStatus : 'to_do',
+        // A follow-up keeps its done state when edited.
+        visit_status: kind === 'sales_visit'
+          ? visitStatus
+          : (isFollowUp && initialEvent?.kind === 'follow_up' ? (initialEvent.visit_status || 'to_do') : 'to_do'),
         created_by_name: user?.name || null,
         created_by_role: user?.role || null,
       };
@@ -288,14 +313,14 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
         action: editing ? 'calendar.event.update' : 'calendar.event.create',
         entityType: 'calendar_event',
         entityId: saved.id,
-        details: { kind, starts_at: startsAt, assigned_to: assignedToList, job_id: jobId },
+        details: { kind, starts_at: startsAt, assigned_to: assignees, job_id: jobId },
       });
 
       // In-app notifications — one row per assigned role so each
       // person's notification bell picks it up. Roles are de-duped
       // (e.g. two sales people on the same visit only triggers one
       // role-scoped notification).
-      if (!skipNotify && assignedToList.length) {
+      if (!skipNotify && !isFollowUp && assignedToList.length) {
         const roles = Array.from(new Set(
           assignedToList
             .map((n) => staff.find((u) => u.name === n)?.role)
@@ -420,8 +445,14 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
               prefilled job and not in edit mode. Uses an HTML5 datalist
               so it behaves like a typical autocomplete on every browser
               and on iPad without extra deps. */}
+          {isFollowUp && (
+            <div className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-900">
+              The client is <strong>never</strong> notified. The salespeople get a reminder the business day before and on the day.
+            </div>
+          )}
+
           {!prefillJob && !editing && (
-            <Field label="Existing client (optional)">
+            <Field label={isFollowUp ? 'Client (required)' : 'Existing client (optional)'}>
               <input
                 list="omega-existing-clients"
                 value={clientPick}
@@ -464,11 +495,25 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
                 type="time"
                 value={timeHHMM}
                 onChange={(e) => setTimeHHMM(e.target.value)}
-                className={inputCls}
+                disabled={isFollowUp && anyTime}
+                className={`${inputCls} disabled:bg-gray-50 disabled:text-omega-stone`}
               />
             </Field>
           </div>
 
+          {isFollowUp && (
+            <label className="flex items-center gap-2 cursor-pointer select-none -mt-1">
+              <input
+                type="checkbox"
+                checked={anyTime}
+                onChange={(e) => setAnyTime(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-omega-orange focus:ring-omega-orange"
+              />
+              <span className="text-xs text-omega-charcoal">Any time that day (no specific time)</span>
+            </label>
+          )}
+
+          {!isFollowUp && (<>
           <Field label="Duration">
             <select
               value={durationMin}
@@ -537,17 +582,25 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
               className={inputCls}
             />
           </Field>
+          </>)}
+
+          {isFollowUp && (
+            <p className="text-[11px] text-omega-stone -mt-1">
+              Reminder goes to: {sellers.length ? sellers.join(', ') : 'every salesperson'}.
+            </p>
+          )}
 
           <Field label="Notes (optional)">
             <textarea
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Anything the assignee should know"
+              placeholder={isFollowUp ? 'What to talk about (e.g. "check if they decided on the deck")' : 'Anything the assignee should know'}
               className={`${inputCls} resize-none`}
             />
           </Field>
 
+          {!isFollowUp && (
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -559,6 +612,7 @@ export default function EventForm({ user, initialIso, initialEvent, prefillJob, 
               Skip notifications (no email or SMS will be sent)
             </span>
           </label>
+          )}
 
           {conflict && (
             <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2">

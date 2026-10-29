@@ -25,7 +25,13 @@ export const EVENT_KIND_META = {
   // to be there for; everything else is a Material Delivery.
   material_delivery: { label: 'Material Delivery', color: '#0D9488' }, // teal
   cabinet_delivery:  { label: 'Cabinet Delivery',  color: '#8B5A2B' }, // wood brown
+  // Salesperson call-back (migration 092). Always tied to a client, never
+  // notifies the client — only the salespeople get reminders.
+  follow_up:         { label: 'Follow Up',         color: '#4F46E5' }, // indigo
 };
+
+// Shown grey on the calendar once a follow-up is marked done.
+export const FOLLOW_UP_DONE_COLOR = '#9CA3AF';
 
 export const EVENT_KIND_OPTIONS = Object.entries(EVENT_KIND_META).map(
   ([value, meta]) => ({ value, label: meta.label, color: meta.color })
@@ -70,6 +76,9 @@ export function eventDisplayMeta(ev) {
   if (ev?.kind === 'sales_visit') {
     const s = getVisitStatusMeta(ev.visit_status);
     return { color: s.color, label: kindMeta.label, statusLabel: s.label };
+  }
+  if (ev?.kind === 'follow_up' && ev.visit_status === 'completed') {
+    return { color: FOLLOW_UP_DONE_COLOR, label: kindMeta.label, statusLabel: 'Done' };
   }
   return { color: kindMeta.color, label: kindMeta.label, statusLabel: null };
 }
@@ -248,7 +257,7 @@ const EDIT_ALL = new Set(['owner', 'operations', 'admin']);
 export function canEditKind(role, kind) {
   if (EDIT_ALL.has(role)) return true;
   if (role === 'receptionist') return kind === 'sales_visit';
-  if (role === 'sales')        return kind === 'sales_visit';
+  if (role === 'sales' || role === 'salesperson') return kind === 'sales_visit' || kind === 'follow_up';
   if (role === 'manager')      return ['job_start', 'service_day', 'inspection', 'meeting', 'material_delivery', 'cabinet_delivery'].includes(kind);
   // Marketing books media visits (Ramon's photo/video runs) — that's
   // the kind he owns end-to-end. He can also see the rest of the

@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  X, ClipboardList, FileText, DollarSign, ClipboardCheck, User, LogOut,
+  X, ClipboardList, FileText, DollarSign, ClipboardCheck, User, LogOut, PhoneCall,
 } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
@@ -17,6 +17,7 @@ import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 // Destinations that aren't already on the bottom bar.
 const ITEMS = [
+  { id: 'follow-ups',    label: 'Follow Up',     icon: PhoneCall },
   { id: 'leads',         label: 'My Leads',      icon: ClipboardList },
   { id: 'estimates',     label: 'Estimates',     icon: FileText },
   { id: 'commissions',   label: 'Commissions',   icon: DollarSign },

@@ -148,6 +148,11 @@ const T = {
     body: '🛒 Client purchase lists — {{1}}\n\nUpdated: {{2}}\n👉 {{3}}\n\nStill not at the house: {{4}}\n\nDetails are on the Phases tab in the Omega app.',
     samples: ['Tue, Oct 13', '2 clients', 'Smith: tile at the house, vanity ordered (arrives Oct 20) · Lee: list complete ✅', 'Smith 4 of 17 · Costa 9 of 22'],
   },
+  followUp: {
+    name: 'omega_followup_reminder', lang: 'en',
+    body: '📞 Follow-up {{1}}\n\nClient: {{2}}\nPhone: {{3}}\nService: {{4}}\nNote: {{5}}\n\nMark it done on the Follow Up screen in the Omega app.',
+    samples: ['tomorrow (Thu, Oct 30) at 10:00 AM', 'Renee Smith', '(203) 555-0142', 'Kitchen remodel', 'Check if they decided on the deck'],
+  },
   weeklyLeads: {
     name: 'omega_weekly_leads', lang: 'en',
     body: '📊 Leads last week — {{1}}\n\nTotal: {{2}}\nBy source: {{3}}\n\nVisits scheduled: {{4}}\nEstimates sent: {{5}}\nContracts signed: {{6}}\n\nSent every Monday by the Omega app.',
@@ -365,10 +370,12 @@ const eventAssignees = (ev) =>
 const KIND_EN = {
   sales_visit: 'Sales visit', job_start: 'Job start', service_day: 'Service day', inspection: 'Inspection',
   meeting: 'Meeting', media_visit: 'Media visit', material_delivery: 'Material delivery', cabinet_delivery: 'Cabinet delivery',
+  follow_up: 'Follow-up',
 };
 const KIND_PT = {
   sales_visit: 'visita', job_start: 'início de obra', service_day: 'dia de serviço', inspection: 'inspeção',
   meeting: 'reunião', media_visit: 'mídia', material_delivery: 'entrega de material', cabinet_delivery: 'entrega dos armários',
+  follow_up: 'follow-up',
 };
 const isDelivery = (k) => k === 'material_delivery' || k === 'cabinet_delivery';
 const evKind = (ev) => ev.kind || 'sales_visit';
@@ -391,16 +398,26 @@ function soft(res, label) {
   return res.data || [];
 }
 
+const isSalesRole = (r) => r === 'sales' || r === 'salesperson';
+
 async function loadPeople() {
   const users = must(await supabase.from('users').select('name, role, phone, active').eq('active', true), 'users');
   const people = {};
   for (const [key, cfg] of Object.entries(TEAM)) {
     const u = users.find((x) => cfg.match.test((x.name || '').trim()));
     if (!u) continue;
-    people[key] = { key, ...cfg, name: u.name, first: u.name.trim().split(/\s+/)[0], phone: toE164(u.phone) };
+    people[key] = { key, ...cfg, role: u.role, name: u.name, first: u.name.trim().split(/\s+/)[0], phone: toE164(u.phone) };
+  }
+  // Every salesperson gets the follow-up reminders — including ones that
+  // aren't in TEAM yet (a new hire), keyed by name.
+  for (const u of users.filter((x) => isSalesRole(x.role))) {
+    if (Object.values(people).some((x) => x.name === u.name)) continue;
+    const key = `seller:${u.name.trim().toLowerCase()}`;
+    people[key] = { key, lang: 'en', start: 8, role: u.role, name: u.name, first: u.name.trim().split(/\s+/)[0], phone: toE164(u.phone) };
   }
   return people;
 }
+const sellerKeys = (people) => Object.values(people).filter((x) => isSalesRole(x.role)).map((x) => x.key);
 
 async function loadData(nowMs) {
   const p = nyParts(nowMs);
@@ -411,8 +428,16 @@ async function loadData(nowMs) {
   const weekAgoIso = new Date(nowMs - 8 * 86_400_000).toISOString();
   const in30 = nyDay(today.y, today.m, today.d + 30).key;
 
-  const [jobs, visitedEvents, events, bills, billsPaidToday, subs, offers, contracts, payments,
+  const [followUps, jobs, visitedEvents, events, bills, billsPaidToday, subs, offers, contracts, payments,
     estimatesToday, photos, logs, confirms, purchaseEvents, purchaseLists] = await Promise.all([
+    // Follow-ups (migration 092) due from today through the next few days —
+    // reminders go ONLY to the salespeople, so they're kept out of d.events
+    // (which feeds everybody else's morning lists).
+    supabase.from('calendar_events')
+      .select('id, kind, title, starts_at, all_day, job_id, notes, visit_status')
+      .eq('kind', 'follow_up').in('visit_status', ['to_do', 'pending'])
+      .gte('starts_at', todayIso).lt('starts_at', new Date(today.startMs + 5 * 86_400_000).toISOString())
+      .order('starts_at', { ascending: true }),
     supabase.from('jobs').select(JOB_COLS).in('pipeline_status', ACTIVE_STAGES),
     supabase.from('job_stage_events').select('job_id, changed_at').eq('to_status', 'visited')
       .gte('changed_at', new Date(nowMs - 90 * 86_400_000).toISOString()),
@@ -444,7 +469,8 @@ async function loadData(nowMs) {
     nowMs, p, today, nextWd, since, in30,
     jobs: must(jobs, 'jobs'),
     visitedAt: new Map(),
-    events: must(events, 'calendar_events').filter((e) => e.visit_status !== 'cancelled'),
+    events: must(events, 'calendar_events').filter((e) => e.visit_status !== 'cancelled' && e.kind !== 'follow_up'),
+    followUps: soft(followUps, 'follow-ups'),
     bills: must(bills, 'bills'),
     billsPaidToday: soft(billsPaidToday, 'bills paid'),
     subs: soft(subs, 'subcontractors'),
@@ -466,7 +492,7 @@ async function loadData(nowMs) {
   // Jobs referenced by events/offers/contracts/payments that aren't in an
   // active stage any more (e.g. completed) — fetch them too.
   const missing = [...new Set([
-    ...d.events.map((e) => e.job_id), ...d.offers.map((o) => o.job_id),
+    ...d.events.map((e) => e.job_id), ...d.followUps.map((e) => e.job_id), ...d.offers.map((o) => o.job_id),
     ...d.contracts.map((c) => c.job_id), ...d.payments.map((x) => x.job_id),
     ...d.purchaseEvents.map((e) => e.job_id), ...d.purchaseLists.map((l) => l.job_id),
   ].filter((id) => id && !d.jobsById.has(id)))];
@@ -803,6 +829,35 @@ function buildQueue(d, people) {
       }
     }
   }
+  // Follow-ups → every salesperson (+ the sales bell), never the client:
+  // at 9am on the business day before, and at the start of the day itself.
+  // The day is part of the key, so a rescheduled follow-up reminds again.
+  for (const ev of d.followUps) {
+    const fp = nyParts(Date.parse(ev.starts_at));
+    const fDay = nyDay(fp.y, fp.m, fp.d);
+    let prev = nyDay(fDay.y, fDay.m, fDay.d - 1);
+    for (let i = 0; i < 7 && !isWorkday(prev.wd); i++) prev = nyDay(prev.y, prev.m, prev.d - 1);
+    const stage = prev.key === today.key && routineWindow(9, END_HOUR) ? 'before'
+      : fDay.key === today.key ? 'day' : null;
+    if (!stage) continue;
+    const j = d.jobsById.get(ev.job_id);
+    const at = ev.all_day ? '' : ` at ${fmtTime(ev.starts_at)}`;
+    const when = stage === 'before'
+      ? `${daysBetweenKeys(today.key, fDay.key) === 1 ? `tomorrow (${fmtDate(fDay.key)})` : `on ${fmtDate(fDay.key)}`}${at}`
+      : `today${at || ' (any time)'}`;
+    const note = String(ev.notes || '').replace(/\s+/g, ' ').trim();
+    const values = [when, evTitle(ev, j), prettyPhone(j?.client_phone), j?.service || '—', note.slice(0, 200) || '—'];
+    const bell = {
+      key: `fu-bell:${stage}:${ev.id}:${fDay.key}`, job_id: ev.job_id,
+      title: stage === 'day' ? 'Follow-up today'
+        : daysBetweenKeys(today.key, fDay.key) === 1 ? 'Follow-up tomorrow' : `Follow-up on ${fmtDate(fDay.key)}`,
+      message: `${evTitle(ev, j)} — ${stage === 'before' ? fmtDate(fDay.key) : 'today'}${at}${note ? ` · ${note.slice(0, 80)}` : ''}`,
+    };
+    for (const who of sellerKeys(people)) {
+      if (stage === 'day' && !routineWindow(people[who]?.start ?? 8, END_HOUR)) continue;
+      q.push({ person: who, t: T.followUp, values, bell, key: `fu:${stage}:${ev.id}:${fDay.key}:${who}`, kind: 'routine' });
+    }
+  }
   if (today.wd === 'Mon' && routineWindow(people.ramon?.start ?? 8, 12)) {
     q.push({ person: 'ramon', t: T.weeklyLeads, key: `weekly:ramon:${day}`, kind: 'routine', weekly: true });
   }
@@ -901,15 +956,32 @@ export async function runTeamAlerts(nowMs = Date.now()) {
   const { templates, created } = await ensureTemplates(auth);
   const [people, d] = await Promise.all([loadPeople(), loadData(nowMs)]);
 
-  const sentRows = must(await supabase.from('audit_log').select('details, timestamp')
+  const sentRows = must(await supabase.from('audit_log').select('details, timestamp, entity_type')
     .eq('action', 'team_alert.sent').gte('timestamp', new Date(nowMs - 45 * 86_400_000).toISOString()), 'audit_log');
   const sent = new Set(sentRows.map((r) => r.details?.key).filter(Boolean));
-  let sentToday = sentRows.filter((r) => Date.parse(r.timestamp) >= d.today.startMs).length;
+  let sentToday = sentRows.filter((r) => r.entity_type !== 'bell' && Date.parse(r.timestamp) >= d.today.startMs).length;
 
   const queue = buildQueue(d, people);
   queue.push(...await watcherDownAlert(d));
-  const result = { status: 'ok', created, sent: [], held: 0, waiting_approval: [], skipped: [] };
+  const result = { status: 'ok', created, sent: [], held: 0, waiting_approval: [], skipped: [], bells: 0 };
   const pendingApproval = new Set();
+
+  // In-app bell (role 'sales') for items that carry one — once per key,
+  // independent of WhatsApp (works even before a template is approved).
+  for (const item of queue) {
+    const b = item.bell;
+    if (!b || sent.has(b.key)) continue;
+    sent.add(b.key);
+    const { error } = await supabase.from('notifications').insert([{
+      job_id: b.job_id || null, recipient_role: 'sales', type: 'follow_up', title: b.title, message: b.message, seen: false,
+    }]);
+    if (error) { console.error('[team-alerts] bell failed', error.message); sent.delete(b.key); continue; }
+    result.bells++;
+    await supabase.from('audit_log').insert([{
+      user_name: 'team-alerts', user_role: 'system', action: 'team_alert.sent', entity_type: 'bell', entity_id: null,
+      details: { key: b.key },
+    }]);
+  }
 
   for (const item of queue) {
     if (sent.has(item.key)) continue;

@@ -9,13 +9,14 @@
 import { useState, useEffect } from 'react';
 import {
   X, Users, Package, FileText, Brain, ClipboardList, PlusCircle, DollarSign,
-  LogOut,
+  LogOut, PhoneCall,
 } from 'lucide-react';
 import Avatar, { colorFromName } from '../../../shared/components/ui/Avatar';
 import { useUserProfile } from '../../../shared/hooks/useUserProfile';
 import UserProfileModal from '../../../shared/components/UserProfileModal';
 
 const ITEMS = [
+  { id: 'follow-ups',      label: 'Follow Up',       icon: PhoneCall },
   { id: 'subcontractors',  label: 'Subcontractors',  icon: Users },
   { id: 'warehouse',       label: 'Warehouse',       icon: Package },
   { id: 'project-analyzer',label: 'Project Analyzer', icon: FileText },

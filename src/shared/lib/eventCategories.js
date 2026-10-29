@@ -10,7 +10,7 @@
 // the DB value through `normalizeCategoryKey()` so colors stay stable
 // even if the DB uses 'sales-visit' / 'salesVisit' / etc.
 
-import { Briefcase, Hammer, Wrench, Search, Users, Camera, Truck, Package } from 'lucide-react';
+import { Briefcase, Hammer, Wrench, Search, Users, Camera, Truck, Package, PhoneCall } from 'lucide-react';
 
 export const EVENT_CATEGORIES = {
   sales_visit: {
@@ -78,6 +78,15 @@ export const EVENT_CATEGORIES = {
     text: 'text-[#8B5A2B]',
     bullet: 'bg-[#8B5A2B]',
   },
+  // Migration 092 — mirrors EVENT_KIND_META.follow_up.
+  follow_up: {
+    key: 'follow_up',
+    label: 'Follow Up',
+    icon: PhoneCall,
+    bg: 'bg-indigo-100',
+    text: 'text-indigo-600',
+    bullet: 'bg-indigo-600',
+  },
 };
 
 // Order used in legends and category pickers.
@@ -90,6 +99,7 @@ export const CATEGORY_ORDER = [
   'media_visit',
   'material_delivery',
   'cabinet_delivery',
+  'follow_up',
 ];
 
 // Normalize a DB-side value (sales-visit, salesVisit, "Sales Visit") into

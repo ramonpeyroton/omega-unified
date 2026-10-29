@@ -22,6 +22,7 @@ import { supabase } from './lib/supabase';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
+import FollowUpsScreen from '../../shared/components/FollowUps/FollowUpsScreen';
 import FinanceScreen from '../../shared/components/Finance/FinanceScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
@@ -32,7 +33,7 @@ import NewJob from '../sales/screens/NewJob';
 import NewClient from './screens/NewClient';
 import PageHeader from '../../shared/components/ui/PageHeader';
 import MobileMoreSheet from './components/MobileMoreSheet';
-import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, GitBranch, DollarSign, Bell, Calendar, MessageCircle, MoreHorizontal, PhoneCall } from 'lucide-react';
 
 import { useJobById } from '../../shared/hooks/useJobById';
 
@@ -46,6 +47,7 @@ function screenIdFromPath(pathname) {
   if (pathname === '/' || pathname === '') return 'dashboard';
   if (pathname.startsWith('/pipeline')) return 'pipeline';
   if (pathname.startsWith('/calendar')) return 'calendar';
+  if (pathname.startsWith('/follow-ups')) return 'follow-ups';
   if (pathname.startsWith('/finance')) return 'finance';
   if (pathname.startsWith('/notifications')) return 'notifications';
   if (pathname.startsWith('/subcontractors')) return 'subcontractors';
@@ -174,6 +176,18 @@ function CalendarRoute({ user }) {
     <div className="flex-1 flex flex-col min-h-0">
       <PageHeader icon={Calendar} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
       <div className="flex-1 min-h-0 overflow-hidden"><CalendarScreen user={user} /></div>
+    </div>
+  );
+}
+function FollowUpsRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <PageHeader icon={PhoneCall} title="Follow Up" subtitle="Clients the salespeople need to call back" onBack={() => navigate('/')} />
+      <FollowUpsScreen
+        user={user}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/follow-ups' } })}
+      />
     </div>
   );
 }
@@ -335,6 +349,7 @@ function OwnerRoutes({ user, onLogout, notifCount }) {
         <Route path="/"                element={<DashboardRoute user={user} />} />
         <Route path="/pipeline"        element={<PipelineRoute user={user} />} />
         <Route path="/calendar"        element={<CalendarRoute user={user} />} />
+        <Route path="/follow-ups"      element={<FollowUpsRoute user={user} />} />
         <Route path="/finance"         element={<FinanceRoute user={user} />} />
         <Route path="/notifications"   element={<NotificationsRoute />} />
         <Route path="/subcontractors"  element={<SubcontractorsRoute />} />

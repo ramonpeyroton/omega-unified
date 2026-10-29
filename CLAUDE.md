@@ -590,6 +590,34 @@ iniciar o próximo. Sem trabalho não-commitado entre sprints.
 
 ## Última atualização
 
+**2026-10-29 (Follow Up do vendedor + importação das planilhas antigas)** — Ramon + Claude (Opus 5.5).
+
+- **Follow Up** (pedido do Attila): nova categoria `follow_up` no calendário
+  (**migration 092 — já rodada**: kind + `done_at/done_by/done_note`). Sempre com
+  cliente; horário opcional (`all_day` = "any time"). **Cliente nunca é avisado**
+  (sem e-mail/SMS; EventForm não manda nada). Todo mundo vê no calendário.
+- Tela **Follow Up** (`src/shared/components/FollowUps/FollowUpsScreen.jsx`,
+  helpers em `src/shared/lib/followUps.js`) no Sales e no Owner (`/follow-ups`,
+  sidebar + More do celular): vermelho = dia passou sem "Done" (pede Reschedule),
+  amarelo = semana seg–dom (tag Today), verde = depois; Done com nota, Reschedule,
+  Edit (EventForm), Remove; feitos recolhidos (30 dias, Reopen).
+- Avisos só para usuários `sales`: WhatsApp (template `omega_followup_reminder`,
+  auto-submetido à Meta) + sino (`notifications`, role sales) às 9h do dia útil
+  anterior e no início do dia — em `api/_lib/teamAlerts.js`. Follow-ups ficam
+  **fora** de `d.events` (resumos do Inácio/Rafaela/Joel não mostram).
+- **Planilhas antigas** (2024–25): 1.196 leads importados só no My Leads
+  (`external_lead_id like 'sheet2425-%'`, `in_pipeline=false`, datas retroativas,
+  `chat_members` vazio, `created_by='import'`). Com isso `jobs` passou de 1.000
+  linhas: My Leads e a lista de clientes do EventForm agora paginam. **Pendente:**
+  Max rows do Supabase → 10000 (Finance/Contracts/Home do Sales ainda leem tudo
+  numa consulta só).
+- **Supabase estourou o plano grátis** (arquivos 1,14 GB / 1 GB; restrição a
+  partir de 16/11). Org nova da Omega criada (team@omeganyct.com); transferência
+  do projeto só depois de ativar o Pro na org nova (Supabase bloqueia ir para
+  org Free durante a carência). **Não criar projeto novo** — usar Transfer project.
+
+---
+
 **2026-10-15 (Fotos e PDF dentro do estimate)** — Ramon + Claude (Opus 5.5).
 
 - Pedido do Inácio. `EstimateBuilder`: "Section photos" em cada seção

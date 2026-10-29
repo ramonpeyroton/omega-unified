@@ -10,6 +10,7 @@
 //   /                            → Home dashboard
 //   /pipeline                    → PipelineKanban
 //   /calendar                    → CalendarScreen
+//   /follow-ups                  → FollowUpsScreen (salesperson call-backs)
 //   /estimates                   → Estimates list
 //   /notifications               → Notifications screen
 //   /leads                       → LeadsList
@@ -28,7 +29,7 @@
 
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useSearchParams, useLocation, Navigate, Outlet } from 'react-router-dom';
-import { ArrowLeft, Calendar as CalendarIcon, ClipboardList, DollarSign } from 'lucide-react';
+import { ArrowLeft, Calendar as CalendarIcon, ClipboardList, DollarSign, PhoneCall } from 'lucide-react';
 
 import PageHeader from '../../shared/components/ui/PageHeader';
 import SalesSidebar from './components/SalesSidebar';
@@ -47,6 +48,7 @@ import Notifications from './screens/Notifications';
 import PipelineKanban from '../../shared/components/PipelineKanban';
 import EstimateFlow from '../../shared/components/EstimateFlow';
 import CalendarScreen from '../../shared/components/Calendar/CalendarScreen';
+import FollowUpsScreen from '../../shared/components/FollowUps/FollowUpsScreen';
 import LeadsList from '../receptionist/screens/LeadsList';
 import CommissionsScreen from '../../shared/components/CommissionsScreen';
 import JobFullView from '../../shared/components/JobFullView';
@@ -137,6 +139,19 @@ function CalendarRoute({ user }) {
     <div className="min-h-screen bg-omega-cloud flex flex-col">
       <PageHeader icon={CalendarIcon} title="Calendar" subtitle="Visits, follow-ups, and events" onBack={() => navigate('/')} />
       <CalendarScreen user={user} />
+    </div>
+  );
+}
+
+function FollowUpsRoute({ user }) {
+  const navigate = useNavigate();
+  return (
+    <div className="min-h-screen bg-omega-cloud flex flex-col">
+      <PageHeader icon={PhoneCall} title="Follow Up" subtitle="Clients to call back" onBack={() => navigate('/')} />
+      <FollowUpsScreen
+        user={user}
+        onOpenJob={(job) => navigate(`/jobs/${job.id}?tab=daily`, { state: { from: '/follow-ups' } })}
+      />
     </div>
   );
 }
@@ -353,6 +368,7 @@ function screenIdFromPath(pathname) {
   if (pathname.startsWith('/leads'))         return 'leads';
   if (pathname.startsWith('/commissions'))   return 'commissions';
   if (pathname.startsWith('/previous-jobs')) return 'previous-jobs';
+  if (pathname.startsWith('/follow-ups'))    return 'follow-ups';
   if (pathname.startsWith('/daily-logs'))    return 'daily-logs';
   if (pathname.startsWith('/new-job'))       return 'new-job';
   return null; // /jobs/:id, etc — no sidebar highlight
@@ -364,7 +380,7 @@ function screenIdFromPath(pathname) {
 // hide it there.
 const BOTTOM_BAR_SCREENS = new Set([
   'home', 'pipeline', 'calendar', 'daily-logs', 'leads',
-  'estimates', 'commissions', 'previous-jobs', 'notifications',
+  'estimates', 'commissions', 'previous-jobs', 'notifications', 'follow-ups',
 ]);
 
 function SalesShell({ user, onLogout }) {
@@ -433,6 +449,7 @@ export default function App({ user, onLogout }) {
           <Route path="/"                            element={<HomeRoute user={user} onLogout={onLogout} />} />
           <Route path="/pipeline"                    element={<PipelineRoute user={user} />} />
           <Route path="/calendar"                    element={<CalendarRoute user={user} />} />
+          <Route path="/follow-ups"                  element={<FollowUpsRoute user={user} />} />
           <Route path="/estimates"                   element={<EstimatesRoute user={user} />} />
           <Route path="/notifications"               element={<NotificationsRoute user={user} />} />
           <Route path="/leads"                       element={<LeadsRoute user={user} />} />
